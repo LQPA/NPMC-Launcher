@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Avalonia 前端。首次 restore 需要联网拉 Avalonia / CommunityToolkit.Mvvm。 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <OutputType>WinExe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NPMC.Launcher.Core\NPMC.Launcher.Core.csproj" />
+    <ProjectReference Include="..\NPMC.Launcher.Infrastructure\NPMC.Launcher.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

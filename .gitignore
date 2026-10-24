@@ -1,4 +1,20 @@
-# Build results
+# ---- dotnet CLI 重定向缓存（本机沙箱用，勿提交）----
+.dotnet-home/
+.nuget/
+
+# ---- 运行时数据目录：完整忽略 ----
+# .data 里有约 820MB：assets / runtime / libraries / saves / .lwjgl
+.data/
+
+# 单独列出，防止误提交
+runtime/
+libraries/
+versions/
+assets/
+instances/
+saves/
+
+# ---- 构建产物 ----
 bin/
 obj/
 [Dd]ebug/
@@ -6,15 +22,12 @@ obj/
 *.user
 *.suo
 
-# Rider / VS
+# ---- IDE ----
 .idea/
 .vs/
 
-# Local runtime data
-.minecraft/
-instances/
+# ---- 其它 ----
 *.log
-
-# OS
+*.tmp
 Thumbs.db
 desktop.ini

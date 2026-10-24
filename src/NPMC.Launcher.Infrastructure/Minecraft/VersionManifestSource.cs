@@ -1,0 +1,83 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using NPMC.Launcher.Core.Models;
+
+namespace NPMC.Launcher.Infrastructure.Minecraft;
+
+public sealed record VersionManifestEntry(
+    string Id,
+    string Type,
+    string Url,
+    string Sha1,
+    DateTimeOffset ReleaseTime);
+
+public sealed record VersionManifest(
+    IReadOnlyList<VersionManifestEntry> Versions,
+    string LatestRelease,
+    string LatestSnapshot)
+{
+    public VersionManifestEntry? Find(string id) =>
+        Versions.FirstOrDefault(v => string.Equals(v.Id, id, StringComparison.OrdinalIgnoreCase));
+}
+
+/// <summary>
+/// 拉取 Mojang 官方的版本清单与单版本元数据。
+/// 清单 URL 可被镜像替换（BMCLAPI 等），但解析逻辑完全一致。
+/// </summary>
+public sealed class VersionManifestSource
+{
+    public const string OfficialManifestUrl =
+        "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
+
+    private readonly Func<string, CancellationToken, Task<string>> _fetch;
+
+    public VersionManifestSource(Func<string, CancellationToken, Task<string>> fetch) => _fetch = fetch;
+
+    public async Task<VersionManifest> GetManifestAsync(string? url = null, CancellationToken ct = default)
+    {
+        var json = await _fetch(url ?? OfficialManifestUrl, ct).ConfigureAwait(false);
+        var dto = JsonSerializer.Deserialize<ManifestDto>(json, JsonOptions)
+                  ?? throw new InvalidDataException("版本清单解析失败。");
+
+        var versions = dto.Versions
+            .Select(v => new VersionManifestEntry(
+                v.Id, v.Type, v.Url, v.Sha1,
+                DateTimeOffset.TryParse(v.ReleaseTime, out var t) ? t : default))
+            .ToList();
+
+        return new VersionManifest(versions, dto.Latest.Release, dto.Latest.Snapshot);
+    }
+
+    public async Task<VersionJson> GetVersionJsonAsync(VersionManifestEntry entry, CancellationToken ct = default)
+    {
+        var json = await _fetch(entry.Url, ct).ConfigureAwait(false);
+        return VersionJsonSerializer.Parse(json);
+    }
+
+    // ---- 清单 DTO ----
+    private sealed class ManifestDto
+    {
+        [JsonPropertyName("latest")] public LatestDto Latest { get; set; } = new();
+        [JsonPropertyName("versions")] public List<VersionDto> Versions { get; set; } = new();
+    }
+
+    private sealed class LatestDto
+    {
+        [JsonPropertyName("release")] public string Release { get; set; } = "";
+        [JsonPropertyName("snapshot")] public string Snapshot { get; set; } = "";
+    }
+
+    private sealed class VersionDto
+    {
+        [JsonPropertyName("id")] public string Id { get; set; } = "";
+        [JsonPropertyName("type")] public string Type { get; set; } = "";
+        [JsonPropertyName("url")] public string Url { get; set; } = "";
+        [JsonPropertyName("sha1")] public string Sha1 { get; set; } = "";
+        [JsonPropertyName("releaseTime")] public string? ReleaseTime { get; set; }
+    }
+}
