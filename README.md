@@ -87,7 +87,7 @@ responsible for this software or for any damage it may cause.
 
 ## License
 
-The launcher's own source code is licensed under the [MIT License](LICENSE).
+The launcher's own source code is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
 ---
 
