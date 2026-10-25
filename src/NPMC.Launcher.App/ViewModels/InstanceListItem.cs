@@ -11,10 +11,15 @@ namespace NPMC.Launcher.App.ViewModels;
 /// 之前这里用 "目录下文件数"，会把文件夹形式的资源包漏掉，
 /// 于是左侧显示「资源包 1」而页签显示 2 —— 用户会当成 bug。
 /// 因此改为可刷新对象，内容变化后由 ViewModel 调用 <see cref="RefreshContentCounts"/>。
+///
+/// 设置（内存 / 窗口）可在概览页直接编辑，编辑后由 <see cref="ApplySettings"/> 就地更新，
+/// 不重建列表，避免选中项丢失。
 /// </summary>
 public sealed class InstanceListItem : ObservableObject
 {
     private readonly InstanceLayout _layout;
+    private LauncherInstance _model;
+
     private int _modsCount;
     private int _resourcePackCount;
     private int _shaderPackCount;
@@ -22,7 +27,7 @@ public sealed class InstanceListItem : ObservableObject
 
     public InstanceListItem(LauncherPaths launcher, LauncherInstance instance)
     {
-        Model = instance;
+        _model = instance;
         _layout = new InstanceLayout(launcher, instance);
 
         GameDirectory = _layout.GameDirectory;
@@ -34,28 +39,32 @@ public sealed class InstanceListItem : ObservableObject
         RefreshContentCounts();
     }
 
-    public LauncherInstance Model { get; }
+    public LauncherInstance Model => _model;
 
-    public string Id => Model.Id;
-    public string Name => string.IsNullOrWhiteSpace(Model.Name) ? Model.Id : Model.Name;
-    public string VersionId => Model.VersionId;
+    public string Id => _model.Id;
+    public string Name => string.IsNullOrWhiteSpace(_model.Name) ? _model.Id : _model.Name;
+    public string VersionId => _model.VersionId;
 
-    public string IsolationText => Model.Isolation switch
+    public string IsolationText => _model.Isolation switch
     {
         IsolationLevel.None => "不隔离",
         IsolationLevel.Full => "完全隔离",
         _ => "版本隔离",
     };
 
-    public string MemoryText => $"{Model.Settings.MemoryMb} MB";
+    public int MemoryMb => _model.Settings.MemoryMb;
+    public int WindowWidth => _model.Settings.WindowWidth;
+    public int WindowHeight => _model.Settings.WindowHeight;
 
-    public string WindowText => Model.Settings.Fullscreen
+    public string MemoryText => $"{MemoryMb} MB";
+
+    public string WindowText => _model.Settings.Fullscreen
         ? "全屏"
-        : $"{Model.Settings.WindowWidth}×{Model.Settings.WindowHeight}";
+        : $"{WindowWidth}×{WindowHeight}";
 
     public string SummaryText => $"{VersionId} · {IsolationText} · {MemoryText}";
 
-    public string CreatedText => Model.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd");
+    public string CreatedText => _model.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd");
 
     public string GameDirectory { get; }
     public string ModsDirectory { get; }
@@ -78,6 +87,20 @@ public sealed class InstanceListItem : ObservableObject
         ContentKind.ResourcePack => ResourcePacksDirectory,
         _ => ShaderPacksDirectory,
     };
+
+    /// <summary>就地替换设置并通知相关显示属性（不重建列表，选中项不受影响）。</summary>
+    public void ApplySettings(InstanceSettings settings)
+    {
+        _model = _model with { Settings = settings };
+
+        OnPropertyChanged(nameof(Model));
+        OnPropertyChanged(nameof(MemoryMb));
+        OnPropertyChanged(nameof(WindowWidth));
+        OnPropertyChanged(nameof(WindowHeight));
+        OnPropertyChanged(nameof(MemoryText));
+        OnPropertyChanged(nameof(WindowText));
+        OnPropertyChanged(nameof(SummaryText));
+    }
 
     /// <summary>重新统计各内容目录与存档数。启用/禁用/删除后调用。</summary>
     public void RefreshContentCounts()

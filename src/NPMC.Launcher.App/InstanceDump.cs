@@ -83,6 +83,23 @@ internal static class InstanceDump
             }
         }
 
+        // 验证设置持久化：改内存与分辨率 → 落盘 → 重新加载核对
+        if (args.Any(arg => string.Equals(arg, "--exercise-settings", StringComparison.OrdinalIgnoreCase))
+            && viewModel.SelectedInstance is not null)
+        {
+            viewModel.MemoryMb = 6144;
+            viewModel.WindowWidth = 1600;
+            viewModel.WindowHeight = 900;
+            viewModel.SaveSettingsNowAsync().GetAwaiter().GetResult();
+
+            var reloaded = new MainWindowViewModel(new LauncherPaths(root));
+            reloaded.LoadAsync().GetAwaiter().GetResult();
+            var again = reloaded.SelectedInstance;
+
+            lines.Add("");
+            lines.Add($"[设置持久化] memory={again?.MemoryMb} window={again?.WindowWidth}x{again?.WindowHeight}");
+        }
+
         // 逐个页签走一遍刷新，验证内容扫描这条链路
         foreach (var kind in new[] { ContentKind.Mod, ContentKind.ResourcePack, ContentKind.ShaderPack })
         {

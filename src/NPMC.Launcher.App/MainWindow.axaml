@@ -125,15 +125,36 @@
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="内存" FontSize="12" Foreground="#949CA9" />
-                <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.MemoryText}"
-                           FontSize="12" Foreground="#C9CDD3" />
+                <TextBlock Grid.Column="0" Text="内存" FontSize="12" Foreground="#949CA9"
+                           VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                  <NumericUpDown Value="{Binding MemoryMb, Mode=TwoWay}"
+                                 Minimum="{Binding MinimalMemory}"
+                                 Maximum="{Binding MaximalMemory}"
+                                 Increment="256" FormatString="0"
+                                 Width="130" />
+                  <TextBlock Text="MB" FontSize="12" Foreground="#B4BCC8" VerticalAlignment="Center" />
+                </StackPanel>
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="窗口" FontSize="12" Foreground="#949CA9" />
-                <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.WindowText}"
-                           FontSize="12" Foreground="#C9CDD3" />
+                <TextBlock Grid.Column="0" Text="窗口" FontSize="12" Foreground="#949CA9"
+                           VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                  <!-- 预设下拉：选中即填入下面的宽高，也可以直接手改数字 -->
+                  <ComboBox ItemsSource="{Binding ResolutionPresets}"
+                            SelectedItem="{Binding SelectedPreset, Mode=TwoWay}"
+                            PlaceholderText="预设" Width="120" FontSize="12" />
+                  <NumericUpDown Value="{Binding WindowWidth, Mode=TwoWay}"
+                                 Minimum="{Binding MinimalWindowSideValue}"
+                                 Maximum="{Binding MaximalWindowSideValue}"
+                                 Increment="10" FormatString="0" Width="92" />
+                  <TextBlock Text="×" FontSize="12" Foreground="#B4BCC8" VerticalAlignment="Center" />
+                  <NumericUpDown Value="{Binding WindowHeight, Mode=TwoWay}"
+                                 Minimum="{Binding MinimalWindowSideValue}"
+                                 Maximum="{Binding MaximalWindowSideValue}"
+                                 Increment="10" FormatString="0" Width="92" />
+                </StackPanel>
               </Grid>
 
               <Grid ColumnDefinitions="96,*">

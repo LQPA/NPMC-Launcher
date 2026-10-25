@@ -188,6 +188,13 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(ShowOverview));
             OnPropertyChanged(nameof(ShowContentList));
             OnPropertyChanged(nameof(ShowLog));
+
+            // 概览页的可编辑字段都从 SelectedInstance 取值，切换实例时必须重读
+            OnPropertyChanged(nameof(MemoryMb));
+            OnPropertyChanged(nameof(WindowWidth));
+            OnPropertyChanged(nameof(WindowHeight));
+            SyncPresetFromInstance();
+
             RaiseFolderVisibilityChanged();
             RaiseCommandStates();
             UpdateLogTimer();
@@ -212,6 +219,155 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool HasShaderPacksDirectory =>
         SelectedInstance is not null && Directory.Exists(SelectedInstance.ShaderPacksDirectory);
+
+    // ---- 实例设置（概览页直接编辑）----
+
+    private const int MinimalMemoryMb = 512;
+    private const int MaximalMemoryMb = 65536;
+    private const int MinimalWindowSide = 320;
+    private const int MaximalWindowSide = 7680;
+
+    private ResolutionPreset? _selectedPreset;    public decimal MinimalMemory => MinimalMemoryMb;
+    public decimal MaximalMemory => MaximalMemoryMb;
+    public decimal MinimalWindowSideValue => MinimalWindowSide;
+    public decimal MaximalWindowSideValue => MaximalWindowSide;
+
+    public ObservableCollection<ResolutionPreset> ResolutionPresets { get; } = new()
+    {
+        new("854 × 480", 854, 480),
+        new("1024 × 768", 1024, 768),
+        new("1280 × 720", 1280, 720),
+        new("1366 × 768", 1366, 768),
+        new("1600 × 900", 1600, 900),
+        new("1920 × 1080", 1920, 1080),
+        new("2560 × 1440", 2560, 1440),
+        new("3840 × 2160", 3840, 2160),
+    };
+
+    /// <summary>内存（MB）。用 decimal? 是为了直接绑定 NumericUpDown.Value，省掉转换器。</summary>
+    public decimal? MemoryMb
+    {
+        get => SelectedInstance?.MemoryMb;
+        set
+        {
+            if (SelectedInstance is not { } item || value is not { } raw) return;
+
+            var memory = Math.Clamp((int)Math.Round(raw), MinimalMemoryMb, MaximalMemoryMb);
+            if (item.MemoryMb == memory) return;
+
+            item.ApplySettings(item.Model.Settings with { MemoryMb = memory });
+            OnPropertyChanged();
+            ScheduleInstanceSave();
+        }
+    }
+
+    public decimal? WindowWidth
+    {
+        get => SelectedInstance?.WindowWidth;
+        set
+        {
+            if (SelectedInstance is not { } item || value is not { } raw) return;
+
+            var width = Math.Clamp((int)Math.Round(raw), MinimalWindowSide, MaximalWindowSide);
+            if (item.WindowWidth == width) return;
+
+            item.ApplySettings(item.Model.Settings with { WindowWidth = width });
+            OnPropertyChanged();
+            SyncPresetFromInstance();
+            ScheduleInstanceSave();
+        }
+    }
+
+    public decimal? WindowHeight
+    {
+        get => SelectedInstance?.WindowHeight;
+        set
+        {
+            if (SelectedInstance is not { } item || value is not { } raw) return;
+
+            var height = Math.Clamp((int)Math.Round(raw), MinimalWindowSide, MaximalWindowSide);
+            if (item.WindowHeight == height) return;
+
+            item.ApplySettings(item.Model.Settings with { WindowHeight = height });
+            OnPropertyChanged();
+            SyncPresetFromInstance();
+            ScheduleInstanceSave();
+        }
+    }
+
+    /// <summary>下拉选择预设分辨率：选中即填入宽高，其余逻辑和手动输入一致。</summary>
+    public ResolutionPreset? SelectedPreset
+    {
+        get => _selectedPreset;
+        set
+        {
+            // 下拉在实例切换时会被清空（赋 null），那不算用户操作
+            if (!SetProperty(ref _selectedPreset, value) || value is null) return;
+            if (SelectedInstance is not { } item) return;
+
+            item.ApplySettings(item.Model.Settings with
+            {
+                WindowWidth = value.Width,
+                WindowHeight = value.Height,
+            });
+
+            OnPropertyChanged(nameof(WindowWidth));
+            OnPropertyChanged(nameof(WindowHeight));
+            ScheduleInstanceSave();
+        }
+    }
+
+    private void SyncPresetFromInstance()
+    {
+        var item = SelectedInstance;
+        _selectedPreset = item is null
+            ? null
+            : ResolutionPresets.FirstOrDefault(preset =>
+                preset.Width == item.WindowWidth && preset.Height == item.WindowHeight);
+
+        OnPropertyChanged(nameof(SelectedPreset));
+    }
+
+    /// <summary>
+    /// 立刻落盘。
+    ///
+    /// 不做防抖定时器：文件只有几 KB，逐次写入的代价可以忽略；
+    /// 而定时器会带来"改完立刻关窗口就丢设置"的问题，得不偿失。
+    /// 并发写入用一个信号量串行化，且**写入时重新读取当前值**，
+    /// 这样即使多次保存交错，最后落盘的一定是最新状态。
+    /// </summary>
+    private void ScheduleInstanceSave() => _ = SaveInstanceSettingsAsync();
+
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
+
+    private async Task SaveInstanceSettingsAsync()
+    {
+        await _saveLock.WaitAsync();
+        try
+        {
+            if (SelectedInstance is not { } item) return;
+
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+
+            if (catalog.UpdateSettings(item.Model.Id, item.Model.Settings) is null) return;
+            await store.SaveAsync(catalog.Instances);
+
+            Status = $"已保存：{item.Name} · {item.MemoryMb} MB · {item.WindowWidth}×{item.WindowHeight}";
+        }
+        catch (Exception ex)
+        {
+            Status = $"保存设置失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"保存实例设置失败 → {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            _saveLock.Release();
+        }
+    }
+
+    /// <summary>供诊断/测试用：等待一次落盘完成（正常界面路径是即发即忘）。</summary>
+    public Task SaveSettingsNowAsync() => SaveInstanceSettingsAsync();
 
     // ---- 页签与内容 ----
 
