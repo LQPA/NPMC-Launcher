@@ -88,7 +88,7 @@ public sealed record ModrinthVersion(
             FileName = file.FileName,
             DownloadUrl = file.Url,
             Sha1 = string.IsNullOrWhiteSpace(file.Sha1) ? null : file.Sha1,
-            IsPrerelease = IsPrerelease,
+            Channel = ReleaseChannelExtensions.FromModrinthType(VersionType),
             GameVersions = GameVersions,
             Loaders = Loaders,
         };

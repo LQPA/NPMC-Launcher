@@ -319,7 +319,7 @@
               <ItemsControl ItemsSource="{Binding Content}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ContentEntryItem">
-                    <Grid ColumnDefinitions="32,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
+                    <Grid ColumnDefinitions="32,30,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
 
                       <!--
                         识别徽标：填充色块 + 字母。
@@ -351,30 +351,42 @@
                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                       </Border>
 
-                      <StackPanel Grid.Column="1" Spacing="2">
+                      <!--
+                        版本通道：R 正式版 / B beta / A alpha。
+                        单独占一列（固定列宽），这样没有通道的行不会让标题左右跳动。
+                      -->
+                      <Border Grid.Column="1" Width="26" Height="26" CornerRadius="6"
+                              Background="{Binding ChannelColor}" VerticalAlignment="Center"
+                              IsVisible="{Binding HasChannel}"
+                              ToolTip.Tip="{Binding ChannelLabel}">
+                        <TextBlock Text="{Binding ChannelBadge}" FontSize="13" FontWeight="Bold"
+                                   Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
+
+                      <StackPanel Grid.Column="2" Spacing="2">
                         <TextBlock Text="{Binding Name}" FontSize="13" Foreground="#E8EAED"
                                    TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding MetaText}" FontSize="11" Foreground="#949CA9"
                                    TextTrimming="CharacterEllipsis" />
                       </StackPanel>
 
-                      <TextBlock Grid.Column="2" Text="{Binding UpdateText}" FontSize="11"
+                      <TextBlock Grid.Column="3" Text="{Binding UpdateText}" FontSize="11"
                                  Foreground="#7BC47F" VerticalAlignment="Center" Margin="10,0"
                                  IsVisible="{Binding HasUpdate}" />
 
-                      <Button Grid.Column="3" Content="升级"
+                      <Button Grid.Column="4" Content="升级"
                               Command="{Binding UpgradeCommand}"
                               FontSize="11" Padding="10,3" Margin="0,0,6,0"
                               IsVisible="{Binding HasUpdate}" />
 
-                      <TextBlock Grid.Column="4" Text="{Binding StatusText}" FontSize="11"
+                      <TextBlock Grid.Column="5" Text="{Binding StatusText}" FontSize="11"
                                  Foreground="#B4BCC8" VerticalAlignment="Center" Margin="6,0" />
 
-                      <Button Grid.Column="5" Content="{Binding ToggleText}"
+                      <Button Grid.Column="6" Content="{Binding ToggleText}"
                               Command="{Binding ToggleCommand}"
                               FontSize="11" Padding="10,3" Margin="0,0,6,0" />
 
-                      <Button Grid.Column="6" Content="删除"
+                      <Button Grid.Column="7" Content="删除"
                               Command="{Binding DeleteCommand}"
                               FontSize="11" Padding="10,3" />
                     </Grid>

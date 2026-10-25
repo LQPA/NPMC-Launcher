@@ -55,7 +55,7 @@ public sealed record CurseForgeFile(
         Sha1 = Sha1,
 
         // CurseForge 的 releaseType: 1 = release, 2 = beta, 3 = alpha
-        IsPrerelease = ReleaseType != 1,
+        Channel = ReleaseChannelExtensions.FromCurseForgeReleaseType(ReleaseType),
         GameVersions = GameVersions,
     };
 }

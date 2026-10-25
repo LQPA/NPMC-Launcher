@@ -133,7 +133,9 @@ internal static class InstanceDump
                     : item.IsUnidentified ? "[?]"
                     : "[-]";
 
-                lines.Add($"    {badge} {(item.HasUpdate ? "可升级" : "  -  ")}  {item.Name,-30} {item.UpdateText}");
+                var channel = item.HasChannel ? $"[{item.ChannelBadge}]" : "[ ]";
+
+                lines.Add($"    {badge}{channel} {(item.HasUpdate ? "可升级" : "  -  ")}  {item.Name,-30} {item.UpdateText}");
             }
         }
 

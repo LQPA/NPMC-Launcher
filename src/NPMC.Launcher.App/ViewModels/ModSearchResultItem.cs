@@ -64,36 +64,26 @@ public sealed class ModSearchResultItem
 /// <see cref="Ref"/> 是各平台自己的标识（Modrinth 的 versionId / CurseForge 的 fileId），
 /// 界面只负责把它传回给解析器，不关心它的含义。
 /// </summary>
-/// <param name="ReleaseType">release / beta / alpha —— 两个平台的枚举都归一化成这三个词。</param>
-public sealed record InstallVersionChoice(string Ref, string Label, string ReleaseType)
+/// <param name="Channel">正式版 / Beta / Alpha —— 两个平台的枚举都归一化成这个。</param>
+public sealed record InstallVersionChoice(string Ref, string Label, ReleaseChannel Channel)
 {
     /// <summary>版本类型徽标：R / B / A。</summary>
-    public string TypeBadge => ReleaseType switch
-    {
-        "alpha" => "A",
-        "beta" => "B",
-        _ => "R",
-    };
+    public string TypeBadge => Channel.Badge();
 
     /// <summary>
     /// 与来源徽标同一套视觉。三种颜色都压暗过，保证 9px 白字仍能看清：
     /// 绿 #2E7D46 / 琥珀 #94611A / 红 #A93226。
     /// </summary>
-    public string TypeColor => ReleaseType switch
+    public string TypeColor => Channel switch
     {
-        "alpha" => "#A93226",
-        "beta" => "#94611A",
+        ReleaseChannel.Alpha => "#A93226",
+        ReleaseChannel.Beta => "#94611A",
         _ => "#2E7D46",
     };
 
-    public string TypeLabel => ReleaseType switch
-    {
-        "alpha" => "Alpha 版",
-        "beta" => "Beta 版",
-        _ => "正式版",
-    };
+    public string TypeLabel => Channel.DisplayName();
 
-    public bool IsPrerelease => ReleaseType is "alpha" or "beta";
+    public bool IsPrerelease => Channel.IsPrerelease();
 }
 
 /// <summary>安装计划里的一行（主体或依赖）。</summary>

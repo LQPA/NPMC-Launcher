@@ -854,7 +854,8 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 item.SetUpdate(report.Updates.FirstOrDefault(update => update.LocalPath == item.Entry.Path));
                 item.SetIdentification(
-                    byPath.TryGetValue(item.Entry.Path, out var local) ? local.Matched?.Source : null);
+                    byPath.TryGetValue(item.Entry.Path, out var local) ? local.Matched?.Source : null,
+                    byPath.TryGetValue(item.Entry.Path, out var matchedLocal) ? matchedLocal.Matched?.Channel : null);
             }
 
             UpdateCount = report.Updates.Count;
@@ -1277,8 +1278,7 @@ public sealed class MainWindowViewModel : ObservableObject
                 .Select(file => new InstallVersionChoice(
                     file.FileId.ToString(),
                     string.IsNullOrWhiteSpace(file.DisplayName) ? file.FileName : file.DisplayName,
-                    // CurseForge 的 releaseType：1 正式 / 2 beta / 3 alpha
-                    file.ReleaseType switch { 2 => "beta", 3 => "alpha", _ => "release" }))
+                    ReleaseChannelExtensions.FromCurseForgeReleaseType(file.ReleaseType)))
                 .ToList();
         }
 
@@ -1288,7 +1288,7 @@ public sealed class MainWindowViewModel : ObservableObject
             .Select(version => new InstallVersionChoice(
                 version.Id,
                 version.VersionNumber,
-                string.IsNullOrWhiteSpace(version.VersionType) ? "release" : version.VersionType.ToLowerInvariant()))
+                ReleaseChannelExtensions.FromModrinthType(version.VersionType)))
             .ToList();
     }
 

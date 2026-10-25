@@ -24,7 +24,7 @@ public class UpdatePlannerTests
             PublishedAt = DateTimeOffset.Parse(publishedAt),
             FileName = $"{versionLabel}.jar",
             DownloadUrl = withUrl ? $"https://cdn/{versionLabel}.jar" : "",
-            IsPrerelease = prerelease,
+            Channel = prerelease ? ReleaseChannel.Beta : ReleaseChannel.Release,
         };
 
     private static Dictionary<UpdateProjectKey, IReadOnlyList<UpdateCandidate>> Versions(

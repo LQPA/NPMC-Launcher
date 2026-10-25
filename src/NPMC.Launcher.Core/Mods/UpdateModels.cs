@@ -44,7 +44,11 @@ public sealed record UpdateCandidate
     /// <summary>已知的 SHA1（CurseForge 通常没有）。用于下载后校验。</summary>
     public string? Sha1 { get; init; }
 
-    public bool IsPrerelease { get; init; }
+    /// <summary>发布通道（正式 / beta / alpha）。</summary>
+    public ReleaseChannel Channel { get; init; } = ReleaseChannel.Release;
+
+    /// <summary>是否为预发布版本（beta 或 alpha），由 <see cref="Channel"/> 推导。</summary>
+    public bool IsPrerelease => Channel.IsPrerelease();
 
     public IReadOnlyList<string> GameVersions { get; init; } = Array.Empty<string>();
 

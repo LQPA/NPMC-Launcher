@@ -69,17 +69,42 @@ public sealed class ContentEntryItem : ObservableObject
 
     public bool IsFromCurseForge => _matchedSource == UpdateSource.CurseForge;
 
-    /// <summary>记录识别来源；传 null 表示已检查但没认出来。只发通知，不动集合。</summary>
-    public void SetIdentification(UpdateSource? source)
+    /// <summary>记录识别来源；传 null 表示已检查但没认出来。</summary>
+    /// <param name="channel">识别出的版本通道；未识别时为 null。</param>
+    public void SetIdentification(UpdateSource? source, ReleaseChannel? channel = null)
     {
         _matchedSource = source;
+        _channel = source is null ? null : channel;
         _identified = true;
 
         OnPropertyChanged(nameof(IsIdentified));
         OnPropertyChanged(nameof(IsUnidentified));
         OnPropertyChanged(nameof(IsFromModrinth));
         OnPropertyChanged(nameof(IsFromCurseForge));
+        OnPropertyChanged(nameof(HasChannel));
+        OnPropertyChanged(nameof(ChannelBadge));
+        OnPropertyChanged(nameof(ChannelLabel));
+        OnPropertyChanged(nameof(ChannelColor));
     }
+
+    // ---- 版本通道（R / B / A）----
+
+    private ReleaseChannel? _channel;
+
+    /// <summary>识别成功且知道版本身份时才显示通道徽标。</summary>
+    public bool HasChannel => _channel is not null;
+
+    public string ChannelBadge => _channel?.Badge() ?? "";
+
+    public string ChannelLabel => _channel?.DisplayName() ?? "";
+
+    /// <summary>与安装下拉里的版本徽标同色：绿 / 琥珀 / 红。</summary>
+    public string ChannelColor => _channel switch
+    {
+        ReleaseChannel.Alpha => "#A93226",
+        ReleaseChannel.Beta => "#94611A",
+        _ => "#2E7D46",
+    };
 
     // ---- 升级提示 ----
 
