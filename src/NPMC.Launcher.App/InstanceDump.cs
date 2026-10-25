@@ -181,6 +181,43 @@ internal static class InstanceDump
             }
         }
 
+        // 验证资源包/光影的自动识别（图标地址缓存同样适用）
+        if (args.Any(arg => string.Equals(arg, "--exercise-content-icons", StringComparison.OrdinalIgnoreCase)))
+        {
+            var target = viewModel.Instances.FirstOrDefault(item =>
+                             !item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
+                         ?? viewModel.Instances.FirstOrDefault();
+
+            if (target is not null)
+            {
+                viewModel.SelectedInstance = target;
+                viewModel.RefreshCapabilitiesAsync(target).GetAwaiter().GetResult();
+
+                lines.Add("");
+                lines.Add($"[内容识别] 实例 {target.Name}");
+
+                foreach (var kind in new[] { ContentKind.ResourcePack, ContentKind.ShaderPack })
+                {
+                    viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == kind);
+
+                    // 后台识别是 fire-and-forget，等它把地址写进缓存
+                    Thread.Sleep(4000);
+
+                    lines.Add($"    {kind.DisplayName()}：{viewModel.Content.Count} 个文件");
+
+                    foreach (var item in viewModel.Content)
+                    {
+                        var badge = item.IsFromModrinth ? "[M]"
+                            : item.IsFromCurseForge ? "[C]"
+                            : item.IsUnidentified ? "[?]"
+                            : "[-]";
+
+                        lines.Add($"      {badge} {item.Name}");
+                    }
+                }
+            }
+        }
+
         // 验证"搜索 → 依赖计划"链路（联网，但不下载）
         if (args.Any(arg => string.Equals(arg, "--exercise-search", StringComparison.OrdinalIgnoreCase)))
         {

@@ -713,9 +713,10 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsContentEmpty));
         RaiseCommandStates();
 
-        // 图标不依赖"检查更新"：先用记住的地址（磁盘缓存，无网络），再后台识别一次
-        if (contentKind == ContentKind.Mod && Content.Count > 0)
-            _ = LoadContentIconsAsync(instance, Content.ToList());
+        // 图标不依赖"检查更新"：先用记住的地址（磁盘缓存，无网络），再后台识别一次。
+        // 资源包与光影同样适用 —— 它们也能按哈希被认领，只是不按加载器过滤。
+        if (Content.Count > 0)
+            _ = LoadContentIconsAsync(instance, contentKind, Content.ToList());
     }
 
     /// <summary>刷新左侧实例行的数量、三个页签的数量，以及概览处目录入口的可见性。</summary>
@@ -1351,10 +1352,16 @@ public sealed class MainWindowViewModel : ObservableObject
     ///
     /// 分两步：
     ///   1. 用记住的"文件名 → 图标地址"直接取图标（位图已在磁盘缓存里，零网络）
-    ///   2. 该实例首次打开时，后台识别一次（只认领项目，不查版本），
+    ///   2. 该实例的该页签首次打开时，后台识别一次（只认领项目，不查版本），
     ///      补上徽标并记住图标地址
+    ///
+    /// 模组、资源包、光影用的是同一套逻辑：哈希认领与图标都与内容类型无关，
+    /// 唯一的差别是**只有模组按加载器过滤**。
     /// </summary>
-    private async Task LoadContentIconsAsync(InstanceListItem instance, IReadOnlyList<ContentEntryItem> items)
+    private async Task LoadContentIconsAsync(
+        InstanceListItem instance,
+        ContentKind kind,
+        IReadOnlyList<ContentEntryItem> items)
     {
         foreach (var item in items)
         {
@@ -1364,12 +1371,15 @@ public sealed class MainWindowViewModel : ObservableObject
             if (remembered is not null) item.Icon = remembered;
         }
 
-        // 同一实例只自动识别一次；"检查更新"仍可随时手动触发
-        if (!_autoIdentifiedInstances.Add(instance.Id)) return;
+        // 同实例同类型只自动识别一次（换成按"实例 + 类型"记，否则第二个页签会被跳过）
+        if (!_autoIdentifiedInstances.Add($"{instance.Id}:{kind}")) return;
 
         try
         {
-            var loaders = await DetectLoadersAsync(instance);
+            var loaders = kind.UsesLoaderFilter()
+                ? await DetectLoadersAsync(instance)
+                : Array.Empty<string>();
+
             var gameVersion = await ResolveGameVersionAsync(instance);
 
             var report = await _updateService.CheckAsync(
