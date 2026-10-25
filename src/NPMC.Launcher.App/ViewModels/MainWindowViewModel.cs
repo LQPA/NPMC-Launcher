@@ -12,6 +12,7 @@ using NPMC.Launcher.Infrastructure.Hashing;
 using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Modrinth;
+using NPMC.Launcher.Infrastructure.Mods;
 using NPMC.Launcher.Infrastructure.Storage;
 
 namespace NPMC.Launcher.App.ViewModels;
@@ -22,10 +23,10 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly ContentManager _contentManager = new();
     private readonly DispatcherTimer _logTimer;
 
-    // Modrinth 查询与文件下载共用同一个 HttpClient（连接池复用，UA 统一）
+    // Modrinth / CurseForge 查询与文件下载共用同一个 HttpClient（连接池复用，UA 统一）
     private readonly HttpClient _http = HttpFileDownloader.CreateClient();
     private readonly HttpFileDownloader _downloader;
-    private readonly ModrinthClient _modrinth;
+    private readonly ModsUpdateService _updateService;
 
     private InstanceListItem? _selectedInstance;
     private ContentTabItem _selectedTab;
@@ -52,7 +53,7 @@ public sealed class MainWindowViewModel : ObservableObject
         _logTimer.Tick += (_, _) => _ = RefreshLogAsync();
 
         _downloader = new HttpFileDownloader(_http);
-        _modrinth = new ModrinthClient(_http);
+        _updateService = new ModsUpdateService(_http);
 
         RefreshCommand = new AsyncRelayCommand(LoadAsync, onError: ex => Status = $"刷新失败：{ex.Message}");
 
@@ -796,86 +797,30 @@ public sealed class MainWindowViewModel : ObservableObject
                 return;
             }
 
-            // 1) 本地哈希
-            Status = $"正在计算 {items.Count} 个文件的哈希…";
-            var hashByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var item in items)
-            {
-                try
-                {
-                    hashByPath[item.Entry.Path] = await FileHashing.Sha1Async(item.Entry.Path);
-                }
-                catch (Exception ex)
-                {
-                    LauncherLog.Write(_launcher.Root, $"哈希失败 {item.Entry.Path} → {ex.GetBaseException().Message}");
-                }
-            }
+            Status = $"正在检查 {items.Count} 个模组（Modrinth{( _updateService.CurseForgeEnabled ? " + CurseForge" : "") }）…";
 
-            if (hashByPath.Count == 0)
-            {
-                Status = "没有可读取的模组文件";
-                return;
-            }
-
-            // 2) 批量反查
-            Status = "正在查询 Modrinth…";
-            var matched = await _modrinth.GetVersionsByHashesAsync(hashByPath.Values.ToList());
-
-            // 统一成与平台无关的候选版本（接 CurseForge 后共用同一套判定）
-            var matchedCandidates = new Dictionary<string, UpdateCandidate>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in matched)
-            {
-                if (pair.Value.ToCandidate() is { } candidate) matchedCandidates[pair.Key] = candidate;
-            }
-
-            // 3) 加载器（不按加载器过滤会把 Fabric 版本推给 Forge 整合包）
+            // 加载器：不按加载器过滤会把 Fabric 版本推给 Forge 整合包
             IReadOnlyList<string> loaders = Array.Empty<string>();
             var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
             if (version is not null) loaders = LoaderDetector.Detect(version);
 
-            // 4) 逐项目取版本列表
-            var projectVersions = new Dictionary<UpdateProjectKey, IReadOnlyList<UpdateCandidate>>();
-            foreach (var key in matchedCandidates.Values.Select(candidate => candidate.Key).Distinct())
-            {
-                try
-                {
-                    var versions = await _modrinth.GetProjectVersionsAsync(key.ProjectId, instance.VersionId, loaders);
-                    projectVersions[key] = versions
-                        .Select(item => item.ToCandidate())
-                        .Where(candidate => candidate is not null)
-                        .Select(candidate => candidate!)
-                        .ToList();
-                }
-                catch (Exception ex)
-                {
-                    LauncherLog.Write(_launcher.Root, $"项目 {key.ProjectId} 查询失败 → {ex.GetBaseException().Message}");
-                }
-            }
+            var report = await _updateService.CheckAsync(
+                items.Select(item => item.Entry.Path).ToList(),
+                instance.VersionId,
+                loaders);
 
-            // 5) 判定
-            var localMods = hashByPath
-                .Select(pair => new LocalModInfo
-                {
-                    Path = pair.Key,
-                    FileName = Path.GetFileName(pair.Key),
-                    Sha1 = pair.Value,
-                    Matched = matchedCandidates.GetValueOrDefault(pair.Value),
-                })
-                .ToList();
-
-            var updates = UpdatePlanner.Plan(localMods, projectVersions);
-
-            // 6) 就地贴到行上
+            // 就地贴到行上，不重建列表
             foreach (var item in items)
-                item.SetUpdate(updates.FirstOrDefault(update => update.LocalPath == item.Entry.Path));
+                item.SetUpdate(report.Updates.FirstOrDefault(update => update.LocalPath == item.Entry.Path));
 
-            UpdateCount = updates.Count;
-            Status = updates.Count == 0
-                ? $"检查完成：{items.Count} 个模组都已是当前版本（{matchedCandidates.Count} 个能在 Modrinth 上认领）"
-                : $"检查完成：{updates.Count} 个可升级（共 {items.Count} 个，认领 {matchedCandidates.Count} 个）";
+            UpdateCount = report.Updates.Count;
+            Status = DescribeReport(items.Count, report);
 
             LauncherLog.Write(_launcher.Root,
-                $"检查更新 {instance.Id}：文件 {items.Count}，认领 {matchedCandidates.Count}，可升级 {updates.Count}，加载器 [{(loaders.Count == 0 ? "原版" : string.Join(",", loaders))}]");
+                $"检查更新 {instance.Id}：文件 {items.Count}，Modrinth {report.ModrinthMatches}，"
+                + $"CurseForge {report.CurseForgeMatches}，可升级 {report.Updates.Count}，"
+                + $"加载器 [{(loaders.Count == 0 ? "原版" : string.Join(",", loaders))}]"
+                + (report.CurseForgeNote is { } note ? $"，CF 说明 {note}" : ""));
         }
         catch (Exception ex)
         {
@@ -890,6 +835,17 @@ public sealed class MainWindowViewModel : ObservableObject
 
     /// <summary>供诊断用：直接触发一次更新检查并等待完成。</summary>
     public Task CheckUpdatesAsync() => CheckModUpdatesAsync();
+
+    /// <summary>把检查结果组织成一句人能读的话（含两个平台各自的认领数与不可用原因）。</summary>
+    private static string DescribeReport(int fileCount, ModUpdateReport report)
+    {
+        var sources = $"Modrinth {report.ModrinthMatches}、CurseForge {report.CurseForgeMatches}";
+        var note = report.CurseForgeNote is { } problem ? $"（CurseForge 不可用：{problem}）" : "";
+
+        return report.Updates.Count == 0
+            ? $"检查完成：{fileCount} 个模组都已是当前版本（认领 {report.MatchedCount} 个：{sources}）{note}"
+            : $"检查完成：{report.Updates.Count} 个可升级（共 {fileCount} 个，认领 {report.MatchedCount} 个：{sources}）{note}";
+    }
 
     /// <summary>
     /// 升级单个模组：下载新版 → 旧版移入 .trash → 刷新列表。
