@@ -201,23 +201,34 @@
                     <Grid ColumnDefinitions="24,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
 
                       <!--
-                        识别状态徽标。检查更新之前一律不显示 ——
-                        没查过就说"认不出"是错的，所以用 IsUnidentified 而不是"没有来源"。
+                        识别徽标：填充色块 + 字母。
+                        不用平台 logo —— Modrinth 的 COPYING.md 明确禁止使用其品牌元素
+                        （含任何变体，即便改色也不行），统一改用字母以示来源。
+                        检查更新之前一律不显示：没查过就说"认不出"是错的。
                       -->
-                      <TextBlock Grid.Column="0" Text="?" FontSize="12" FontWeight="SemiBold"
-                                 Foreground="#8A929E" VerticalAlignment="Center"
-                                 IsVisible="{Binding IsUnidentified}"
-                                 ToolTip.Tip="两个平台都无法识别（自制或未上传）" />
+                      <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4"
+                              Background="#2E7D46" VerticalAlignment="Center"
+                              IsVisible="{Binding IsFromModrinth}"
+                              ToolTip.Tip="已在 Modrinth 识别">
+                        <TextBlock Text="M" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
 
-                      <TextBlock Grid.Column="0" Text="M" FontSize="12" FontWeight="SemiBold"
-                                 Foreground="#7BC47F" VerticalAlignment="Center"
-                                 IsVisible="{Binding IsFromModrinth}"
-                                 ToolTip.Tip="已在 Modrinth 识别" />
+                      <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4"
+                              Background="#A93226" VerticalAlignment="Center"
+                              IsVisible="{Binding IsFromCurseForge}"
+                              ToolTip.Tip="已在 CurseForge 识别">
+                        <TextBlock Text="C" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
 
-                      <TextBlock Grid.Column="0" Text="C" FontSize="12" FontWeight="SemiBold"
-                                 Foreground="#E0A458" VerticalAlignment="Center"
-                                 IsVisible="{Binding IsFromCurseForge}"
-                                 ToolTip.Tip="已在 CurseForge 识别" />
+                      <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4"
+                              Background="#4D5560" VerticalAlignment="Center"
+                              IsVisible="{Binding IsUnidentified}"
+                              ToolTip.Tip="两个平台都无法识别（自制或未上传）">
+                        <TextBlock Text="?" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
 
                       <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Text="{Binding Name}" FontSize="13" Foreground="#E8EAED"
