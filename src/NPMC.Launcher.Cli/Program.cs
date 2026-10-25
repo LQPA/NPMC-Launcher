@@ -1193,30 +1193,44 @@ internal static class Program
         Dim("查询 Modrinth（按哈希）…");
         var matched = await client.GetVersionsByHashesAsync(hashByPath.Values.ToList());
 
-        // 3) 每个命中的项目单独取版本列表（按游戏版本 + 加载器过滤）
-        var projectVersions = new Dictionary<string, IReadOnlyList<ModrinthVersion>>();
-        var projectIds = matched.Values.Select(v => v.ProjectId).Distinct().ToList();
-        Dim($"命中 {matched.Count} 个，需要查询 {projectIds.Count} 个项目…");
+        // 统一成与平台无关的候选版本（接 CurseForge 后共用同一套判定）
+        var matchedCandidates = new Dictionary<string, UpdateCandidate>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in matched)
+        {
+            if (pair.Value.ToCandidate() is { } candidate) matchedCandidates[pair.Key] = candidate;
+        }
 
-        foreach (var projectId in projectIds)
+        // 3) 每个命中的项目单独取版本列表（按游戏版本 + 加载器过滤）
+        var projectVersions = new Dictionary<UpdateProjectKey, IReadOnlyList<UpdateCandidate>>();
+        var projectKeys = matchedCandidates.Values.Select(candidate => candidate.Key).Distinct().ToList();
+        Dim($"命中 {matchedCandidates.Count} 个，需要查询 {projectKeys.Count} 个项目…");
+
+        foreach (var key in projectKeys)
         {
             try
             {
-                projectVersions[projectId] = await client.GetProjectVersionsAsync(projectId, versionId, loaders);
+                var versions = await client.GetProjectVersionsAsync(key.ProjectId, versionId, loaders);
+                projectVersions[key] = versions
+                    .Select(version => version.ToCandidate())
+                    .Where(candidate => candidate is not null)
+                    .Select(candidate => candidate!)
+                    .ToList();
             }
             catch (Exception ex)
             {
-                Warn($"项目 {projectId} 查询失败：{ex.GetBaseException().Message}");
+                Warn($"项目 {key.ProjectId} 查询失败：{ex.GetBaseException().Message}");
             }
         }
 
         // 4) 组装本地信息并判定
         var localMods = hashByPath
-            .Select(pair => new LocalModInfo(
-                pair.Key,
-                Path.GetFileName(pair.Key),
-                pair.Value,
-                matched.TryGetValue(pair.Value, out var matchedVersion) ? matchedVersion : null))
+            .Select(pair => new LocalModInfo
+            {
+                Path = pair.Key,
+                FileName = Path.GetFileName(pair.Key),
+                Sha1 = pair.Value,
+                Matched = matchedCandidates.GetValueOrDefault(pair.Value),
+            })
             .ToList();
 
         var updates = UpdatePlanner.Plan(localMods, projectVersions, withPrerelease);
@@ -1227,7 +1241,7 @@ internal static class Program
 
         foreach (var mod in localMods.OrderBy(m => m.FileName, StringComparer.CurrentCultureIgnoreCase))
         {
-            if (mod.MatchedVersion is null)
+            if (mod.Matched is null)
             {
                 unknown++;
                 Dim($"[未知]   {mod.FileName}   Modrinth 上查不到（自制或未上传）");
@@ -1239,14 +1253,14 @@ internal static class Program
             {
                 upToDate++;
                 Console.ForegroundColor = ConsoleColor.Gray;
-                Console.WriteLine($"  [最新]   {mod.FileName}   {mod.MatchedVersion.VersionNumber}");
+                Console.WriteLine($"  [最新]   {mod.FileName}   {mod.Matched.VersionLabel}");
                 Console.ResetColor();
                 continue;
             }
 
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"  [可升级] {mod.FileName}   {update.Current.VersionNumber} → {update.Latest.VersionNumber}"
-                              + $"   ({update.Latest.VersionType})");
+            Console.WriteLine($"  [可升级] {mod.FileName}   {update.Current.VersionLabel} → {update.Latest.VersionLabel}"
+                              + (update.Latest.IsPrerelease ? "   (预发布)" : ""));
             Console.ResetColor();
         }
 

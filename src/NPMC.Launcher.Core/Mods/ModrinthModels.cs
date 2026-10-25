@@ -27,24 +27,25 @@ public sealed record ModrinthVersion(
     /// <summary>是否为预发布版本（beta / alpha）。</summary>
     public bool IsPrerelease =>
         !string.Equals(VersionType, "release", StringComparison.OrdinalIgnoreCase);
-}
 
-/// <summary>本地一个模组文件，以及它在 Modrinth 上对应的版本（查不到则为 null）。</summary>
-public sealed record LocalModInfo(
-    string Path,
-    string FileName,
-    string Sha1,
-    ModrinthVersion? MatchedVersion);
+    /// <summary>转换成与平台无关的候选版本；没有可下载文件时返回 null。</summary>
+    public UpdateCandidate? ToCandidate()
+    {
+        if (PrimaryFile is not { } file) return null;
+        if (string.IsNullOrWhiteSpace(file.Url)) return null;
 
-/// <summary>一条可用的升级建议。</summary>
-public sealed record ModUpdate(
-    string LocalPath,
-    string FileName,
-    ModrinthVersion Current,
-    ModrinthVersion Latest)
-{
-    public string ProjectId => Current.ProjectId;
-
-    public string Description =>
-        $"{FileName}: {Current.VersionNumber} → {Latest.VersionNumber}";
+        return new UpdateCandidate
+        {
+            Source = UpdateSource.Modrinth,
+            ProjectId = ProjectId,
+            VersionLabel = VersionNumber,
+            PublishedAt = PublishedAt,
+            FileName = file.FileName,
+            DownloadUrl = file.Url,
+            Sha1 = string.IsNullOrWhiteSpace(file.Sha1) ? null : file.Sha1,
+            IsPrerelease = IsPrerelease,
+            GameVersions = GameVersions,
+            Loaders = Loaders,
+        };
+    }
 }

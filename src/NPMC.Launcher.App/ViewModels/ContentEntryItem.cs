@@ -61,7 +61,7 @@ public sealed class ContentEntryItem : ObservableObject
 
     public string UpdateText => _pendingUpdate is null
         ? ""
-        : $"{_pendingUpdate.Current.VersionNumber} → {_pendingUpdate.Latest.VersionNumber}";
+        : $"{_pendingUpdate.Current.VersionLabel} → {_pendingUpdate.Latest.VersionLabel}";
 
     public void SetUpdate(ModUpdate? update)
     {

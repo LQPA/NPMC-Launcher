@@ -821,33 +821,46 @@ public sealed class MainWindowViewModel : ObservableObject
             Status = "正在查询 Modrinth…";
             var matched = await _modrinth.GetVersionsByHashesAsync(hashByPath.Values.ToList());
 
+            // 统一成与平台无关的候选版本（接 CurseForge 后共用同一套判定）
+            var matchedCandidates = new Dictionary<string, UpdateCandidate>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in matched)
+            {
+                if (pair.Value.ToCandidate() is { } candidate) matchedCandidates[pair.Key] = candidate;
+            }
+
             // 3) 加载器（不按加载器过滤会把 Fabric 版本推给 Forge 整合包）
             IReadOnlyList<string> loaders = Array.Empty<string>();
             var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
             if (version is not null) loaders = LoaderDetector.Detect(version);
 
             // 4) 逐项目取版本列表
-            var projectVersions = new Dictionary<string, IReadOnlyList<ModrinthVersion>>();
-            foreach (var projectId in matched.Values.Select(v => v.ProjectId).Distinct())
+            var projectVersions = new Dictionary<UpdateProjectKey, IReadOnlyList<UpdateCandidate>>();
+            foreach (var key in matchedCandidates.Values.Select(candidate => candidate.Key).Distinct())
             {
                 try
                 {
-                    projectVersions[projectId] = await _modrinth.GetProjectVersionsAsync(
-                        projectId, instance.VersionId, loaders);
+                    var versions = await _modrinth.GetProjectVersionsAsync(key.ProjectId, instance.VersionId, loaders);
+                    projectVersions[key] = versions
+                        .Select(item => item.ToCandidate())
+                        .Where(candidate => candidate is not null)
+                        .Select(candidate => candidate!)
+                        .ToList();
                 }
                 catch (Exception ex)
                 {
-                    LauncherLog.Write(_launcher.Root, $"项目 {projectId} 查询失败 → {ex.GetBaseException().Message}");
+                    LauncherLog.Write(_launcher.Root, $"项目 {key.ProjectId} 查询失败 → {ex.GetBaseException().Message}");
                 }
             }
 
             // 5) 判定
             var localMods = hashByPath
-                .Select(pair => new LocalModInfo(
-                    pair.Key,
-                    Path.GetFileName(pair.Key),
-                    pair.Value,
-                    matched.TryGetValue(pair.Value, out var found) ? found : null))
+                .Select(pair => new LocalModInfo
+                {
+                    Path = pair.Key,
+                    FileName = Path.GetFileName(pair.Key),
+                    Sha1 = pair.Value,
+                    Matched = matchedCandidates.GetValueOrDefault(pair.Value),
+                })
                 .ToList();
 
             var updates = UpdatePlanner.Plan(localMods, projectVersions);
@@ -858,11 +871,11 @@ public sealed class MainWindowViewModel : ObservableObject
 
             UpdateCount = updates.Count;
             Status = updates.Count == 0
-                ? $"检查完成：{items.Count} 个模组都已是当前版本（{matched.Count} 个能在 Modrinth 上认领）"
-                : $"检查完成：{updates.Count} 个可升级（共 {items.Count} 个，认领 {matched.Count} 个）";
+                ? $"检查完成：{items.Count} 个模组都已是当前版本（{matchedCandidates.Count} 个能在 Modrinth 上认领）"
+                : $"检查完成：{updates.Count} 个可升级（共 {items.Count} 个，认领 {matchedCandidates.Count} 个）";
 
             LauncherLog.Write(_launcher.Root,
-                $"检查更新 {instance.Id}：文件 {items.Count}，认领 {matched.Count}，可升级 {updates.Count}，加载器 [{(loaders.Count == 0 ? "原版" : string.Join(",", loaders))}]");
+                $"检查更新 {instance.Id}：文件 {items.Count}，认领 {matchedCandidates.Count}，可升级 {updates.Count}，加载器 [{(loaders.Count == 0 ? "原版" : string.Join(",", loaders))}]");
         }
         catch (Exception ex)
         {
@@ -886,26 +899,27 @@ public sealed class MainWindowViewModel : ObservableObject
     private async Task UpgradeModAsync(ContentEntryItem item)
     {
         if (SelectedInstance is not { } instance || item.PendingUpdate is not { } update) return;
-        if (update.Latest.PrimaryFile is not { } file) return;
+        if (string.IsNullOrWhiteSpace(update.Latest.DownloadUrl)) return;
 
         var modsDirectory = instance.ModsDirectory;
-        var destination = Path.Combine(modsDirectory, file.FileName);
+        var destination = Path.Combine(modsDirectory, update.Latest.FileName);
 
         try
         {
-            Status = $"正在下载 {file.FileName}…";
+            Status = $"正在下载 {update.Latest.FileName}…";
 
-            var sha1 = string.IsNullOrWhiteSpace(file.Sha1) ? null : file.Sha1;
-            await _downloader.EnsureFromAsync(new[] { file.Url }, destination, sha1);
+            // CurseForge 通常没有 SHA1，此时只能靠下载器自身的一致性（大小 + 原子落盘）
+            var sha1 = string.IsNullOrWhiteSpace(update.Latest.Sha1) ? null : update.Latest.Sha1;
+            await _downloader.EnsureFromAsync(new[] { update.Latest.DownloadUrl }, destination, sha1);
 
             // 下载成功之后才动旧文件
             var movedTo = _contentManager.Delete(item.Entry, modsDirectory);
 
-            Status = $"已升级 {item.Name}：{update.Current.VersionNumber} → {update.Latest.VersionNumber}"
+            Status = $"已升级 {item.Name}：{update.Current.VersionLabel} → {update.Latest.VersionLabel}"
                    + $"（旧版在 {ContentScanner.TrashDirectoryName}\\{Path.GetFileName(movedTo)}）";
 
             LauncherLog.Write(_launcher.Root,
-                $"升级 {item.Entry.FileName} → {file.FileName}（{update.Current.VersionNumber} → {update.Latest.VersionNumber}）");
+                $"升级 {item.Entry.FileName} → {update.Latest.FileName}（{update.Current.VersionLabel} → {update.Latest.VersionLabel}，来源 {update.Source}）");
         }
         catch (Exception ex)
         {
