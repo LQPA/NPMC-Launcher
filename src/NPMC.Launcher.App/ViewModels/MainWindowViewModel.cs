@@ -481,12 +481,31 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
-        // 依次尝试 shell32（交给已有外壳）、shell、explorer.exe，详见 FolderLauncher
+        // Low 完整性下这几种方式全都会被系统拒绝，直接给出可执行的建议，
+        // 而不是把三条失败信息堆在状态栏里让用户猜。
+        if (Interop.ProcessContext.IsLowIntegrity)
+        {
+            var reason = "当前进程处于受限模式（Low 完整性），系统不允许它调起资源管理器。"
+                       + "请从开始菜单正常启动 NPMC Launcher；路径已复制到剪贴板，可直接粘贴到资源管理器地址栏。";
+
+            LauncherLog.Write(_launcher.Root,
+                $"打开目录被跳过（{Interop.ProcessContext.IntegrityLabel}）：{target}");
+
+            if (CopyToClipboard is not null)
+            {
+                try { await CopyToClipboard(target); } catch { /* 剪贴板不可用就算了 */ }
+            }
+
+            Status = $"{reason}  路径 {target}";
+            return;
+        }
+
+        // 依次尝试 shell32（交给已有外壳）、shell；两者都不会弹窗。详见 FolderLauncher
         var attempts = await Interop.FolderLauncher.OpenAsync(target);
 
         var report = string.Join(" | ", attempts.Select(a => $"{a.Strategy}={(a.Success ? "OK" : a.Error)}"));
         LauncherLog.Write(_launcher.Root,
-            $"打开目录 {target} → {report}   [完整性 {Interop.ProcessContext.ReadIntegrityLabel()}]");
+            $"打开目录 {target} → {report}   [完整性 {Interop.ProcessContext.IntegrityLabel}]");
 
         if (attempts[^1].Success)
         {
