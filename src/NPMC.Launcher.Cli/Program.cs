@@ -1,16 +1,20 @@
 using System.Diagnostics;
 using System.Text;
+using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Launch;
 using NPMC.Launcher.Core.Mirrors;
+using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
 using NPMC.Launcher.Core.Settings;
 using NPMC.Launcher.Infrastructure.Diagnostics;
+using NPMC.Launcher.Infrastructure.Hashing;
 using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Mirrors;
+using NPMC.Launcher.Infrastructure.Modrinth;
 using NPMC.Launcher.Infrastructure.Network;
 using NPMC.Launcher.Infrastructure.Runtime;
 using NPMC.Launcher.Infrastructure.Storage;
@@ -40,6 +44,7 @@ internal static class Program
                 "doctor"   => await DoctorAsync(args[1..]),
                 "settings" => await SettingsAsync(args[1..]),
                 "net"      => await NetAsync(args[1..]),
+                "mods"     => await ModsAsync(args[1..]),
                 _          => Unknown(args[0]),
             };
         }
@@ -1089,6 +1094,173 @@ internal static class Program
         return 0;
     }
 
+    // --------------------------------------------------------------- mods
+
+    /// <summary>
+    /// 检查 mods 目录里的模组是否有新版本。
+    ///
+    /// 流程：本地算 SHA1 → 批量反查 Modrinth 认领"这是哪个项目的哪个版本"
+    /// → 按实例的游戏版本与加载器取版本列表 → 判断有没有更新。
+    /// 加载器过滤是必须的：否则会给 Forge 整合包推 Fabric 版本的模组。
+    /// </summary>
+    private static async Task<int> ModsAsync(string[] args)
+    {
+        if (args.Length == 0 || args[0] != "check")
+        {
+            Error("用法: npmc mods check [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease]");
+            return 1;
+        }
+
+        var rest = args[1..];
+        var withPrerelease = Has(rest, "--prerelease");
+        var launcher = new LauncherPaths(ResolveRoot(rest));
+
+        LauncherInstance? instance = null;
+        InstanceLayout? layout = null;
+        string versionId;
+
+        var instanceId = Opt(rest, "--instance");
+        if (!string.IsNullOrWhiteSpace(instanceId))
+        {
+            var catalog = new InstanceCatalog(await new JsonInstanceStore(launcher).LoadAsync());
+            instance = catalog.Find(instanceId!)
+                       ?? throw new InvalidOperationException($"找不到实例 '{instanceId}'。用 npmc instance list 查看。");
+
+            layout = new InstanceLayout(launcher, instance);
+            versionId = instance.VersionId;
+        }
+        else
+        {
+            versionId = Opt(rest, "--version") ?? Required(rest);
+        }
+
+        var paths = layout?.Paths ?? launcher;
+        var gameDirectory = layout?.GameDirectory ?? launcher.Root;
+        var modsDirectory = Path.Combine(gameDirectory, "mods");
+
+        Section("模组升级检查");
+        Info($"实例     {(instance is null ? "-" : $"{instance.Name} ({instance.Id})")}");
+        Info($"版本     {versionId}");
+        Info($"mods     {modsDirectory}");
+
+        if (!Directory.Exists(modsDirectory))
+        {
+            Warn("mods 目录不存在，没有可检查的模组");
+            return 0;
+        }
+
+        // 加载器从版本 JSON 的 libraries 推断
+        var version = await GameLauncher.TryLoadInstalledVersionAsync(paths, versionId);
+        IReadOnlyList<string> loaders = version is null ? Array.Empty<string>() : LoaderDetector.Detect(version);
+
+        if (version is null) Warn("本地没有安装该版本，无法判断加载器（将不按加载器过滤）");
+        Info($"加载器   {(loaders.Count > 0 ? string.Join(", ", loaders) : "原版 / 未知")}");
+
+        var mods = ContentScanner.Scan(modsDirectory, ContentKind.Mod).Where(mod => !mod.IsDirectory).ToList();
+        if (mods.Count == 0)
+        {
+            Warn("mods 目录里没有 .jar");
+            return 0;
+        }
+
+        Info($"文件     {mods.Count} 个");
+
+        // 1) 本地哈希
+        Dim("计算 SHA1…");
+        var hashByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var mod in mods)
+        {
+            try
+            {
+                hashByPath[mod.Path] = await FileHashing.Sha1Async(mod.Path);
+            }
+            catch (Exception ex)
+            {
+                Warn($"跳过 {mod.FileName}：{ex.GetBaseException().Message}");
+            }
+        }
+
+        if (hashByPath.Count == 0)
+        {
+            Error("没有可读取的模组文件");
+            return 1;
+        }
+
+        // 2) 批量反查
+        using var http = HttpFileDownloader.CreateClient();
+        var client = new ModrinthClient(http);
+
+        Dim("查询 Modrinth（按哈希）…");
+        var matched = await client.GetVersionsByHashesAsync(hashByPath.Values.ToList());
+
+        // 3) 每个命中的项目单独取版本列表（按游戏版本 + 加载器过滤）
+        var projectVersions = new Dictionary<string, IReadOnlyList<ModrinthVersion>>();
+        var projectIds = matched.Values.Select(v => v.ProjectId).Distinct().ToList();
+        Dim($"命中 {matched.Count} 个，需要查询 {projectIds.Count} 个项目…");
+
+        foreach (var projectId in projectIds)
+        {
+            try
+            {
+                projectVersions[projectId] = await client.GetProjectVersionsAsync(projectId, versionId, loaders);
+            }
+            catch (Exception ex)
+            {
+                Warn($"项目 {projectId} 查询失败：{ex.GetBaseException().Message}");
+            }
+        }
+
+        // 4) 组装本地信息并判定
+        var localMods = hashByPath
+            .Select(pair => new LocalModInfo(
+                pair.Key,
+                Path.GetFileName(pair.Key),
+                pair.Value,
+                matched.TryGetValue(pair.Value, out var matchedVersion) ? matchedVersion : null))
+            .ToList();
+
+        var updates = UpdatePlanner.Plan(localMods, projectVersions, withPrerelease);
+
+        Section("结果");
+        var unknown = 0;
+        var upToDate = 0;
+
+        foreach (var mod in localMods.OrderBy(m => m.FileName, StringComparer.CurrentCultureIgnoreCase))
+        {
+            if (mod.MatchedVersion is null)
+            {
+                unknown++;
+                Dim($"[未知]   {mod.FileName}   Modrinth 上查不到（自制或未上传）");
+                continue;
+            }
+
+            var update = updates.FirstOrDefault(u => u.LocalPath == mod.Path);
+            if (update is null)
+            {
+                upToDate++;
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.WriteLine($"  [最新]   {mod.FileName}   {mod.MatchedVersion.VersionNumber}");
+                Console.ResetColor();
+                continue;
+            }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  [可升级] {mod.FileName}   {update.Current.VersionNumber} → {update.Latest.VersionNumber}"
+                              + $"   ({update.Latest.VersionType})");
+            Console.ResetColor();
+        }
+
+        Section("汇总");
+        Ok($"可升级 {updates.Count} 个 / 已最新 {upToDate} 个 / 未知 {unknown} 个");
+
+        if (updates.Count > 0)
+        {
+            Dim("升级功能将在下一步接入界面（含下载新版、旧版移入 .trash）");
+        }
+
+        return 0;
+    }
+
     // ------------------------------------------------------------ settings
 
     private static async Task<int> SettingsAsync(string[] args)
@@ -1369,6 +1541,11 @@ internal static class Program
             网络:
               npmc net selftest [--version 1.20.1] [--samples 3] [--dry-run]
                                                       实测官方与镜像当前谁更快，结论写入 settings.json
+
+            模组:
+              npmc mods check [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease]
+                                                      按 SHA1 反查 Modrinth，按游戏版本与加载器
+                                                      判断哪些模组有新版本
 
             示例:
               npmc probe   1.20.1 --root .\data
