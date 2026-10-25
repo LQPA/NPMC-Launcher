@@ -120,7 +120,6 @@ internal static class Program
     {
         var versionId = Required(args);
         var paths = new LauncherPaths(ResolveRoot(args));
-        var withAssets = Has(args, "--with-assets");
 
         using var http = HttpFileDownloader.CreateClient();
         var downloader = new HttpFileDownloader(http);
@@ -203,40 +202,35 @@ internal static class Program
             CountSource($"assetIndex {index.Id}", indexOutcome);
             Info($"{index.Id}.json  总 {Mb(index.TotalSize)}");
 
-            if (withAssets)
+            // 资源对象**总是**下载：没有它们连游戏都进不去（字体/语言/声音都缺）。
+            // 早先是可选的，结果很容易装出一个"能启动但一片空白"的版本。
+            Section("assets 对象");
+            var assetInstaller = new AssetInstaller(downloader, router);
+
+            var lastReport = 0;
+            var assetProgress = new Progress<AssetProgress>(p =>
             {
-                Section("assets 对象");
-                var assetInstaller = new AssetInstaller(downloader, router);
+                // 3598 个文件逐条打印太吵：按 200 个一档汇报，并同时显示新增字节数
+                if (p.Completed - lastReport < 200 && p.Completed != p.Total) return;
+                lastReport = p.Completed;
+                Dim($"{p.Completed}/{p.Total}  新增 {p.BytesDownloaded / 1024d / 1024d:N1} MB");
+            });
 
-                var lastReport = 0;
-                var assetProgress = new Progress<AssetProgress>(p =>
-                {
-                    // 3598 个文件逐条打印太吵：按 200 个一档汇报，并同时显示新增字节数
-                    if (p.Completed - lastReport < 200 && p.Completed != p.Total) return;
-                    lastReport = p.Completed;
-                    Dim($"{p.Completed}/{p.Total}  新增 {p.BytesDownloaded / 1024d / 1024d:N1} MB");
-                });
+            var assetResult = await assetInstaller.InstallAsync(
+                paths, index.Id, concurrency: launcherSettings.DownloadConcurrency, progress: assetProgress);
 
-                var assetResult = await assetInstaller.InstallAsync(
-                    paths, index.Id, concurrency: launcherSettings.DownloadConcurrency, progress: assetProgress);
+            Info($"对象       {assetResult.Total} 个");
+            Info($"新下载     {assetResult.Downloaded} 个 / {assetResult.BytesDownloaded / 1024d / 1024d:N1} MB");
+            Info($"已存在跳过 {assetResult.Skipped} 个");
 
-                Info($"对象       {assetResult.Total} 个");
-                Info($"新下载     {assetResult.Downloaded} 个 / {assetResult.BytesDownloaded / 1024d / 1024d:N1} MB");
-                Info($"已存在跳过 {assetResult.Skipped} 个");
-
-                if (assetResult.Failures.Count > 0)
-                {
-                    Error($"失败 {assetResult.Failures.Count} 个:");
-                    foreach (var f in assetResult.Failures.Take(10)) Dim(f);
-                }
-                else
-                {
-                    Ok("资源对象全部就绪");
-                }
+            if (assetResult.Failures.Count > 0)
+            {
+                Error($"失败 {assetResult.Failures.Count} 个:");
+                foreach (var f in assetResult.Failures.Take(10)) Dim(f);
             }
             else
             {
-                Warn("已跳过资源对象下载（加 --with-assets 才会下），游戏材质会缺失");
+                Ok("资源对象全部就绪");
             }
         }
 
@@ -1872,7 +1866,9 @@ internal static class Program
             用法:
               npmc probe   <版本>    [--root <目录>] [--memory <MB>]
                                      只组装参数并打印，不下载大文件、不启动游戏
-              npmc install <版本>    [--root <目录>] [--with-assets] [--source official|bmclapi]
+              npmc install <版本>    [--root <目录>] [--source official|bmclapi]
+                                                      下载版本（client.jar / 库 / log4j / 资源对象）
+                                                      资源对象总是下载：缺了游戏进不去
                                      下载 client jar / libraries / log4j 配置 / assetIndex
               npmc runtime <组件名>  [--root <目录>] [--platform windows-x64] [--concurrency 12]
                                      安装 Mojang 官方 Java 运行时到 <root>\runtime\<组件名>\
