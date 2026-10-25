@@ -408,6 +408,7 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | **`OpenProcess` 部分受限** | 受限模式下：对自身 PID 设置 `EnableRaisingEvents`、用 CIM 查父进程都返回"拒绝访问"，testhost 因此崩溃。提权后：**打开自身进程句柄恢复可用**，但 testhost 打开**父进程**句柄仍然失败 | 用 `npmc doctor` 实测当前环境（它直接报告"进程句柄 可用/被禁止"）。真实用户环境是 Medium 完整性，不受此限；本机已实测游戏进程的 `WaitForExitAsync` 在提权下可正常工作 |
 | **自建 apphost 被降权到 Low 完整性** | 双击或从任意终端启动 `NPMC.Launcher.App.exe`，进程令牌都是 `S-1-16-4096`（Low），即使父进程是 Medium 的 PowerShell 或 Explorer。Low 会**同时**禁掉 `SHOpenFolderAndSelectItems`（`0x80070005`）、ShellExecute（"拒绝访问"）和 explorer.exe（`0xC0000142`），于是"打开文件夹"必然失败。显式 `asInvoker` 清单、自签名证书**都改变不了**这一点 | **改用 `dotnet NPMC.Launcher.App.dll` 启动**：`dotnet.exe` 是微软签名的，托管进程随之获得 Medium，一切正常。仓库根的 `launch.cmd` 就是这条命令的封装 |
 | **未签名 exe 触发 SmartScreen** | 自建 exe 每次启动弹「Windows 已保护你的电脑」。自签名 + 导入受信任存储后，弹窗里的发行者由"未知发布者"变成证书名（说明签名链路有效），但**仍然拦截** —— SmartScreen 还有一层**信誉**判定，自签名证书永远拿不到信誉 | 自签名只能消除"未知发布者"，无法通过信誉检查。实际可用的做法是走 `dotnet` 宿主（`dotnet.exe` 已受信任），或每次点「仍要运行」；要真正发布则需 OV/EV 代码签名证书（EV 要企业资质） |
+| **PowerShell 双引号吃掉 CurseForge key** | CurseForge 的 API key 形如 `$2a$10$...`（bcrypt 格式）。用 `setx X "$2a$10$..."` 设置时，双引号里的 `$Jjcs...` 会被 PowerShell 当成变量展开成空串，key 被静默改坏；之后 .NET 只在发请求时抛 `Request headers must contain only ASCII characters`，完全指不到根因 | 用**单引号**：`setx CURSEFORGE_API_KEY '$2a$10$...'`，或 `[Environment]::SetEnvironmentVariable('CURSEFORGE_API_KEY','$2a$10$...','User')`。`CurseForgeClient.TryResolveApiKey` 会先剔除 BOM/零宽字符并校验 ASCII，遇到非 ASCII 直接给出"请用单引号"的提示 |
 
 ---
 
