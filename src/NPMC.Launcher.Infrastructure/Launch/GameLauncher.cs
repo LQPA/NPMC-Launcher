@@ -33,11 +33,59 @@ public sealed record PreparedLaunch
 public static class GameLauncher
 {
     /// <summary>
-    /// 读取本地已安装的版本 JSON。启动**不应依赖网络**：
+    /// 读取本地已安装的版本 JSON，**并把 inheritsFrom 链合并掉**。启动不应依赖网络：
     /// 版本 JSON 在 install 阶段就已落盘，直接读缓存即可。
     /// </summary>
     public static async Task<VersionJson?> TryLoadInstalledVersionAsync(
         LauncherPaths paths, string versionId, CancellationToken cancellationToken = default)
+    {
+        var loaded = await LoadWithInheritanceAsync(paths, versionId, cancellationToken).ConfigureAwait(false);
+        return loaded?.Version;
+    }
+
+    /// <summary>
+    /// 实例的**游戏版本号**：沿 inheritsFrom 走到链尾。
+    ///
+    /// 为什么需要：加载器 profile 的 id 是 <c>fabric-loader-0.20.1-1.20.1</c>，
+    /// 拿它去问 Modrinth / CurseForge 的 game_versions 会一条都搜不到 ——
+    /// 那边只认 <c>1.20.1</c>。
+    /// </summary>
+    public static async Task<string> ResolveGameVersionAsync(
+        LauncherPaths paths, string versionId, CancellationToken cancellationToken = default)
+    {
+        var loaded = await LoadWithInheritanceAsync(paths, versionId, cancellationToken).ConfigureAwait(false);
+        return loaded?.RootId ?? versionId;
+    }
+
+    private static async Task<(VersionJson Version, string RootId)?> LoadWithInheritanceAsync(
+        LauncherPaths paths,
+        string versionId,
+        CancellationToken cancellationToken,
+        int depth = 0)
+    {
+        // 防止 JSON 写错成环
+        if (depth > 8) return null;
+
+        var raw = await TryLoadRawAsync(paths, versionId, cancellationToken).ConfigureAwait(false);
+        if (raw is null) return null;
+
+        if (raw.InheritsFrom is not { } parentId)
+            return (raw with { RootVersionId = raw.Id }, raw.Id);
+
+        var parent = await LoadWithInheritanceAsync(paths, parentId, cancellationToken, depth + 1)
+            .ConfigureAwait(false);
+
+        // 父版本没装：原样返回，让启动检查报"缺少 client jar"而不是给出误导性的成功
+        if (parent is null) return (raw, raw.Id);
+
+        var merged = VersionInheritance.Merge(raw, parent.Value.Version)
+                     with { RootVersionId = parent.Value.RootId };
+
+        return (merged, parent.Value.RootId);
+    }
+
+    private static async Task<VersionJson?> TryLoadRawAsync(
+        LauncherPaths paths, string versionId, CancellationToken cancellationToken)
     {
         var jsonPath = paths.VersionJson(versionId);
         if (!File.Exists(jsonPath)) return null;
@@ -71,7 +119,11 @@ public static class GameLauncher
             ? instanceSettings.MemoryMb
             : launcherSettings.DefaultMemoryMb;
 
-        var plan = LaunchPlanFactory.Create(paths, version.Id, version, context, os,
+        // client.jar、natives 与资源索引都在**根版本**目录下。
+        // 加载器 profile 自己的目录里只有那个 JSON，没有 jar —— 用它去找必然报"缺少 client jar"。
+        var rootVersionId = version.RootVersionId ?? version.Id;
+
+        var plan = LaunchPlanFactory.Create(paths, rootVersionId, version, context, os,
             memoryMb: memory,
             hasCustomResolution: !instanceSettings.Fullscreen,
             logConfigFile: logConfig,
@@ -95,11 +147,11 @@ public static class GameLauncher
         if (!File.Exists(plan.JavaPath))
             problems.Add($"缺少 Java 运行时：{plan.JavaPath}（可运行 npmc runtime {version.JavaVersion?.Component ?? "java-runtime-gamma"}）");
 
-        var clientJar = paths.ClientJar(version.Id);
+        var clientJar = paths.ClientJar(rootVersionId);
         if (!File.Exists(clientJar))
-            problems.Add($"缺少 client jar：{clientJar}（可运行 npmc install {version.Id}）");
+            problems.Add($"缺少 client jar：{clientJar}（可运行 npmc install {rootVersionId}）");
 
-        Directory.CreateDirectory(paths.NativesDir(version.Id));
+        Directory.CreateDirectory(paths.NativesDir(rootVersionId));
 
         return new PreparedLaunch
         {

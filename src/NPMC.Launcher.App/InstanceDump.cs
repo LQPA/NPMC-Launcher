@@ -64,7 +64,7 @@ internal static class InstanceDump
             viewModel.RefreshCapabilitiesAsync(first).GetAwaiter().GetResult();
 
             lines.Add("");
-            lines.Add($"[实例能力] 加载器={viewModel.DetectedLoadersText}");
+            lines.Add($"[实例能力] 加载器={viewModel.DetectedLoadersText}   游戏版本={viewModel.GameVersionText}");
             foreach (var tab in viewModel.ContentTabs)
             {
                 lines.Add($"    {tab.Title,-6} 可用={tab.IsEnabled}"
@@ -72,28 +72,36 @@ internal static class InstanceDump
             }
         }
 
-        if (first is not null)
+        // 优先验证加载器实例：它最能暴露 inheritsFrom 没合并的问题
+        var launchTarget = viewModel.Instances.FirstOrDefault(item =>
+                               item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
+                           ?? first;
+
+        if (launchTarget is not null)
         {
             var paths = new LauncherPaths(root);
-            var version = GameLauncher.TryLoadInstalledVersionAsync(paths, first.VersionId)
+            var version = GameLauncher.TryLoadInstalledVersionAsync(paths, launchTarget.VersionId)
                 .GetAwaiter().GetResult();
 
             lines.Add("");
             if (version is null)
             {
-                lines.Add($"[启动准备] 版本 {first.VersionId} 未安装（缺少 version json）");
+                lines.Add($"[启动准备] 版本 {launchTarget.VersionId} 未安装（缺少 version json）");
             }
             else
             {
-                var prepared = GameLauncher.Prepare(paths, first.Model, version, new LauncherSettings());
+                var prepared = GameLauncher.Prepare(paths, launchTarget.Model, version, new LauncherSettings());
 
-                lines.Add($"[启动准备] 可启动={prepared.CanLaunch}");
+                lines.Add($"[启动准备] 实例={launchTarget.Name}  可启动={prepared.CanLaunch}");
+                lines.Add($"    版本       = {version.Id}");
+                lines.Add($"    根版本     = {version.RootVersionId ?? "(自身)"}");
+                lines.Add($"    mainClass  = {version.MainClass}");
+                lines.Add($"    库         = {version.Libraries.Count} 个");
                 lines.Add($"    java       = {prepared.Plan.JavaPath}");
-                lines.Add($"    memory     = {prepared.Plan.JvmArguments.FirstOrDefault(a => a.StartsWith("-Xmx", StringComparison.Ordinal))}");
                 lines.Add($"    workingDir = {prepared.Plan.WorkingDirectory}");
                 lines.Add($"    jvmArgs    = {prepared.Plan.JvmArguments.Count}");
                 lines.Add($"    gameArgs   = {prepared.Plan.GameArguments.Count}");
-                lines.Add($"    latestLog  = {prepared.LatestLog}");
+                lines.Add($"    classpath  = {prepared.Plan.JvmArguments.FirstOrDefault(a => a.Contains(".jar"))?.Split(';').Length} 项");
 
                 foreach (var problem in prepared.Problems) lines.Add($"    问题: {problem}");
             }
@@ -158,6 +166,17 @@ internal static class InstanceDump
         // 验证"搜索 → 依赖计划"链路（联网，但不下载）
         if (args.Any(arg => string.Equals(arg, "--exercise-search", StringComparison.OrdinalIgnoreCase)))
         {
+            // 优先选加载器实例：那才是最容易踩"用 profile 名当游戏版本"坑的场景
+            var target = viewModel.Instances.FirstOrDefault(item =>
+                             item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
+                         ?? viewModel.Instances.FirstOrDefault();
+
+            if (target is not null)
+            {
+                viewModel.SelectedInstance = target;
+                viewModel.RefreshCapabilitiesAsync(target).GetAwaiter().GetResult();
+            }
+
             viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
             viewModel.SearchForDiagnosticsAsync("sodium").GetAwaiter().GetResult();
 

@@ -146,6 +146,15 @@ public sealed record VersionJson
     [JsonPropertyName("javaVersion")] public JavaVersionInfo? JavaVersion { get; init; }
     [JsonPropertyName("logging")] public LoggingInfo? Logging { get; init; }
     [JsonPropertyName("minimumLauncherVersion")] public int MinimumLauncherVersion { get; init; }
+
+    /// <summary>
+    /// 合并 inheritsFrom 之后记下的"根版本号"——即 client.jar、natives 与资源索引所在的版本目录。
+    ///
+    /// 加载器（Fabric 等）的 profile 只写差异，真正的 jar 与其资源都在父版本目录下。
+    /// 不记这个值，启动时就会去 profile 自己的目录找 client.jar，然后报"缺少 client jar"。
+    /// </summary>
+    [JsonIgnore]
+    public string? RootVersionId { get; init; }
 }
 
 public static class VersionJsonSerializer

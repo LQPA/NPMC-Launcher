@@ -1176,6 +1176,7 @@ internal static class Program
     private sealed record ModTarget(
         LauncherPaths Paths,
         string VersionId,
+        string GameVersion,
         string GameDirectory,
         string ModsDirectory,
         IReadOnlyList<string> Loaders,
@@ -1212,9 +1213,13 @@ internal static class Program
             ? Array.Empty<string>()
             : LoaderDetector.Detect(version);
 
+        // 查询模组平台要用游戏版本号；加载器 profile 名（fabric-loader-...）在平台上查不到任何东西
+        var gameVersion = await GameLauncher.ResolveGameVersionAsync(paths, versionId);
+
         return new ModTarget(
             paths,
             versionId,
+            gameVersion,
             gameDirectory,
             Path.Combine(gameDirectory, "mods"),
             loaders,
@@ -1279,7 +1284,7 @@ internal static class Program
 
         Section($"搜索 “{query}”");
         Info($"类型     {kind.DisplayName()}");
-        Info($"版本     {target.VersionId}");
+        Info($"版本     {target.GameVersion}{(target.GameVersion == target.VersionId ? "" : $"（实例版本 {target.VersionId}）")}");
         Info($"加载器   {(loaders.Count > 0 ? string.Join(", ", loaders) : "不按加载器过滤")}");
 
         using var http = HttpFileDownloader.CreateClient();
@@ -1299,7 +1304,7 @@ internal static class Program
             }
 
             var curseForge = new CurseForgeClient(http, apiKey);
-            var cfHits = await curseForge.SearchAsync(query, target.VersionId, loaders, limit, classId);
+            var cfHits = await curseForge.SearchAsync(query, target.GameVersion, loaders, limit, classId);
 
             if (cfHits.Count == 0)
             {
@@ -1316,7 +1321,7 @@ internal static class Program
 
         var client = new ModrinthClient(http);
         var hits = await client.SearchAsync(
-            query, target.VersionId, loaders, limit, kind.ModrinthProjectType());
+            query, target.GameVersion, loaders, limit, kind.ModrinthProjectType());
 
         if (hits.Count == 0)
         {
@@ -1358,7 +1363,7 @@ internal static class Program
         var installer = ModInstaller.Create(http);
 
         Section($"安装 {project}（{kind.DisplayName()}）");
-        Info($"版本     {target.VersionId}");
+        Info($"版本     {target.GameVersion}{(target.GameVersion == target.VersionId ? "" : $"（实例版本 {target.VersionId}）")}");
         Info($"加载器   {(loaders.Count > 0 ? string.Join(", ", loaders) : "不按加载器过滤")}");
         Info($"目录     {installDirectory}");
 
@@ -1367,7 +1372,7 @@ internal static class Program
         {
             plan = await installer.ResolveAsync(
                 project!,
-                target.VersionId,
+                target.GameVersion,
                 loaders,
                 Has(args, "--prerelease"),
                 Has(args, "--latest-deps"));
@@ -1541,6 +1546,11 @@ internal static class Program
         var version = await GameLauncher.TryLoadInstalledVersionAsync(paths, versionId);
         IReadOnlyList<string> loaders = version is null ? Array.Empty<string>() : LoaderDetector.Detect(version);
 
+        // 查询平台要用游戏版本号；加载器 profile 名在平台上是查不到的
+        var gameVersion = await GameLauncher.ResolveGameVersionAsync(paths, versionId);
+        if (!string.Equals(gameVersion, versionId, StringComparison.OrdinalIgnoreCase))
+            Info($"游戏版本 {gameVersion}（实例版本 {versionId}）");
+
         if (version is null) Warn("本地没有安装该版本，无法判断加载器（将不按加载器过滤）");
         Info($"加载器   {(loaders.Count > 0 ? string.Join(", ", loaders) : "原版 / 未知")}");
 
@@ -1561,7 +1571,7 @@ internal static class Program
 
         var report = await service.CheckAsync(
             mods.Select(mod => mod.Path).ToList(),
-            versionId,
+            gameVersion,
             loaders,
             withPrerelease,
             curseForgeOnly);

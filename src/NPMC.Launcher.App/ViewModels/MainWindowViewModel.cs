@@ -263,6 +263,14 @@ public sealed class MainWindowViewModel : ObservableObject
     public string DetectedLoadersText =>
         _detectedLoaders.Count == 0 ? "无（原版）" : string.Join(", ", _detectedLoaders);
 
+    private string _gameVersion = "";
+
+    /// <summary>
+    /// 真正用于查询模组平台的游戏版本号。
+    /// 加载器实例的 VersionId 是 fabric-loader-0.20.1-1.20.1，而平台只认 1.20.1。
+    /// </summary>
+    public string GameVersionText => _gameVersion;
+
     /// <summary>
     /// 重新计算实例能力并刷新页签可用性。
     ///
@@ -274,6 +282,8 @@ public sealed class MainWindowViewModel : ObservableObject
     public async Task RefreshCapabilitiesAsync(InstanceListItem instance)
     {
         var loaders = await DetectLoadersAsync(instance);
+        _gameVersion = await ResolveGameVersionAsync(instance);
+        OnPropertyChanged(nameof(GameVersionText));
 
         var hasShaderProvider = false;
         try
@@ -938,6 +948,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
             Status = $"正在检查 {items.Count} 个模组（Modrinth{( _updateService.CurseForgeEnabled ? " + CurseForge" : "") }）…";
 
+            // 查询要用**游戏版本号**（1.20.1），不是加载器 profile 名（fabric-loader-...）
+            var gameVersion = await ResolveGameVersionAsync(instance);
+
             // 加载器：不按加载器过滤会把 Fabric 版本推给 Forge 整合包
             IReadOnlyList<string> loaders = Array.Empty<string>();
             var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
@@ -945,7 +958,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             var report = await _updateService.CheckAsync(
                 items.Select(item => item.Entry.Path).ToList(),
-                instance.VersionId,
+                gameVersion,
                 loaders);
 
             // 就地贴到行上，不重建列表（升级提示 + 识别来源）
@@ -1061,6 +1074,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private InstallVersionChoice? _selectedInstallVersion;
     private IReadOnlyList<string> _pendingLoaders = Array.Empty<string>();
     private ContentKind _pendingKind = ContentKind.Mod;
+    private string _pendingGameVersion = "";
 
     /// <summary>该项目在当前游戏版本下可安装的所有版本。</summary>
     public ObservableCollection<InstallVersionChoice> InstallVersions { get; } = new();
@@ -1238,6 +1252,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
             var source = SelectedSearchSource;
 
+            // 搜索要用游戏版本号（1.20.1）；实例版本可能是 fabric-loader-0.20.1-1.20.1
+            var gameVersion = await ResolveGameVersionAsync(instance);
+
             if (source == UpdateSource.CurseForge && !IsCurseForgeSearchAvailable)
             {
                 SearchSummaryText = "CurseForge 搜索需要配置 CURSEFORGE_API_KEY";
@@ -1259,7 +1276,7 @@ public sealed class MainWindowViewModel : ObservableObject
             if (source == UpdateSource.CurseForge)
             {
                 var hits = await _curseForge!.SearchAsync(
-                    query, instance.VersionId, loaders, 8, kind.CurseForgeClassId()!.Value);
+                    query, gameVersion, loaders, 8, kind.CurseForgeClassId()!.Value);
 
                 foreach (var hit in hits)
                 {
@@ -1275,7 +1292,7 @@ public sealed class MainWindowViewModel : ObservableObject
             else
             {
                 var hits = await _modrinth.SearchAsync(
-                    query, instance.VersionId, loaders, 8, kind.ModrinthProjectType());
+                    query, gameVersion, loaders, 8, kind.ModrinthProjectType());
 
                 foreach (var hit in hits)
                 {
@@ -1295,9 +1312,9 @@ public sealed class MainWindowViewModel : ObservableObject
             IsSearchPanelExpanded = true;
 
             SearchSummaryText = SearchResults.Count == 0
-                ? $"{source} 上没有找到适用于 {instance.VersionId} 的{kind.DisplayName()}"
+                ? $"{source} 上没有找到适用于 {gameVersion} 的{kind.DisplayName()}"
                 : $"找到 {SearchResults.Count} 个{kind.DisplayName()}"
-                  + $"（{source} · {instance.VersionId}"
+                  + $"（{source} · {gameVersion}"
                   + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + "）";
 
             Status = SearchSummaryText;
@@ -1326,13 +1343,17 @@ public sealed class MainWindowViewModel : ObservableObject
                 ? await DetectLoadersAsync(instance)
                 : Array.Empty<string>();
 
+            // 解析项目版本、装依赖，用的都是**游戏版本号**，不是加载器 profile 名
+            var gameVersion = await ResolveGameVersionAsync(instance);
+            _pendingGameVersion = gameVersion;
+
             Status = $"正在查询 {item.Title} 的可用版本…";
 
-            var choices = await LoadVersionChoicesAsync(item, instance.VersionId, loaders);
+            var choices = await LoadVersionChoicesAsync(item, gameVersion, loaders);
 
             if (choices.Count == 0)
             {
-                Status = $"{item.Title} 没有适用于 {instance.VersionId} 的版本";
+                Status = $"{item.Title} 没有适用于 {gameVersion} 的版本";
                 return;
             }
 
@@ -1414,7 +1435,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
                 plan = await _curseForgeInstaller.ResolveAsync(
                     modId,
-                    instance.VersionId,
+                    _pendingGameVersion,
                     _pendingLoaders,
                     includeDependencies: _pendingKind.HasDependencies(),
                     rootTitle: item.Title,
@@ -1424,7 +1445,7 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 plan = await _installer.ResolveAsync(
                     item.ProjectRef,
-                    instance.VersionId,
+                    _pendingGameVersion,
                     _pendingLoaders,
                     versionId: choice.Ref);
             }
@@ -1533,6 +1554,13 @@ public sealed class MainWindowViewModel : ObservableObject
         var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
         return version is null ? Array.Empty<string>() : LoaderDetector.Detect(version);
     }
+
+    /// <summary>
+    /// 实例的**游戏版本号**（如 1.20.1），沿 inheritsFrom 解析。
+    /// 直接用实例的 VersionId 去问 Modrinth 是不行的 —— 那可能是 fabric-loader-0.20.1-1.20.1。
+    /// </summary>
+    private Task<string> ResolveGameVersionAsync(InstanceListItem instance)
+        => GameLauncher.ResolveGameVersionAsync(_launcher, instance.VersionId);
 
     // ---- 导航与下载页 ----
 
