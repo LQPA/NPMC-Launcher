@@ -1,4 +1,5 @@
 using NPMC.Launcher.App.ViewModels;
+using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Paths;
 
 namespace NPMC.Launcher.App;
@@ -8,8 +9,8 @@ namespace NPMC.Launcher.App;
 ///
 /// 为什么需要它：
 ///   界面没法在无图形的方式下核对（截图只能靠人看）。这个开关走的是**和界面完全相同**的
-///   ViewModel 加载路径，因此能验证「实例 JSON → 列表项投影」这段是否真的对，
-///   而不需要启动窗口。
+///   ViewModel 加载路径，因此能验证「实例 JSON → 列表项投影」以及「内容目录 → 内容条目」
+///   这两段是否真的对，而不需要启动窗口。
 ///
 /// 用法：
 ///   NPMC.Launcher.App.exe --dump-instances out.txt --root D:\path\to\launcher
@@ -51,7 +52,26 @@ internal static class InstanceDump
             lines.Add($"    gameDir   = {item.GameDirectory}");
         }
 
+        // 逐个页签走一遍刷新，验证内容扫描这条链路
+        foreach (var kind in new[] { ContentKind.Mod, ContentKind.ResourcePack, ContentKind.ShaderPack })
+        {
+            viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.Kind == kind);
+            viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+
+            lines.Add("");
+            lines.Add($"[{kind.DisplayName()}] {viewModel.Content.Count} 个条目  目录={CurrentDirectory(viewModel, kind)}");
+
+            foreach (var entry in viewModel.Content)
+            {
+                lines.Add($"    {entry.StatusText}  {entry.Name}");
+                lines.Add($"        {entry.MetaText}");
+            }
+        }
+
         File.WriteAllLines(outputPath, lines);
         return true;
     }
+
+    private static string CurrentDirectory(MainWindowViewModel viewModel, ContentKind kind)
+        => viewModel.SelectedInstance?.DirectoryFor(kind) ?? "(无选中实例)";
 }
