@@ -1,4 +1,4 @@
-using NPMC.Launcher.App.ViewModels;
+﻿using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
@@ -20,6 +20,15 @@ namespace NPMC.Launcher.App;
 internal static class InstanceDump
 {
     private const string Option = "--dump-instances";
+
+    /// <summary>诊断：解析一个本地整合包文件（--exercise-modpack &lt;路径&gt;）。</summary>
+    private static string? ModpackPath(string[] args)
+    {
+        var index = Array.FindIndex(args, arg =>
+            string.Equals(arg, "--exercise-modpack", StringComparison.OrdinalIgnoreCase));
+
+        return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
 
     /// <summary>是否请求了 dump 模式（用于在入口处先初始化渲染平台）。</summary>
     public static bool IsDumpRequested(string[] args) =>
@@ -350,6 +359,19 @@ internal static class InstanceDump
                               + $"按钮可用 = {viewModel.DownloadCommand.CanExecute(null)}");
                 }
             }
+        }
+
+        // 验证整合包解析（本地文件；不安装）
+        if (ModpackPath(args) is { } modpackPath)
+        {
+            viewModel.LoadModpackFileAsync(modpackPath).GetAwaiter().GetResult();
+
+            lines.Add("");
+            lines.Add("[整合包]");
+            lines.Add($"    标题   = {viewModel.ModpackTitle}");
+            lines.Add($"    摘要   = {viewModel.ModpackSummary}");
+            lines.Add($"    状态   = {viewModel.ModpackStatus}");
+            lines.Add($"    可安装 = {viewModel.InstallModpackCommand.CanExecute(null)}");
         }
 
         File.WriteAllLines(outputPath, lines);

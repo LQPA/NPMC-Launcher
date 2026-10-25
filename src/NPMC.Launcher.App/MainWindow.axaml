@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NPMC.Launcher.App.ViewModels"
         xmlns:mc="using:NPMC.Launcher.Infrastructure.Minecraft"
@@ -522,7 +522,7 @@
       </Grid>
 
       <!-- ================= 下载页：左边版本列表 ================= -->
-      <Grid Grid.Column="1" Background="#1B1D23" IsVisible="{Binding IsDownloadsPage}">
+      <Grid Grid.Column="1" Background="#1B1D23" IsVisible="{Binding ShowVersionList}">
         <Grid RowDefinitions="Auto,*">
           <StackPanel Grid.Row="0" Spacing="8" Margin="12,14,12,6">
             <TextBlock Text="可下载版本" FontSize="13" Foreground="#B4BCC8" />
@@ -552,8 +552,8 @@
       </Grid>
 
       <!-- ================= 下载页：右边详情与操作 ================= -->
-      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
-            IsVisible="{Binding IsDownloadsPage}">
+      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,58,24,20"
+            IsVisible="{Binding IsVersionsMode}">
         <StackPanel Grid.Row="0" Spacing="4">
           <TextBlock Text="{Binding SelectedDownloadVersion.Id}" FontSize="22" FontWeight="SemiBold"
                      Foreground="#E8EAED" />
@@ -614,6 +614,76 @@
         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">
           <Button Content="下载并创建实例" Command="{Binding DownloadCommand}"
                   IsEnabled="{Binding !IsDownloading}" />
+        </StackPanel>
+      </Grid>
+
+      <!-- 下载页区域切换（两个区域共用） -->
+      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                  VerticalAlignment="Top" Margin="24,20,24,0"
+                  IsVisible="{Binding IsDownloadsPage}">
+        <Button Command="{Binding ShowVersionsModeCommand}" BorderThickness="0" Padding="14,6"
+                Background="{Binding VersionsModeBackground}">
+          <TextBlock Text="游戏版本" FontSize="12" Foreground="{Binding VersionsModeForeground}" />
+        </Button>
+        <Button Command="{Binding ShowModpacksModeCommand}" BorderThickness="0" Padding="14,6"
+                Background="{Binding ModpacksModeBackground}">
+          <TextBlock Text="整合包" FontSize="12" Foreground="{Binding ModpacksModeForeground}" />
+        </Button>
+      </StackPanel>
+
+      <!-- 下载页：整合包（本地 .mrpack，可选择或拖入） -->
+      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,58,24,20"
+            IsVisible="{Binding IsModpacksMode}">
+        <StackPanel Grid.Row="0" Spacing="4">
+          <TextBlock Text="整合包" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
+          <TextBlock Text="选择一个 .mrpack 文件，或直接把它拖到下面的框里"
+                     FontSize="12" Foreground="#949CA9" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
+          <StackPanel Spacing="14">
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="24" MinHeight="170"
+                    DragDrop.AllowDrop="True"
+                    DragDrop.DragOver="OnModpackDragOver"
+                    DragDrop.Drop="OnModpackDrop">
+              <StackPanel Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="把 .mrpack 拖到这里" FontSize="13" Foreground="#B4BCC8"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="或者" FontSize="11" Foreground="#6E7684" HorizontalAlignment="Center" />
+                <Button Content="选择文件…" Click="OnPickModpackClick"
+                        HorizontalAlignment="Center" Padding="14,6" />
+              </StackPanel>
+            </Border>
+
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16" IsVisible="{Binding HasModpackPlan}">
+              <StackPanel Spacing="6">
+                <TextBlock Text="{Binding ModpackTitle}" FontSize="13" FontWeight="SemiBold"
+                           Foreground="#E8EAED" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding ModpackSummary}" FontSize="11" Foreground="#949CA9"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="安装会下载对应的游戏本体与加载器，并把文件与覆盖层写进新实例。"
+                           FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="6">
+                <TextBlock Text="状态" FontSize="12" Foreground="#B4BCC8" />
+                <TextBlock Text="{Binding ModpackStatus}" FontSize="11" Foreground="#B4BCC8"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="{Binding ModpackProgress}" FontSize="11" Foreground="#7BC47F"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">
+          <Button Content="安装整合包" Command="{Binding InstallModpackCommand}"
+                  IsEnabled="{Binding !IsInstallingModpack}" />
         </StackPanel>
       </Grid>
     </Grid>

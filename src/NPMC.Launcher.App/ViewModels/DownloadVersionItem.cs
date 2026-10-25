@@ -9,6 +9,13 @@ public enum NavPage
     Downloads = 1,
 }
 
+/// <summary>下载页的两个区域。</summary>
+public enum DownloadMode
+{
+    Versions = 0,
+    Modpacks = 1,
+}
+
 /// <summary>下载页里的一个可选版本。</summary>
 public sealed class DownloadVersionItem
 {

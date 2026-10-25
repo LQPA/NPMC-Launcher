@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using Avalonia.Media.Imaging;
 using System.Text;
 using System.Windows.Input;
@@ -16,6 +16,7 @@ using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Modrinth;
 using NPMC.Launcher.Infrastructure.Mods;
+using NPMC.Launcher.Infrastructure.Modpacks;
 using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Storage;
 using NPMC.Launcher.Infrastructure.Translation;
@@ -111,6 +112,12 @@ public sealed class MainWindowViewModel : ObservableObject
         ShowDownloadsCommand = new RelayCommand(() => Navigate(NavPage.Downloads));
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
         OpenDetailInBrowserCommand = new RelayCommand(OpenDetailInBrowser);
+
+        ShowVersionsModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Versions));
+        ShowModpacksModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Modpacks));
+        InstallModpackCommand = new AsyncRelayCommand(
+            InstallModpackAsync,
+            () => HasModpackPlan && !IsInstallingModpack);
 
         RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
 
@@ -2250,6 +2257,7 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(DownloadsNavBackground));
         OnPropertyChanged(nameof(InstancesNavForeground));
         OnPropertyChanged(nameof(DownloadsNavForeground));
+        OnPropertyChanged(nameof(ShowVersionList));
 
         if (page == NavPage.Downloads) _ = LoadDownloadVersionsAsync();
     }
@@ -2389,6 +2397,237 @@ public sealed class MainWindowViewModel : ObservableObject
         var source = VersionManifestSource.Create(router, _downloader);
 
         return new MinecraftInstaller(_downloader, router, source, settings.DownloadConcurrency);
+    }
+
+    // ---- 下载页：区域切换与本地整合包 ----
+
+    private DownloadMode _downloadMode = DownloadMode.Versions;
+    private ModpackPlan? _modpackPlan;
+    private bool _isInstallingModpack;
+    private string _modpackStatus = "选择一个 .mrpack 文件，或直接把它拖到这里";
+    private string _modpackProgress = "";
+
+    public bool IsVersionsMode => _downloadMode == DownloadMode.Versions;
+
+    public bool IsModpacksMode => _downloadMode == DownloadMode.Modpacks;
+
+    /// <summary>下载页左侧版本列表只在"游戏版本"区域显示。</summary>
+    public bool ShowVersionList => IsDownloadsPage && IsVersionsMode;
+
+    public string VersionsModeBackground => IsVersionsMode ? "#2B3A55" : "Transparent";
+
+    public string ModpacksModeBackground => IsModpacksMode ? "#2B3A55" : "Transparent";
+
+    public string VersionsModeForeground => IsVersionsMode ? "#DCE4F5" : "#949CA9";
+
+    public string ModpacksModeForeground => IsModpacksMode ? "#DCE4F5" : "#949CA9";
+
+    public ICommand ShowVersionsModeCommand { get; }
+    public ICommand ShowModpacksModeCommand { get; }
+    public ICommand InstallModpackCommand { get; }
+
+    /// <summary>整合包状态行（选择文件后显示解析结果）。</summary>
+    public string ModpackStatus
+    {
+        get => _modpackStatus;
+        private set => SetProperty(ref _modpackStatus, value);
+    }
+
+    public string ModpackProgress
+    {
+        get => _modpackProgress;
+        private set => SetProperty(ref _modpackProgress, value);
+    }
+
+    public bool IsInstallingModpack
+    {
+        get => _isInstallingModpack;
+        private set
+        {
+            if (!SetProperty(ref _isInstallingModpack, value)) return;
+            (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public bool HasModpackPlan => _modpackPlan is not null;
+
+    public string ModpackTitle => _modpackPlan?.Name ?? "尚未选择整合包";
+
+    /// <summary>解析出来的关键信息：游戏版本、加载器、文件数、大小。</summary>
+    public string ModpackSummary => _modpackPlan is not { } plan
+        ? ""
+        : $"游戏版本 {plan.Index.GameVersion} · 加载器 {plan.Index.LoaderText}"
+          + $" · {plan.Index.Files.Count} 个文件（{plan.Index.ModCount} 个模组）"
+          + $" · 约 {plan.Index.TotalBytes / 1024d / 1024d:N0} MB"
+          + (plan.VersionLabel.Length > 0 ? $" · 版本 {plan.VersionLabel}" : "");
+
+    private void SetDownloadMode(DownloadMode mode)
+    {
+        if (_downloadMode == mode) return;
+
+        _downloadMode = mode;
+
+        OnPropertyChanged(nameof(IsVersionsMode));
+        OnPropertyChanged(nameof(IsModpacksMode));
+        OnPropertyChanged(nameof(ShowVersionList));
+        OnPropertyChanged(nameof(VersionsModeBackground));
+        OnPropertyChanged(nameof(ModpacksModeBackground));
+        OnPropertyChanged(nameof(VersionsModeForeground));
+        OnPropertyChanged(nameof(ModpacksModeForeground));
+    }
+
+    /// <summary>界面侧的错误（例如拖入的不是 .mrpack）也要能显示出来。</summary>
+    public void ReportModpackFailure(string message) => ModpackStatus = message;
+
+    /// <summary>
+    /// 载入本地整合包（文件对话框或拖入都会走这里）。
+    /// 只解析、不安装 —— 先给用户看清楚"这是什么包、要什么版本"。
+    /// </summary>
+    public async Task LoadModpackFileAsync(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || IsInstallingModpack) return;
+
+        try
+        {
+            ModpackStatus = $"正在解析 {Path.GetFileName(path)}…";
+            ModpackProgress = "";
+
+            var installer = CreateModpackInstaller();
+            var plan = await installer.PrepareFromFileAsync(
+                path,
+                Path.Combine(_launcher.Root, "cache", "modpacks"));
+
+            _modpackPlan = plan;
+
+            OnPropertyChanged(nameof(HasModpackPlan));
+            OnPropertyChanged(nameof(ModpackTitle));
+            OnPropertyChanged(nameof(ModpackSummary));
+            (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+
+            ModpackStatus = plan.Problems.Count == 0
+                ? $"已就绪：{plan.Name}"
+                : $"已就绪：{plan.Name}（{plan.Problems.Count} 个覆盖层条目无法解压）";
+        }
+        catch (Exception ex)
+        {
+            _modpackPlan = null;
+
+            OnPropertyChanged(nameof(HasModpackPlan));
+            OnPropertyChanged(nameof(ModpackTitle));
+            OnPropertyChanged(nameof(ModpackSummary));
+            (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+
+            ModpackStatus = $"无法读取该文件：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"解析整合包失败 {path} → {ex.GetBaseException().Message}");
+        }
+    }
+
+    private ModpackInstaller CreateModpackInstaller()
+        => new(_downloader, _modrinth);
+
+    /// <summary>
+    /// 安装本地整合包：本体 → 加载器 → 建实例 → 文件与覆盖层。
+    ///
+    /// 顺序很重要：实例必须先存在，文件才有地方放；而本体与加载器是共享的，
+    /// 装一次即可被多个实例复用。
+    /// </summary>
+    private async Task InstallModpackAsync()
+    {
+        if (_modpackPlan is not { } plan || IsInstallingModpack) return;
+
+        var gameVersion = plan.Index.GameVersion;
+        if (string.IsNullOrWhiteSpace(gameVersion))
+        {
+            ModpackStatus = "该整合包没有声明游戏版本，无法安装";
+            return;
+        }
+
+        IsInstallingModpack = true;
+
+        try
+        {
+            var progress = new Progress<string>(message => ModpackProgress = message);
+
+            ModpackStatus = $"正在下载游戏本体 {gameVersion}…";
+            var installer = await CreateMinecraftInstallerAsync();
+            var version = await installer.LoadVersionAsync(_launcher, gameVersion);
+            await installer.InstallAsync(_launcher, gameVersion, version);
+
+            var instanceVersion = gameVersion;
+
+            if (plan.Index.IsFabric)
+            {
+                ModpackStatus = $"正在安装 Fabric {plan.Index.LoaderVersion}…";
+
+                var fabric = new FabricLoaderInstaller(_http);
+                var fabricResult = await fabric.InstallAsync(
+                    _launcher, gameVersion, plan.Index.LoaderVersion, _downloader);
+
+                instanceVersion = fabricResult.ProfileId;
+            }
+            else if (plan.Index.LoaderName is { } otherLoader)
+            {
+                ModpackStatus = $"该整合包需要 {otherLoader}，目前只能自动安装 Fabric；"
+                                + "将按原版创建，加载器需另行安装。";
+            }
+
+            // 建实例（名字重名时自动加序号）
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+
+            var name = UniqueName(catalog, plan.Name);
+            var instance = catalog.Add(name, instanceVersion);
+            await store.SaveAsync(catalog.Instances);
+
+            ModpackStatus = $"正在写入整合包文件（{plan.Index.Files.Count} 个）…";
+            var layout = new InstanceLayout(_launcher, instance);
+
+            var result = await CreateModpackInstaller()
+                .InstallIntoAsync(plan, layout.GameDirectory, progress);
+
+            ModpackProgress = "";
+
+            ModpackStatus = $"完成：已创建「{instance.Name}」"
+                            + $"（文件 {result.FilesDownloaded} 个，跳过 {result.FilesSkipped} 个，"
+                            + $"覆盖层 {result.OverrideFiles} 个"
+                            + (result.Failures.Count > 0 ? $"，失败 {result.Failures.Count} 个" : "")
+                            + "）";
+
+            LauncherLog.Write(_launcher.Root,
+                $"安装整合包 {plan.Name} → 实例 {instance.Name}：文件 {result.FilesDownloaded}，"
+                + $"覆盖层 {result.OverrideFiles}，失败 {result.Failures.Count}");
+
+            // 回到实例页并选中它
+            await LoadAsync();
+            Navigate(NavPage.Instances);
+            SelectedInstance = Instances.FirstOrDefault(item =>
+                string.Equals(item.Id, instance.Id, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            ModpackStatus = $"安装失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"安装整合包失败 → {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            IsInstallingModpack = false;
+        }
+    }
+
+    /// <summary>重名时加序号，避免两个实例同名到分不清。</summary>
+    private static string UniqueName(InstanceCatalog catalog, string name)
+    {
+        var baseName = string.IsNullOrWhiteSpace(name) ? "整合包" : name.Trim();
+        var candidate = baseName;
+
+        for (var index = 2;
+             catalog.Instances.Any(item => string.Equals(item.Name, candidate, StringComparison.OrdinalIgnoreCase));
+             index++)
+        {
+            candidate = $"{baseName} ({index})";
+        }
+
+        return candidate;
     }
 
     // ---- 打开目录 ----

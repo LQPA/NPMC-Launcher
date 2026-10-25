@@ -47,6 +47,32 @@ public sealed class ModpackInstaller
     }
 
     /// <summary>
+    /// 从**本地文件**准备（用户自己选的 `.mrpack`，或拖进来的）。
+    ///
+    /// 与从网站安装的差别只有"文件从哪来"：解压与解析完全一样，
+    /// 所以这两条路共用后面的安装逻辑。
+    /// </summary>
+    public async Task<ModpackPlan> PrepareFromFileAsync(
+        string archivePath,
+        string cacheDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(archivePath))
+            throw new FileNotFoundException($"找不到整合包文件：{archivePath}", archivePath);
+
+        // 本地文件本身可能就是用户的唯一副本，先复制到缓存目录，
+        // 后续解压/安装都不会碰原文件。
+        Directory.CreateDirectory(cacheDirectory);
+        var localCopy = Path.Combine(cacheDirectory, Path.GetFileName(archivePath));
+
+        if (!string.Equals(Path.GetFullPath(localCopy), Path.GetFullPath(archivePath), StringComparison.OrdinalIgnoreCase))
+            File.Copy(archivePath, localCopy, overwrite: true);
+
+        return await ExtractAndParseAsync(localCopy, cacheDirectory, versionLabel: "", cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// 选择整合包版本并下载 `.mrpack`，解压出覆盖层。
     /// </summary>
     /// <param name="versionId">指定版本；为空时取最新正式版。</param>
@@ -78,8 +104,19 @@ public sealed class ModpackInstaller
             .EnsureFromAsync(new[] { file.Url }, archivePath, string.IsNullOrWhiteSpace(file.Sha1) ? null : file.Sha1)
             .ConfigureAwait(false);
 
+        return await ExtractAndParseAsync(archivePath, cacheDirectory, chosen.VersionNumber, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>解压覆盖层并解析清单（下载与本地文件两条路共用）。</summary>
+    private static async Task<ModpackPlan> ExtractAndParseAsync(
+        string archivePath,
+        string cacheDirectory,
+        string versionLabel,
+        CancellationToken cancellationToken)
+    {
         // 解压到"档案同级"的临时目录；先清掉旧的，避免残留上一版覆盖层
-        var extractRoot = Path.Combine(cacheDirectory, "extracted", Path.GetFileNameWithoutExtension(file.FileName));
+        var extractRoot = Path.Combine(cacheDirectory, "extracted", Path.GetFileNameWithoutExtension(archivePath));
         if (Directory.Exists(extractRoot)) Directory.Delete(extractRoot, recursive: true);
         Directory.CreateDirectory(extractRoot);
 
@@ -89,7 +126,7 @@ public sealed class ModpackInstaller
         using (var archive = ZipFile.OpenRead(archivePath))
         {
             var indexEntry = archive.GetEntry(IndexEntry)
-                             ?? throw new InvalidDataException($"整合包里没有 {IndexEntry}");
+                             ?? throw new InvalidDataException($"整合包里没有 {IndexEntry}（不是 Modrinth 格式？）");
 
             using (var stream = indexEntry.Open())
             using (var reader = new StreamReader(stream))
@@ -98,13 +135,7 @@ public sealed class ModpackInstaller
             ExtractOverrides(archive, extractRoot, problems, cancellationToken);
         }
 
-        return new ModpackPlan(
-            index.Name,
-            chosen.VersionNumber,
-            index,
-            archivePath,
-            extractRoot,
-            problems);
+        return new ModpackPlan(index.Name, versionLabel, index, archivePath, extractRoot, problems);
     }
 
     /// <summary>把清单里的文件与覆盖层写入实例目录。</summary>
