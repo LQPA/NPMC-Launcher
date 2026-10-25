@@ -45,7 +45,7 @@ NPMC-Launcher\
 │  │  └─ Program.cs                  # probe / install / runtime / launch
 │  └─ NPMC.Launcher.App\             ← Avalonia 前端（占位，待接入）
 └─ tests\
-   └─ NPMC.Launcher.Core.Tests\      ← 单元测试（待接入 xunit）
+   └─ NPMC.Launcher.Core.Tests\      ← 单元测试（xunit，50 个用例）
 ```
 
 **依赖方向严格单向**：`App → Infrastructure → Core`，`Cli → Infrastructure → Core`。
@@ -59,7 +59,7 @@ Core 不引用任何外部包，也不做 I/O。
 | Infrastructure | ✅ | 0 警告 0 错误 |
 | Cli | ✅ | 0 警告 0 错误，已实测联网跑通 |
 | App | ✅ | 占位入口；接入 Avalonia 需联网 restore |
-| Tests | ⏳ | 需联网 restore xunit |
+| Tests | ✅ | 50 个用例全部通过，含真实 1.20.1 元数据回归测试 |
 
 ---
 
@@ -335,6 +335,7 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | `dotnet new` 写用户目录被沙箱拦 | `.templateengine` 访问被拒 | 重定向 `DOTNET_CLI_HOME` / `NUGET_PACKAGES` 到工程内 |
 | 菱形项目引用还原失败 | 同一项目被直接与间接引用时还原失败 | Cli 只引用 Infrastructure，Core 走传递引用 |
 | NuGet 缓存空 | Avalonia / xunit 无法离线 restore | 需联网执行 restore |
+| **vstest testhost 崩溃** | `dotnet test` 直接中止，报 `Win32Exception (5): 拒绝访问`——testhost 在 `SetParentProcessExitCallback` 里无法 `OpenProcess` 父进程 | 用内置反射 runner 绕过 vstest：`dotnet build -p:SelfTestRunner=true` 后直接运行测试工程 exe。换到正常环境仍可用 `dotnet test` |
 
 ---
 
@@ -356,7 +357,12 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 
 ## 13. 下一步
 
-1. `npmc install 1.20.1` → `npmc runtime java-runtime-gamma` → `npmc launch 1.20.1`，把 M0 真正跑出画面
-2. 接入 Avalonia（需联网 restore）与 MVVM 骨架
-3. 补 xunit 测试，锁定 `RuleEvaluator` 与 `ArgumentBuilder` 的行为（这两个是最容易回归的地方）
-4. `MirrorRouter`：实现官方 ↔ BMCLAPI 切换，注意 §4.4 的三条约束
+**已完成**：M0 参数链与启动（实际进世界并正常存档）、内置 Java 运行时（可整体迁移）、
+3598 个资源对象并发下载、xunit 回归测试（50 用例）。
+
+待做，按依赖顺序：
+
+1. 实例管理：三级隔离 + 设置持久化 —— 全部在 Core 层，不依赖 UI
+2. `MirrorRouter`：官方 ↔ BMCLAPI 切换，注意 §4.4 的三条约束
+3. 接入 Avalonia（需联网 restore）与 MVVM 骨架
+4. 正版登录：等 `aka.ms/AppRegInfo` 审批，通过后接 `MicrosoftAuthProvider`
