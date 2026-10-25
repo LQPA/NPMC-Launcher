@@ -135,13 +135,9 @@ public class InstanceLayoutTests
         finally { TryDelete(root); }
     }
 
-    private static string NewTempDir() =>
-        Path.Combine(Path.GetTempPath(), "npmc-test-" + Guid.NewGuid().ToString("N")[..8]);
+    private static string NewTempDir() => TestTemp.NewDirectory("layout");
 
-    private static void TryDelete(string dir)
-    {
-        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* 忽略 */ }
-    }
+    private static void TryDelete(string dir) => TestTemp.TryDelete(dir);
 }
 
 public class SharedRootTests
@@ -353,11 +349,7 @@ public class JsonInstanceStoreTests
         finally { TryDelete(dir); }
     }
 
-    private static string NewTempDir() =>
-        Path.Combine(Path.GetTempPath(), "npmc-store-" + Guid.NewGuid().ToString("N")[..8]);
+    private static string NewTempDir() => TestTemp.NewDirectory("store");
 
-    private static void TryDelete(string dir)
-    {
-        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { /* 忽略 */ }
-    }
+    private static void TryDelete(string dir) => TestTemp.TryDelete(dir);
 }

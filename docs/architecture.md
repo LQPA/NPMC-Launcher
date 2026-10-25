@@ -163,6 +163,31 @@ BMCLAPI 拓扑（实测）：
 /v1/objects/<sha1>/client-1.12.xml→ 404（log4j 配置必须走官方！）
 ```
 
+### 4.4.1 实测补充（2026-10，`npmc mirror test` 采集）
+
+| 资源 | BMCLAPI 行为 | 结论 |
+|---|---|---|
+| 版本清单 | 1 跳 302 → `bmclapiN.sakura.sld.tw` | 可用 |
+| 版本 JSON | 1～2 跳 → 签名节点 → 有时再跳 S3 预签名 | 可用但不稳定 |
+| client.jar | 1 跳 302 → **`piston-data.mojang.com`** | **走镜像零收益**，只多一次往返 |
+| 库 | 1 跳 302 → 志愿者节点（`*.openbmclapi.933.moe:4000` 等） | 可用 |
+| assetIndex | 1 跳 302 → 签名节点 | 可用 |
+| 资源对象 | 1 跳 302 → 签名节点 | 可用 |
+| log4j 配置 | — | **404，必须官方** |
+
+由此新增四条约束：
+
+1. **分发节点每次不同**（`bmclapi1/2/6/17/19/24.sakura.sld.tw`、`openbmclapi.933.moe`、`minio.*.xyz`），
+   且 URL 带 `?name=&s=&e=` 签名与过期时间 → **最终地址绝不可缓存**，每次都要从入口重新解析。
+2. **`client.jar` 必须直连官方**：镜像只是把它 302 回 `piston-data`，反而多一跳。
+3. **Range 支持因节点而异**：实测有节点对同名请求返回 `200` 而非 `206` →
+   断点续传必须能容忍"服务端不支持 Range，退回整包重下"。
+4. **代理环境会污染测速**：若本机挂着 TUN，镜像节点可能被一起代理（解析到 `198.18.0.0/15`），
+   测出的"镜像更慢"其实是绕路。`npmc mirror test` 会标注 `→ 经 TUN/代理`，看到这个标注就不要拿它比速度。
+
+**因此不要把下载源写死**：`MirrorRouter` 只负责候选排序，真正的选择应交给运行时的
+连通性自测（`MirrorProbe`）—— 这样 TUN 开关、所在地区、运营商差异都不需要在代码里预判。
+
 **三条由此产生的架构约束：**
 1. 下载器核心能力是"URL 重写 **+ 跟随重定向**"，不是纯字符串替换
 2. 签名 URL 带 `s=`(签名) `e=`(过期)，**绝不能持久化**；断点续传按"已完成字节数"恢复，不按 URL
@@ -371,6 +396,8 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | NuGet 缓存空 | Avalonia / xunit 无法离线 restore | 需联网执行 restore |
 | **vstest testhost 崩溃** | `dotnet test` 直接中止，报 `Win32Exception (5): 拒绝访问`——testhost 在 `SetParentProcessExitCallback` 里无法 `OpenProcess` 父进程 | 用内置反射 runner 绕过 vstest：`dotnet build -p:SelfTestRunner=true` 后直接运行测试工程 exe。换到正常环境仍可用 `dotnet test` |
 | **`.gitignore` 大小写误伤源码** | `core.ignorecase=true` 时，为运行时数据写的 `instances/`、`runtime/` 会同时匹配源码目录 `Core/Instances/`、`Infrastructure/Runtime/`，把新文件静默排除在提交之外（已实际发生：`MojangRuntimeInstaller.cs` 从首次提交起就没进过仓库，导致远端工程一直编译不过） | 运行时数据模式必须**锚定到仓库根**：`/.data/` `/runtime/` `/instances/` …… 提交前用 `git status --ignored=matching -- src tests` 核对，只应看到 `bin/`、`obj/` |
+| **提权后临时目录不可写** | 普通沙箱模式给的 `TEMP` 是低完整性友好的专用目录；`danger-full-access` 撤掉沙箱后 `TEMP` 变成真实用户 Temp（Medium 完整性），而 DSH 的进程是 Low 完整性令牌，在里面建目录直接 `UnauthorizedAccessException`。表现为"同一套测试不提权能过、提权就失败 4 个" | 测试与工具不要依赖 `%TEMP%`。测试统一用测试程序集所在目录下的 `test-scratch/`（见 `TestTemp`）——构建产物已写进 bin，说明该目录对测试进程必然可写 |
+| **`OpenProcess` 被整体禁止** | 不只是 testhost：连对自身 PID 设置 `EnableRaisingEvents`、或用 CIM 查父进程都返回"拒绝访问"。原因是 Low 完整性令牌 + 沙箱拦截 | 启动器监听游戏进程退出不要用 `EnableRaisingEvents`，改用 `WaitForExitAsync` 或轮询 |
 
 ---
 
