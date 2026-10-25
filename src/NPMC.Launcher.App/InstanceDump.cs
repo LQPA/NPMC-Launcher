@@ -449,6 +449,11 @@ internal static class InstanceDump
         lines.Add($"[导航] 下载/整合包 版本区块={viewModel.IsVersionsMode} "
                   + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
 
+        // Java 候选在"选中实例"时异步加载，等它落定再报告
+        Thread.Sleep(2500);
+        lines.Add("");
+        lines.Add($"[Java] 候选 {viewModel.JavaChoices.Count} 个，当前 {viewModel.SelectedJavaChoice?.Label ?? "(无)"}, 提示={viewModel.JavaHint}");
+
         File.WriteAllLines(outputPath, lines);
         return true;
     }

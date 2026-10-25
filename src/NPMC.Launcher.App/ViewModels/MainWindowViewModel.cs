@@ -270,6 +270,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
             // 换实例 → 重新判断该实例能不能用模组/光影
             if (value is { } selectedInstance) _ = RefreshCapabilitiesAsync(selectedInstance);
+
+            // 换实例 → 重新列出可用的 Java（概览页那一行要用）
+            _ = LoadJavaChoicesAsync(value);
         }
     }
 
@@ -721,8 +724,6 @@ public sealed class MainWindowViewModel : ObservableObject
 
         OnPropertyChanged(nameof(IsContentEmpty));
         RaiseCommandStates();
-
-        _ = LoadJavaChoicesAsync(SelectedInstance);
 
         // 徽标/R·B·A/图标都不依赖"检查更新"：先用缓存，再后台识别一次。
         // 资源包与光影同样适用 —— 它们也能按哈希被认领，只是不按加载器过滤。
@@ -2825,8 +2826,15 @@ public sealed class MainWindowViewModel : ObservableObject
     public string JavaHint
     {
         get => _javaHint;
-        private set => SetProperty(ref _javaHint, value);
+        private set
+        {
+            if (!SetProperty(ref _javaHint, value)) return;
+            OnPropertyChanged(nameof(HasJavaHint));
+        }
     }
+
+    /// <summary>有提示文字时才占那一行，没有就完全不占空间。</summary>
+    public bool HasJavaHint => !string.IsNullOrWhiteSpace(_javaHint);
 
     /// <summary>为某实例列出候选 Java，并选中它当前用的那个。</summary>
     /// <summary>

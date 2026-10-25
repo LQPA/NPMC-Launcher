@@ -156,27 +156,30 @@
               </Grid>
 
               <!-- Java：默认由版本元数据决定，也可指定某个运行时或系统 JRE -->
+              <!-- Java：控件高度与其它行一致，提示单独占一行，避免把本行撑高 -->
               <Grid ColumnDefinitions="96,*">
                 <TextBlock Grid.Column="0" Text="Java" FontSize="12" Foreground="#949CA9"
                            VerticalAlignment="Center" />
-                <StackPanel Grid.Column="1" Spacing="3">
-                  <Grid ColumnDefinitions="*,Auto">
-                    <ComboBox ItemsSource="{Binding JavaChoices}"
-                              SelectedItem="{Binding SelectedJavaChoice, Mode=TwoWay}"
-                              HorizontalAlignment="Stretch" FontSize="12">
-                      <ComboBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:JavaChoice">
-                          <TextBlock Text="{Binding Label}" FontSize="12" />
-                        </DataTemplate>
-                      </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <!-- 非常规路径：本地与系统都找不到时，自己指向 java.exe -->
-                    <Button Grid.Column="1" Content="浏览…" Click="OnPickJavaClick"
-                            Padding="10,4" Margin="6,0,0,0" FontSize="12" />
-                  </Grid>
-                  <TextBlock Text="{Binding JavaHint}" FontSize="10" Foreground="#6E7684"
-                             TextWrapping="Wrap" />
-                </StackPanel>
+                <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
+                  <ComboBox ItemsSource="{Binding JavaChoices}"
+                            SelectedItem="{Binding SelectedJavaChoice, Mode=TwoWay}"
+                            HorizontalAlignment="Stretch" FontSize="12"
+                            Height="30" VerticalAlignment="Center">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:JavaChoice">
+                        <TextBlock Text="{Binding Label}" FontSize="12" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <Button Grid.Column="1" Content="浏览…" Click="OnPickJavaClick"
+                          Padding="10,0" Margin="6,0,0,0" FontSize="12"
+                          Height="30" VerticalAlignment="Center" />
+                </Grid>
+              </Grid>
+
+              <Grid ColumnDefinitions="96,*" IsVisible="{Binding HasJavaHint}">
+                <TextBlock Grid.Column="1" Text="{Binding JavaHint}" FontSize="10"
+                           Foreground="#6E7684" TextWrapping="Wrap" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
