@@ -2807,6 +2807,14 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private JavaChoice? _selectedJavaChoice;
     private string _javaHint = "";
+    private int _requiredJavaForInstance;
+    private string _javaRequirementText = "";
+
+    /// <summary>
+    /// 候选列表填好、且已按实例设置选中之后才允许写回。
+    /// 否则下拉初始化时会把"自动"写进实例，把安装时记录的运行时清掉。
+    /// </summary>
+    private bool _javaChoicesReady;
 
     /// <summary>可选的 Java：自动、启动器自带的运行时、系统里发现的。</summary>
     public ObservableCollection<JavaChoice> JavaChoices { get; } = new();
@@ -2817,6 +2825,11 @@ public sealed class MainWindowViewModel : ObservableObject
         set
         {
             if (!SetProperty(ref _selectedJavaChoice, value)) return;
+
+            UpdateJavaHint(value);
+
+            // 列表还在填充（或绑定刚初始化）时不要写回
+            if (!_javaChoicesReady) return;
 
             _ = ApplyJavaChoiceAsync(value);
         }
@@ -2836,6 +2849,34 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <summary>有提示文字时才占那一行，没有就完全不占空间。</summary>
     public bool HasJavaHint => !string.IsNullOrWhiteSpace(_javaHint);
 
+    /// <summary>该实例的游戏版本需要哪个 Java（例如"需要 Java 21（java-runtime-delta）"）。</summary>
+    public string JavaRequirementText
+    {
+        get => _javaRequirementText;
+        private set
+        {
+            if (!SetProperty(ref _javaRequirementText, value)) return;
+            OnPropertyChanged(nameof(HasJavaHint));
+        }
+    }
+
+    /// <summary>把"路径 + 版本需求 + 不匹配警告"合成一行提示。</summary>
+    private void UpdateJavaHint(JavaChoice? choice)
+    {
+        var parts = new List<string>();
+
+        if (choice?.Path is { Length: > 0 } path) parts.Add(path);
+        if (JavaRequirementText.Length > 0) parts.Add(JavaRequirementText);
+
+        // 选中的 Java 比游戏要求的低 —— 启动会失败，必须提示
+        if (choice is { Major: > 0 } && _requiredJavaForInstance > 0 && choice.Major < _requiredJavaForInstance)
+            parts.Add($"⚠ 这个 Java 是 {choice.Major}，低于游戏要求的 {_requiredJavaForInstance}");
+
+        JavaHint = parts.Count == 0
+            ? "由版本元数据决定（缺了会在下载页自动补）"
+            : string.Join("　·　", parts);
+    }
+
     /// <summary>为某实例列出候选 Java，并选中它当前用的那个。</summary>
     /// <summary>
     /// 列出候选 Java，按用户期望的优先级分三档：
@@ -2851,43 +2892,74 @@ public sealed class MainWindowViewModel : ObservableObject
         // 直接往 JavaChoices 里填会让并发的几次调用互相叠加，出现重复项；
         // 因此先建本地列表，最后用序号确认"我仍是最新的一次"再整体替换。
         var token = ++_javaChoicesToken;
+        _javaChoicesReady = false;
         var built = new List<JavaChoice> { new() { Label = "自动（用该版本要求的 Java）" } };
 
         try
         {
             var seen = new HashSet<string>(StringComparer.Ordinal);
 
-            void AddUnique(string label, string exe, string? component)
+            void AddUnique(string label, string exe, string? component, int major = 0)
             {
                 if (!File.Exists(exe)) return;
                 if (!seen.Add(JavaLocator.Normalize(exe))) return;
 
-                built.Add(new JavaChoice { Label = label, Path = exe, Component = component });
+                built.Add(new JavaChoice { Label = label, Path = exe, Component = component, Major = major });
             }
 
+            // 主版本要跑 java -version 才知道，启动进程有开销，统一放到线程池里做
+            var local = EnumerateLocalJava().ToList();
+            var majors = await Task.Run(() => local
+                .Select(entry => JavaLocator.ReadMajorVersion(entry.Exe) ?? 0)
+                .ToList());
+
             // ---- 1) 启动器目录 ----
-            foreach (var entry in EnumerateLocalJava())
+            for (var index = 0; index < local.Count; index++)
             {
+                var entry = local[index];
+                var major = majors[index];
                 var parent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(entry.Exe)));
-                AddUnique($"本地 · {entry.Component ?? parent ?? "java"}", entry.Exe, entry.Component);
+
+                var name = entry.Component ?? parent ?? "java";
+                var suffix = major > 0 ? $"（Java {major}）" : "";
+
+                AddUnique($"本地 · {name}{suffix}", entry.Exe, entry.Component, major);
             }
 
             // ---- 2) 系统默认位置 ----
             var system = await Task.Run(() => JavaLocator.DiscoverSystem());
             foreach (var java in system)
-                AddUnique($"系统 · Java {java.MajorVersion} · {java.Path}", java.Path, null);
+                AddUnique($"系统 · Java {java.MajorVersion} · {java.Path}", java.Path, null, java.MajorVersion);
 
             // ---- 3) 用户指定的非常规路径 ----
             if (instance?.JavaPath is { Length: > 0 } custom)
             {
                 var major = JavaLocator.ReadMajorVersion(custom);
-                AddUnique($"指定 · {(major is null ? "Java" : $"Java {major}")} · {custom}", custom, null);
+                AddUnique($"指定 · {(major is null ? "Java" : $"Java {major}")} · {custom}", custom, null, major ?? 0);
             }
 
             if (token != _javaChoicesToken) return;
 
             JavaChoices.Clear();
             foreach (var choice in built) JavaChoices.Add(choice);
+
+            // 该实例的游戏版本要求哪个 Java（合并 inheritsFrom 后的元数据才有）
+            if (instance is not null)
+            {
+                try
+                {
+                    var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
+                    if (version?.JavaVersion is { } required)
+                    {
+                        _requiredJavaForInstance = required.MajorVersion;
+                        JavaRequirementText = $"该版本需要 Java {required.MajorVersion}（{required.Component}）";
+                    }
+                }
+                catch
+                {
+                    // 版本没装好就只显示候选，不挡住界面
+                }
+            }
 
             // 选中实例现有的设置
             var current = JavaChoices.FirstOrDefault(choice =>
@@ -2901,7 +2973,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
             _selectedJavaChoice = current;
             OnPropertyChanged(nameof(SelectedJavaChoice));
-            JavaHint = current.Path ?? "由版本元数据决定（缺了会在下载页自动补）";
+            UpdateJavaHint(current);
+            _javaChoicesReady = true;
         }
         catch (Exception ex)
         {
@@ -2964,6 +3037,11 @@ public sealed class MainWindowViewModel : ObservableObject
             var current = catalog.Find(instance.Id);
             if (current is null) return;
 
+            // 没有变化就不写盘：避免下拉初始化时把记录清成空值
+            if (string.Equals(current.Settings.JavaPath, choice.Path, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(current.Settings.JavaComponent, choice.Component, StringComparison.OrdinalIgnoreCase))
+                return;
+
             // 只改 Java 两项，其余设置（内存、分辨率、附加参数）原样保留
             var settings = current.Settings with
             {
@@ -2974,7 +3052,7 @@ public sealed class MainWindowViewModel : ObservableObject
             catalog.UpdateSettings(instance.Id, settings);
             await store.SaveAsync(catalog.Instances);
 
-            JavaHint = choice.Path ?? "由版本元数据决定（缺了会在下载页自动补）";
+            UpdateJavaHint(choice);
 
             LauncherLog.Write(_launcher.Root,
                 $"实例 {instance.Name} 的 Java 设为：{choice.Label}");

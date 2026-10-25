@@ -10,5 +10,8 @@ public sealed class JavaChoice
     /// <summary>启动器自带的运行时组件名（用于随实例记录）。</summary>
     public string? Component { get; init; }
 
+    /// <summary>该 Java 的主版本（21、17 等）；读不出来时为 0。</summary>
+    public int Major { get; init; }
+
     public override string ToString() => Label;
 }

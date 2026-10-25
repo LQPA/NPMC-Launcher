@@ -131,15 +131,15 @@
             <StackPanel Spacing="9">
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="版本" FontSize="12" Foreground="#949CA9" />
+                <TextBlock Grid.Column="0" Text="版本" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.VersionId}"
-                           FontSize="12" Foreground="#C9CDD3" />
+                           FontSize="12" Foreground="#C9CDD3" VerticalAlignment="Center" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="隔离级别" FontSize="12" Foreground="#949CA9" />
+                <TextBlock Grid.Column="0" Text="隔离级别" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.IsolationText}"
-                           FontSize="12" Foreground="#C9CDD3" />
+                           FontSize="12" Foreground="#C9CDD3" VerticalAlignment="Center" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
@@ -207,19 +207,19 @@
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="内容" FontSize="12" Foreground="#949CA9" />
+                <TextBlock Grid.Column="0" Text="内容" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.ContentText}"
-                           FontSize="12" Foreground="#C9CDD3" />
+                           FontSize="12" Foreground="#C9CDD3" VerticalAlignment="Center" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="创建时间" FontSize="12" Foreground="#949CA9" />
+                <TextBlock Grid.Column="0" Text="创建时间" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.CreatedText}"
-                           FontSize="12" Foreground="#C9CDD3" />
+                           FontSize="12" Foreground="#C9CDD3" VerticalAlignment="Center" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="游戏目录" FontSize="12" Foreground="#949CA9" />
+                <TextBlock Grid.Column="0" Text="游戏目录" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.GameDirectory}"
                            FontSize="11" Foreground="#B4BCC8" TextWrapping="Wrap" />
               </Grid>
