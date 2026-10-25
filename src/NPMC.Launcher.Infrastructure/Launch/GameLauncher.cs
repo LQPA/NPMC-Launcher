@@ -14,6 +14,9 @@ public sealed record PreparedLaunch
     public required LaunchPlan Plan { get; init; }
     public required IReadOnlyList<string> Problems { get; init; }
 
+    /// <summary>不影响启动、但值得记一笔的环境修正（例如提升了 Java 的完整性标签）。</summary>
+    public IReadOnlyList<string> Notices { get; init; } = Array.Empty<string>();
+
     /// <summary>游戏日志路径（&lt;gameDir&gt;\logs\latest.log），供界面 tail。</summary>
     public string? LatestLog { get; init; }
 
@@ -143,9 +146,35 @@ public static class GameLauncher
             plan = plan with { JvmArguments = plan.JvmArguments.Concat(instanceSettings.ExtraJvmArguments).ToList() };
 
         var problems = new List<string>();
+        var notices = new List<string>();
 
         if (!File.Exists(plan.JavaPath))
+        {
             problems.Add($"缺少 Java 运行时：{plan.JavaPath}（可运行 npmc runtime {version.JavaVersion?.Component ?? "java-runtime-gamma"}）");
+        }
+        else
+        {
+            // 工作区被标成低完整性时，.data/runtime 下的 java.exe 会继承 Low 标签，
+            // Windows 于是让 JVM 以 Low 运行；JDK 的 Files.isWritable 在 Low 进程里
+            // 对所有文件都返回 false，Fabric 的 zipfs 因此把重映射产物当成只读。
+            // 实测见 docs/architecture.md「Fabric 重映射失败」一节。
+            var integrity = IntegrityGuard.EnsureExecutableRunsAtLauncherLevel(plan.JavaPath);
+
+            if (integrity.Repaired)
+            {
+                notices.Add(
+                    $"已把 Java 运行时的完整性标签从 {integrity.ExecutableLevel} 提升到 {integrity.RaisedTo}" +
+                    $"（否则 Fabric 会把重映射产物判为只读）：{plan.JavaPath}");
+            }
+            else if (integrity.Problem is { } integrityProblem)
+            {
+                // Fabric/Quilt 的重映射一定会失败，提前给出可操作的原因，别让用户对着 tinyremapper 的栈发愣
+                if (UsesJarRemapping(version))
+                    problems.Add(integrityProblem);
+                else
+                    notices.Add(integrityProblem);
+            }
+        }
 
         var clientJar = paths.ClientJar(rootVersionId);
         if (!File.Exists(clientJar))
@@ -157,9 +186,19 @@ public static class GameLauncher
         {
             Plan = plan,
             Problems = problems,
+            Notices = notices,
             LatestLog = layout?.LatestLog,
         };
     }
+
+    /// <summary>
+    /// 这个版本是否由“会重映射游戏 jar”的加载器启动。
+    /// Fabric 与 Quilt 都走 Knot → tinyremapper；原版与 Forge 不经过这条路径。
+    /// </summary>
+    private static bool UsesJarRemapping(VersionJson version)
+        => version.MainClass.Contains("knot", StringComparison.OrdinalIgnoreCase)
+           || version.Id.Contains("fabric", StringComparison.OrdinalIgnoreCase)
+           || version.Id.Contains("quilt", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>启动 java。调用方负责等待退出（<c>WaitForExitAsync</c>）与处置进程对象。</summary>
     public static Process Start(PreparedLaunch prepared)
@@ -181,6 +220,11 @@ public static class GameLauncher
 
         var startInfo = new ProcessStartInfo(prepared.Plan.JavaPath)
         {
+            // 工作目录必须是 gameDir：客户端的 log4j 配置用相对路径 logs/latest.log
+            // （见 assets/log_configs/client-*.xml），不设它日志会落到启动器自己的 CWD，
+            // 实例目录里的 latest.log 永远是旧的。
+            WorkingDirectory = prepared.Plan.WorkingDirectory,
+
             // java 是控制台程序，默认会开一个黑色控制台窗口。
             // 设了 CreateNoWindow 就不会弹窗；stdout/stderr 仍然重定向（见下）。
             CreateNoWindow = true,

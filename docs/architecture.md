@@ -404,9 +404,9 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | NuGet 缓存空 | Avalonia / xunit 无法离线 restore | 需联网执行 restore |
 | **vstest testhost 崩溃** | `dotnet test` 直接中止，报 `Win32Exception (5): 拒绝访问`——testhost 在 `SetParentProcessExitCallback` 里无法 `OpenProcess` 父进程。**受限与提权两种模式下都复现（已实测）** | 用内置反射 runner 绕过 vstest：`dotnet build -p:SelfTestRunner=true` 后直接运行测试工程 exe。换到真实用户环境仍可用 `dotnet test` |
 | **`.gitignore` 大小写误伤源码** | `core.ignorecase=true` 时，为运行时数据写的 `instances/`、`runtime/` 会同时匹配源码目录 `Core/Instances/`、`Infrastructure/Runtime/`，把新文件静默排除在提交之外（已实际发生：`MojangRuntimeInstaller.cs` 从首次提交起就没进过仓库，导致远端工程一直编译不过） | 运行时数据模式必须**锚定到仓库根**：`/.data/` `/runtime/` `/instances/` …… 提交前用 `git status --ignored=matching -- src tests` 核对，只应看到 `bin/`、`obj/` |
-| **临时目录不完全可用** | 同一套测试在受限模式下 6/6 通过，在 `danger-full-access` 下 3/3 失败，报 `UnauthorizedAccessException`（在真实用户 `%TEMP%` 里建目录）。但后续 `npmc doctor` 在同样提权下又能成功建目录 —— **具体机制未完全定位**，推测与令牌/目录完整性级别不匹配有关 | 结论不变：**测试与工具不要依赖 `%TEMP%`**。测试统一用测试程序集所在目录下的 `test-scratch/`（见 `TestTemp`）——构建产物已写进 bin，证明该目录必然可写 |
+| **临时目录不完全可用** | 同一套测试在受限模式下 6/6 通过，在 `danger-full-access` 下 3/3 失败，报 `UnauthorizedAccessException`（在真实用户 `%TEMP%` 里建目录）；同样提权下 `npmc doctor` 又能成功建目录。**机制已确认**：受限模式的令牌是 Low（工作区被标 Low），而 `%TEMP%` 是 Medium —— Low 写 Medium 属于"向上写"，被 `NO_WRITE_UP` 拦；`npmc doctor` 只写自己目录，所以成功 | 结论不变：**测试与工具不要依赖 `%TEMP%`**。测试统一用测试程序集所在目录下的 `test-scratch/`（见 `TestTemp`）——构建产物已写进 bin，证明该目录必然可写 |
 | **`OpenProcess` 部分受限** | 受限模式下：对自身 PID 设置 `EnableRaisingEvents`、用 CIM 查父进程都返回"拒绝访问"，testhost 因此崩溃。提权后：**打开自身进程句柄恢复可用**，但 testhost 打开**父进程**句柄仍然失败 | 用 `npmc doctor` 实测当前环境（它直接报告"进程句柄 可用/被禁止"）。真实用户环境是 Medium 完整性，不受此限；本机已实测游戏进程的 `WaitForExitAsync` 在提权下可正常工作 |
-| **自建 apphost 被降权到 Low 完整性** | 双击或从任意终端启动 `NPMC.Launcher.App.exe`，进程令牌都是 `S-1-16-4096`（Low），即使父进程是 Medium 的 PowerShell 或 Explorer。Low 会**同时**禁掉 `SHOpenFolderAndSelectItems`（`0x80070005`）、ShellExecute（"拒绝访问"）和 explorer.exe（`0xC0000142`），于是"打开文件夹"必然失败。显式 `asInvoker` 清单、自签名证书**都改变不了**这一点 | **改用 `dotnet NPMC.Launcher.App.dll` 启动**：`dotnet.exe` 是微软签名的，托管进程随之获得 Medium，一切正常。仓库根的 `launch.cmd` 就是这条命令的封装 |
+| **自建 apphost 被降权到 Low 完整性** | 双击或从任意终端启动 `NPMC.Launcher.App.exe`，进程令牌都是 `S-1-16-4096`（Low），即使父进程是 Medium 的 PowerShell 或 Explorer。Low 会**同时**禁掉 `SHOpenFolderAndSelectItems`（`0x80070005`）、ShellExecute（"拒绝访问"）和 explorer.exe（`0xC0000142`），于是"打开文件夹"必然失败。显式 `asInvoker` 清单、自签名证书**都改变不了**这一点 | 根因**不是清单**：Windows 创建进程时取「令牌级别」与「镜像文件标签」中较低者，而工作区被标成 Low 后，构建出来的 `NPMC.Launcher.App.exe` 文件本身带 Low 标签。`dotnet.exe` 在 `C:\Program Files` 下、没有 Low 标签，所以 `dotnet NPMC.Launcher.App.dll` 得到 Medium。修复：`icacls NPMC.Launcher.App.exe /setintegritylevel Medium`（重建后会再次继承 Low），或继续用 `launch.cmd` |
 | **未签名 exe 触发 SmartScreen** | 自建 exe 每次启动弹「Windows 已保护你的电脑」。自签名 + 导入受信任存储后，弹窗里的发行者由"未知发布者"变成证书名（说明签名链路有效），但**仍然拦截** —— SmartScreen 还有一层**信誉**判定，自签名证书永远拿不到信誉 | 自签名只能消除"未知发布者"，无法通过信誉检查。实际可用的做法是走 `dotnet` 宿主（`dotnet.exe` 已受信任），或每次点「仍要运行」；要真正发布则需 OV/EV 代码签名证书（EV 要企业资质） |
 | **Modrinth 禁止使用其品牌图形** | `modrinth/code` 的 `COPYING.md` 明确写着：未经 **Rinth, Inc.** 书面许可，禁止使用其品牌元素（"including but not limited to the wrench-in-labyrinth logo … and **any variations thereof**"），且 fork 仓库时必须删除这些资源。也就是说"改个颜色/做个单色版"同样不允许 | 界面里**不使用任何平台 logo**，改用填充色块 + 字母标识来源：`M`（绿 #2E7D46）/ `C`（红 #A93226）/ `?`（灰 #4D5560）。这属于指示性使用（说明文件来自哪个平台），不是商标性使用；需要官方 logo 只能向 Rinth 书面申请 |
 | **CurseForge 指纹的"空白"定义容易搞错** | CurseForge 用 MurmurHash2（seed=1），计算前跳过空白字符。但"空白"是 4 个还是 6 个字符，社区实现并不一致。**实测：只跳过 `\t \n \r 空格` 才与服务端一致**；多跳 `\v`(0x0B) `\f`(0x0C) 会让任何 jar 的指纹都算错 —— 因为二进制文件里这两个字节随机出现，第一次实测就因此全部未命中 | `MurmurHash2` 提供 `Standard` / `Extended` / `None` 三种过滤器，**默认 Standard**。`npmc mods cf-probe <文件>` 会把几种变体各发一次请求，用真实响应确认哪种被命中（诊断用，4 次请求） |
@@ -456,8 +456,10 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | 子进程 stdout/stderr 被丢弃 | 只看得到"退出码 1" | 早期 JVM 失败不写 `latest.log`；现在落盘 `logs/nmpc-stdout.log` / `nmpc-stderr.log`，失败时显示尾部 |
 | 同一实例可被启动两次 | 第二个进程拿不到 `session.lock`，退出码 1 | 实例目录下 `.nmpc-running` 记录启动器 PID，启动前检查、退出时释放，残留锁按 PID 判活 |
 | Fabric 重映射留下半成品 `*.tmp` | 后续启动全部在同一处失败 | 启动前发现 `*.tmp` 就删掉整个 `.fabric/remappedJars`（可重建） |
+| 子进程工作目录没设成 gameDir | 实例目录里的 `logs/latest.log` 永远是旧的（游戏的相对路径日志落到启动器自己的 CWD） | `ProcessStartInfo.WorkingDirectory = Plan.WorkingDirectory`；客户端 log4j 配置写的是相对路径 `logs/latest.log` |
+| Java 以 Low 完整性运行 | Fabric 重映射报 `client-intermediary.jar.tmp can't be written`（详见下一节） | `IntegrityGuard` 在启动前把 `java.exe` 的完整性标签提升到 Medium，修不了则给可操作的错误 |
 
-### 未解决：Fabric 重映射写不出缓存
+### 已解决：Fabric 重映射写不出缓存（根因：Java 以 Low 完整性运行）
 
 ```
 java.lang.RuntimeException: error remapping game jars [versions\1.21.6\1.21.6.jar]
@@ -465,19 +467,56 @@ Caused by: java.io.IOException: the jar file
   instances\<实例>\.fabric\remappedJars\minecraft-<版本>-<loader>\client-intermediary.jar.tmp can't be written
 ```
 
-落点固定是一个 **22 字节**的 tmp（空 zip 的结尾记录）。已排除：
+落点固定是一个 **22 字节**的 tmp（空 zip 的结尾记录）。**不是 Fabric、classpath 或杀软的问题**，
+而是三层叠加：
 
-- 客户端 jar 损坏（28 MB，正常）与 intermediary / sponge-mixin 缺失（都在 `libraries/`）
-- classpath 缺库（已修）与顺序（两种顺序都试过）
-- `CreateNoWindow`、进程完整性级别（`.exe` 与 `dotnet …dll` 都失败）
-- 磁盘空间（498 GB）、目录可写性（同目录手动写 28 MB 成功）
-- 残留 tmp（每次启动前已清理）
+1. Windows 创建进程时取「令牌完整性级别」与「镜像文件标签」中较低者。本机工作区
+   `D:\Agents` 被标为 `Low`（`S-1-16-4096`，`NO_WRITE_UP`）并继承给整棵子树，
+   `.data/runtime/**/bin/java.exe` 因此带 Low 标签 —— 即使启动器是 Medium
+   （`dotnet` 宿主），JVM 也**永远以 Low 运行**。实测：`icacls java.exe` 显示
+   `Mandatory Label\Low Mandatory Level`，进程令牌为 `S-1-16-4096`。
+2. JDK 21 的 `Files.isWritable` 在 Windows 上走
+   `WindowsAclFileAttributeView.getFileSecurity(path, 7)`（只取 OWNER/GROUP/DACL）
+   再 `AccessCheck`。安全描述符里**没有完整性标签**，`AccessCheck` 把对象当默认
+   （Medium）级别；Low 进程请求写权限就命中"禁止向上写"，**对所有文件都返回 false**
+   ——包括它刚创建、刚写成功的文件。实测：Low 进程
+   `Files.isWritable(<自己刚写的文件>) = false`，但 `Files.write` 追加成功；
+   同一 DACL 换成 Medium 令牌做 `AccessCheck` 则返回允许。
+3. JDK 21 的 `ZipFileSystem` 用 `readOnly = !Files.isWritable(zfpath)`
+   （`ZipFileSystem` 第 173 行）决定只读标志；tinyremapper 的 `OutputConsumerPath`
+   第 102 行看到 `isReadOnly()` 就抛 "can't be written"。22 字节正是它在检查前
+   写入的空 zip 结尾记录。
 
-**可用的对照**：原版实例启动正常（进主菜单、stderr 空、日志正常写入）。
+**对照实测**（同一 launcher、同一实例、同一命令行，只改 `java.exe` 的标签）：
 
-**下一步建议**（按有效性排序）：
+| java.exe 标签 | `Files.isWritable` | zipfs `isReadOnly` | 重映射 |
+|---|---|---|---|
+| Low | false | true | 失败（上述异常） |
+| Medium | true | false | 成功：`client-intermediary.jar` 30,653,581 字节；stderr 0 字节；stdout 出现 `Setting user` / `Sound engine started`（进主菜单） |
 
-1. 换一个游戏目录（例如把 `.data` 移到别的盘或新建实例）再试，确认是否与该目录相关。
-2. 检查 Windows Defender「受控文件夹访问」或第三方安全软件对 `.jar` 写入的拦截。
-3. 换 Fabric loader 版本（`0.20.1` → 其他）或游戏版本（`1.21.6` → `1.20.1`）验证是否与特定组合有关。
-4. 用 Procmon 观察 java 对该 tmp 的 `CreateFile` 返回值（最直接）。
+同样的对照在 `1.20.1 + fabric-loader 0.20.1 + java-runtime-gamma`（Java 17）上复现并验证：
+重映射产物 24,733,509 字节、stderr 0 字节、同样进主菜单；`IntegrityGuard` 在该实例首次
+启动时把 gamma 的 `java.exe` 从 Low 提到 Medium。
+
+**代码侧修复**：`GameLauncher.Prepare` 调用 `IntegrityGuard`：读启动器令牌级别与
+`java.exe` 的标签，取较低者；低于 Medium 且启动器 ≥ Medium 时，把标签提升到 Medium
+（`SetFileSecurity` + mandatory label ACE，等价于
+`icacls java.exe /setintegritylevel Medium`），结果写进 `PreparedLaunch.Notices` 与
+启动器日志。Fabric/Quilt 版本若无法提升（例如双击带 Low 标签的 apphost），
+会直接给出可操作的错误，而不是让 tinyremapper 的栈去误导人。
+
+一次性修复本机已有运行时：
+
+```powershell
+icacls ".data\runtime\java-runtime-delta\bin\java.exe" /setintegritylevel Medium
+icacls ".data\runtime\java-runtime-gamma\bin\java.exe" /setintegritylevel Medium
+```
+
+> 运行时若从 Low 目录重新解压，`java.exe` 会重新继承 Low 标签 —— 启动时的
+> `IntegrityGuard` 会再修一次；但 **apphost `NPMC.Launcher.App.exe` 自己带 Low
+> 标签时无法自救**（Low 进程不能提升别人），此时用 `launch.cmd`（dotnet 宿主）
+> 或先对 exe 执行同样的 `icacls`。
+
+**已排除**（都不是原因）：客户端 jar 损坏（28 MB，正常）、intermediary / sponge-mixin
+缺失、classpath 缺库与顺序、`CreateNoWindow`、磁盘空间（498 GB）、目录可写性
+（同目录手动写 28 MB 成功）、残留 tmp（每次启动前已清理）、Defender 受控文件夹访问。

@@ -140,6 +140,7 @@ internal static class InstanceDump
                 lines.Add($"    classpath  = {prepared.Plan.JvmArguments.FirstOrDefault(a => a.Contains(".jar"))?.Split(';').Length} 项");
 
                 foreach (var problem in prepared.Problems) lines.Add($"    问题: {problem}");
+                foreach (var notice in prepared.Notices) lines.Add($"    提示: {notice}");
 
                 // 打印完整命令行：出问题时要能自己复现一次
                 if (args.Any(arg => string.Equals(arg, "--print-launch-command", StringComparison.OrdinalIgnoreCase)))

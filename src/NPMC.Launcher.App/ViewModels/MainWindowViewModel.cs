@@ -181,6 +181,10 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
+        // 环境修正（例如提升 Java 的完整性标签）记进启动器日志，出问题时有据可查
+        foreach (var notice in prepared.Notices)
+            LauncherLog.Write(_launcher.Root, notice);
+
         try
         {
             IsGameRunning = true;
