@@ -33,6 +33,7 @@ public sealed class CurseForgeInstaller
         IReadOnlyList<string> loaders,
         bool includeDependencies = true,
         string rootTitle = "",
+        int? fileId = null,
         CancellationToken cancellationToken = default)
     {
         var targets = new List<InstallTarget>();
@@ -58,7 +59,11 @@ public sealed class CurseForgeInstaller
                 continue;
             }
 
-            var newest = files.FirstOrDefault();
+            // 主体允许指定具体文件（界面上的小版本下拉）；依赖一律取最新
+            var newest = !isDependency && fileId is { } requested
+                ? files.FirstOrDefault(file => file.FileId == requested) ?? files.FirstOrDefault()
+                : files.FirstOrDefault();
+
             if (newest is null) continue;
 
             var url = newest.DownloadUrl

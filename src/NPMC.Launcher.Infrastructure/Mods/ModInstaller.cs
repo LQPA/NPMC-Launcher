@@ -66,25 +66,40 @@ public sealed class ModInstaller
     /// 默认**尊重钉死**：作者是按那个组合测过的（例如 Iris 1.7.6 钉死了 Sodium 的某个 beta），
     /// 换成别的版本可能不兼容。但钉死的是 beta 时用户会意外，所以提供开关。
     /// </param>
+    /// <param name="versionId">
+    /// 指定具体版本；为空时取"匹配当前游戏版本与加载器的最新正式版"。
+    /// 界面上允许用户在小版本之间切换，就是靠这个参数。
+    /// </param>
     public async Task<InstallPlan> ResolveAsync(
         string projectIdOrSlug,
         string gameVersion,
         IReadOnlyList<string> loaders,
         bool includePrerelease = false,
         bool ignorePinnedDependencies = false,
+        string? versionId = null,
         CancellationToken cancellationToken = default)
     {
-        var versions = await _modrinth
-            .GetProjectVersionsAsync(projectIdOrSlug, gameVersion, loaders, cancellationToken)
-            .ConfigureAwait(false);
+        ModrinthVersion root;
 
-        if (versions.Count == 0)
-            throw new InvalidOperationException(
-                $"该项目没有适用于 {gameVersion}{(loaders.Count > 0 ? " / " + string.Join(",", loaders) : "")} 的版本");
+        if (!string.IsNullOrWhiteSpace(versionId))
+        {
+            root = await _modrinth.GetVersionAsync(versionId!, cancellationToken).ConfigureAwait(false)
+                   ?? throw new InvalidOperationException($"找不到版本 {versionId}");
+        }
+        else
+        {
+            var versions = await _modrinth
+                .GetProjectVersionsAsync(projectIdOrSlug, gameVersion, loaders, cancellationToken)
+                .ConfigureAwait(false);
 
-        var root = (includePrerelease ? versions : versions.Where(version => !version.IsPrerelease))
+            if (versions.Count == 0)
+                throw new InvalidOperationException(
+                    $"该项目没有适用于 {gameVersion}{(loaders.Count > 0 ? " / " + string.Join(",", loaders) : "")} 的版本");
+
+            root = (includePrerelease ? versions : versions.Where(version => !version.IsPrerelease))
                        .FirstOrDefault()
                    ?? versions[0];
+        }
 
         var targets = new List<InstallTarget>();
         var visited = new HashSet<string>(StringComparer.Ordinal);

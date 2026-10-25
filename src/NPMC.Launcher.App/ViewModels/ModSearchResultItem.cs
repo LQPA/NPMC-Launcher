@@ -59,6 +59,17 @@ public sealed class ModSearchResultItem
     };
 }
 
+/// <summary>
+/// 安装计划里可选的一个版本。
+/// <see cref="Ref"/> 是各平台自己的标识（Modrinth 的 versionId / CurseForge 的 fileId），
+/// 界面只负责把它传回给解析器，不关心它的含义。
+/// </summary>
+public sealed record InstallVersionChoice(string Ref, string Label, bool IsPrerelease)
+{
+    /// <summary>预发布版本在下拉里标出来，避免选错。</summary>
+    public string DisplayLabel => IsPrerelease ? $"{Label}（beta）" : Label;
+}
+
 /// <summary>安装计划里的一行（主体或依赖）。</summary>
 public sealed class InstallPlanLineItem
 {

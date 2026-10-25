@@ -156,7 +156,26 @@ internal static class InstanceDump
                 foreach (var line in viewModel.PlanLines)
                     lines.Add($"    {line.Label,-14} {line.Detail}");
 
+                lines.Add($"    可选版本 {viewModel.InstallVersions.Count} 个，当前 {viewModel.SelectedInstallVersion?.Label}");
+                foreach (var choice in viewModel.InstallVersions.Take(4))
+                    lines.Add($"      {choice.DisplayLabel}");
+
+                // 切到第二个版本，确认计划会跟着重算
+                if (viewModel.InstallVersions.Count > 1)
+                {
+                    viewModel.SelectInstallVersionForDiagnosticsAsync(1).GetAwaiter().GetResult();
+
+                    lines.Add($"[切换版本] 当前 {viewModel.SelectedInstallVersion?.Label}");
+                    foreach (var line in viewModel.PlanLines)
+                        lines.Add($"    {line.Label,-14} {line.Detail}");
+                }
+
                 lines.Add($"    status = {viewModel.Status}");
+
+                // 切到别的内容页签：搜索词、结果、计划都应被清空
+                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.ResourcePack);
+                lines.Add($"[切换页签→资源包] 搜索词=\"{viewModel.SearchQuery}\" 结果={viewModel.SearchResults.Count} "
+                          + $"计划可见={viewModel.IsPlanVisible} 可选版本={viewModel.InstallVersions.Count}");
             }
         }
 

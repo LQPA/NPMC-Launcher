@@ -954,6 +954,29 @@ public sealed class MainWindowViewModel : ObservableObject
     private InstallPlan? _pendingPlan;
     private string? _pendingDirectory;
     private int _searchSourceIndex;
+    private bool _suppressVersionReload;
+    private ModSearchResultItem? _pendingItem;
+    private InstallVersionChoice? _selectedInstallVersion;
+    private IReadOnlyList<string> _pendingLoaders = Array.Empty<string>();
+    private ContentKind _pendingKind = ContentKind.Mod;
+
+    /// <summary>该项目在当前游戏版本下可安装的所有版本。</summary>
+    public ObservableCollection<InstallVersionChoice> InstallVersions { get; } = new();
+
+    public bool HasInstallVersions => InstallVersions.Count > 0;
+
+    /// <summary>切换版本会重新解析依赖并刷新计划。</summary>
+    public InstallVersionChoice? SelectedInstallVersion
+    {
+        get => _selectedInstallVersion;
+        set
+        {
+            if (!SetProperty(ref _selectedInstallVersion, value)) return;
+            if (_suppressVersionReload || value is null) return;
+
+            _ = ResolvePlanForVersionAsync(value);
+        }
+    }
 
     /// <summary>搜索来源：0 = Modrinth，1 = CurseForge。</summary>
     public int SearchSourceIndex
@@ -1072,10 +1095,17 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasSearchResults));
         OnPropertyChanged(nameof(SearchPanelToggleText));
 
+        // 连搜索词一起清掉：切换内容类型后旧关键词已经没有意义，
+        // 留着会让人以为"这个搜索在新页签里也生效"。
+        SearchQuery = "";
+
         SearchSummaryText = "";
 
         _pendingPlan = null;
+        _pendingItem = null;
         PlanLines.Clear();
+        InstallVersions.Clear();
+        OnPropertyChanged(nameof(HasInstallVersions));
         IsPlanVisible = false;
         (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }
@@ -1190,11 +1220,82 @@ public sealed class MainWindowViewModel : ObservableObject
 
         try
         {
-            Status = $"正在解析 {item.Title} 的依赖…";
-
             var loaders = kind.UsesLoaderFilter()
                 ? await DetectLoadersAsync(instance)
                 : Array.Empty<string>();
+
+            Status = $"正在查询 {item.Title} 的可用版本…";
+
+            var choices = await LoadVersionChoicesAsync(item, instance.VersionId, loaders);
+
+            if (choices.Count == 0)
+            {
+                Status = $"{item.Title} 没有适用于 {instance.VersionId} 的版本";
+                return;
+            }
+
+            _pendingItem = item;
+            _pendingKind = kind;
+            _pendingLoaders = loaders;
+            _pendingDirectory = Path.Combine(instance.GameDirectory, kind.DirectoryName());
+
+            // 填充下拉时不要触发"选中即重新解析"，否则会解析两遍
+            _suppressVersionReload = true;
+
+            InstallVersions.Clear();
+            foreach (var choice in choices) InstallVersions.Add(choice);
+
+            _selectedInstallVersion = choices[0];
+            OnPropertyChanged(nameof(SelectedInstallVersion));
+            OnPropertyChanged(nameof(HasInstallVersions));
+
+            _suppressVersionReload = false;
+
+            await ResolvePlanForVersionAsync(choices[0]);
+        }
+        catch (Exception ex)
+        {
+            Status = $"解析失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"解析安装计划失败 {item.ProjectRef} → {ex.GetBaseException().Message}");
+        }
+    }
+
+    /// <summary>列出该项目在当前游戏版本下的所有可安装版本（含预发布，标出来）。</summary>
+    private async Task<IReadOnlyList<InstallVersionChoice>> LoadVersionChoicesAsync(
+        ModSearchResultItem item,
+        string gameVersion,
+        IReadOnlyList<string> loaders)
+    {
+        if (item.Source == UpdateSource.CurseForge)
+        {
+            if (_curseForge is null || !int.TryParse(item.ProjectRef, out var modId))
+                return Array.Empty<InstallVersionChoice>();
+
+            var files = await _curseForge.GetFilesAsync(modId, gameVersion, loaders);
+
+            return files
+                .Select(file => new InstallVersionChoice(
+                    file.FileId.ToString(),
+                    string.IsNullOrWhiteSpace(file.DisplayName) ? file.FileName : file.DisplayName,
+                    file.ReleaseType != 1))
+                .ToList();
+        }
+
+        var versions = await _modrinth.GetProjectVersionsAsync(item.ProjectRef, gameVersion, loaders);
+
+        return versions
+            .Select(version => new InstallVersionChoice(version.Id, version.VersionNumber, version.IsPrerelease))
+            .ToList();
+    }
+
+    /// <summary>按指定版本重新解析计划（包括该版本声明的依赖）。</summary>
+    private async Task ResolvePlanForVersionAsync(InstallVersionChoice choice)
+    {
+        if (_pendingItem is not { } item || SelectedInstance is not { } instance) return;
+
+        try
+        {
+            Status = $"正在解析 {item.Title} {choice.Label} 的依赖…";
 
             InstallPlan plan;
 
@@ -1209,17 +1310,21 @@ public sealed class MainWindowViewModel : ObservableObject
                 plan = await _curseForgeInstaller.ResolveAsync(
                     modId,
                     instance.VersionId,
-                    loaders,
-                    includeDependencies: kind.HasDependencies(),
-                    rootTitle: item.Title);
+                    _pendingLoaders,
+                    includeDependencies: _pendingKind.HasDependencies(),
+                    rootTitle: item.Title,
+                    fileId: int.TryParse(choice.Ref, out var fileId) ? fileId : null);
             }
             else
             {
-                plan = await _installer.ResolveAsync(item.ProjectRef, instance.VersionId, loaders);
+                plan = await _installer.ResolveAsync(
+                    item.ProjectRef,
+                    instance.VersionId,
+                    _pendingLoaders,
+                    versionId: choice.Ref);
             }
 
             _pendingPlan = plan;
-            _pendingDirectory = Path.Combine(instance.GameDirectory, kind.DirectoryName());
 
             PlanLines.Clear();
             foreach (var target in plan.Main) PlanLines.Add(new InstallPlanLineItem(target));
@@ -1229,12 +1334,13 @@ public sealed class MainWindowViewModel : ObservableObject
             IsSearchPanelExpanded = true;
             (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
-            Status = $"待确认：{item.Title} 共 {plan.Targets.Count} 个文件";
+            Status = $"待确认：{item.Title} {choice.Label} 共 {plan.Targets.Count} 个文件";
         }
         catch (Exception ex)
         {
             Status = $"解析失败：{ex.GetBaseException().Message}";
-            LauncherLog.Write(_launcher.Root, $"解析安装计划失败 {item.ProjectRef} → {ex.GetBaseException().Message}");
+            LauncherLog.Write(_launcher.Root,
+                $"解析安装计划失败 {item.ProjectRef} {choice.Ref} → {ex.GetBaseException().Message}");
         }
     }
 
@@ -1281,7 +1387,10 @@ public sealed class MainWindowViewModel : ObservableObject
     private void CancelPlan()
     {
         _pendingPlan = null;
+        _pendingItem = null;
         PlanLines.Clear();
+        InstallVersions.Clear();
+        OnPropertyChanged(nameof(HasInstallVersions));
         IsPlanVisible = false;
         (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         Status = "已取消安装";
@@ -1296,6 +1405,22 @@ public sealed class MainWindowViewModel : ObservableObject
 
     /// <summary>供诊断用：解析某个搜索结果的依赖计划（不下载）。</summary>
     public Task PrepareInstallForDiagnosticsAsync(ModSearchResultItem item) => BeginInstallAsync(item);
+
+    /// <summary>供诊断用：选中第 N 个可用版本并等待计划重新解析完成。</summary>
+    public async Task SelectInstallVersionForDiagnosticsAsync(int index)
+    {
+        if (index < 0 || index >= InstallVersions.Count) return;
+
+        var choice = InstallVersions[index];
+
+        // 走与界面相同的路径，但不让属性回调再触发一次解析
+        _suppressVersionReload = true;
+        _selectedInstallVersion = choice;
+        OnPropertyChanged(nameof(SelectedInstallVersion));
+        _suppressVersionReload = false;
+
+        await ResolvePlanForVersionAsync(choice);
+    }
 
     /// <summary>从已安装的版本 JSON 推断加载器；判断不出来时返回空（不按加载器过滤）。</summary>
     private async Task<IReadOnlyList<string>> DetectLoadersAsync(InstanceListItem instance)

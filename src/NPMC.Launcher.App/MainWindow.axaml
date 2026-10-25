@@ -256,6 +256,21 @@
                 <StackPanel Spacing="6">
                   <TextBlock Text="将安装以下文件" FontSize="11" Foreground="#B4BCC8" />
 
+                  <!-- 版本下拉：该项目在当前游戏版本下的所有可用版本 -->
+                  <Grid ColumnDefinitions="88,*" IsVisible="{Binding HasInstallVersions}">
+                    <TextBlock Text="版本" FontSize="11" Foreground="#949CA9"
+                               VerticalAlignment="Center" />
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding InstallVersions}"
+                              SelectedItem="{Binding SelectedInstallVersion}"
+                              FontSize="11" MinHeight="26" HorizontalAlignment="Stretch">
+                      <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:InstallVersionChoice">
+                          <TextBlock Text="{Binding DisplayLabel}" FontSize="11" />
+                        </DataTemplate>
+                      </ComboBox.ItemTemplate>
+                    </ComboBox>
+                  </Grid>
+
                   <ItemsControl ItemsSource="{Binding PlanLines}">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:InstallPlanLineItem">
