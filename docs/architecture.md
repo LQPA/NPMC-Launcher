@@ -370,6 +370,7 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | 菱形项目引用还原失败 | 同一项目被直接与间接引用时还原失败 | Cli 只引用 Infrastructure，Core 走传递引用 |
 | NuGet 缓存空 | Avalonia / xunit 无法离线 restore | 需联网执行 restore |
 | **vstest testhost 崩溃** | `dotnet test` 直接中止，报 `Win32Exception (5): 拒绝访问`——testhost 在 `SetParentProcessExitCallback` 里无法 `OpenProcess` 父进程 | 用内置反射 runner 绕过 vstest：`dotnet build -p:SelfTestRunner=true` 后直接运行测试工程 exe。换到正常环境仍可用 `dotnet test` |
+| **`.gitignore` 大小写误伤源码** | `core.ignorecase=true` 时，为运行时数据写的 `instances/`、`runtime/` 会同时匹配源码目录 `Core/Instances/`、`Infrastructure/Runtime/`，把新文件静默排除在提交之外（已实际发生：`MojangRuntimeInstaller.cs` 从首次提交起就没进过仓库，导致远端工程一直编译不过） | 运行时数据模式必须**锚定到仓库根**：`/.data/` `/runtime/` `/instances/` …… 提交前用 `git status --ignored=matching -- src tests` 核对，只应看到 `bin/`、`obj/` |
 
 ---
 

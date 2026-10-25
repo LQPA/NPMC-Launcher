@@ -1,17 +1,19 @@
 # ---- dotnet CLI 缓存重定向 ----
-.dotnet-home/
-.nuget/
+/.dotnet-home/
+/.nuget/
 
-# ---- 运行时数据目录：完整忽略（约 820MB）----
-.data/
-
-# 单独列出，防止误提交
-runtime/
-libraries/
-versions/
-assets/
-instances/
-saves/
+# ---- 运行时数据目录（约 820MB）----
+# 注意：这些模式必须用前导 / 锚定到仓库根。
+# 本仓库 core.ignorecase = true（Windows 大小写不敏感），
+# 若写成 "instances/" 会同时匹配 src/NPMC.Launcher.Core/Instances/，
+# 把源码目录静默忽略掉；"runtime/" 也会误伤 src/.../Runtime/。
+/.data/
+/runtime/
+/libraries/
+/versions/
+/assets/
+/instances/
+/saves/
 
 # ---- 构建产物 ----
 bin/
@@ -27,8 +29,8 @@ obj/
 
 # ---- 本机专用脚本，不入库 ----
 # 含本机环境相关 workaround：DOTNET_CLI_HOME 重定向、-m:1 规避 SDK 缺陷
-build.ps1
-push.ps1
+/build.ps1
+/push.ps1
 
 # ---- 其它 ----
 *.log
