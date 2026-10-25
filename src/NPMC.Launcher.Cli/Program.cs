@@ -2,10 +2,12 @@ using System.Diagnostics;
 using System.Text;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Launch;
+using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
 using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Minecraft;
+using NPMC.Launcher.Infrastructure.Mirrors;
 using NPMC.Launcher.Infrastructure.Runtime;
 using NPMC.Launcher.Infrastructure.Storage;
 
@@ -30,6 +32,7 @@ internal static class Program
                 "runtime"  => await RuntimeAsync(args[1..]),
                 "launch"   => await LaunchAsync(args[1..]),
                 "instance" => await InstanceAsync(args[1..]),
+                "mirror"   => await MirrorAsync(args[1..]),
                 _          => Unknown(args[0]),
             };
         }
@@ -539,6 +542,183 @@ internal static class Program
         _ => level.ToString(),
     };
 
+    // -------------------------------------------------------------- mirror
+
+    private static async Task<int> MirrorAsync(string[] args)
+    {
+        if (args.Length == 0 || args[0] != "test")
+        {
+            Error("用法: npmc mirror test [--source official|bmclapi] [--version 1.20.1] [--sample 1024]");
+            return 1;
+        }
+
+        var rest = args[1..];
+        var versionId = Opt(rest, "--version") ?? "1.20.1";
+        var sample = OptInt(rest, "--sample", 1024);
+        var settings = new MirrorSettings
+        {
+            Source = string.Equals(Opt(rest, "--source"), "bmclapi", StringComparison.OrdinalIgnoreCase)
+                ? DownloadSource.Bmclapi
+                : DownloadSource.Official,
+        };
+
+        var router = new MirrorRouter(settings);
+        using var http = HttpFileDownloader.CreateClient();
+        var downloader = new HttpFileDownloader(http);
+        var probe = new MirrorProbe();   // 自带 AllowAutoRedirect = false
+        var source = new VersionManifestSource(downloader.GetStringAsync);
+
+        Section($"镜像源测试（首选源：{DescribeSource(settings.Source)}）");
+
+        // 先把真实元数据拿到手，才有真实的 URL / sha1 可测
+        var manifest = await source.GetManifestAsync();
+        var entry = manifest.Find(versionId) ?? throw new InvalidOperationException($"清单里没有 {versionId}");
+        var version = await source.GetVersionJsonAsync(entry);
+
+        var resources = new List<(ResourceKind Kind, string OfficialUrl, string Label)>
+        {
+            (ResourceKind.VersionManifest, VersionManifestSource.OfficialManifestUrl, "版本清单"),
+            (ResourceKind.VersionMetadata, entry.Url, $"{versionId} 版本 JSON"),
+        };
+
+        if (version.Downloads?.Client is { } client)
+            resources.Add((ResourceKind.ClientJar, client.Url, "client.jar"));
+
+        var library = version.Libraries.FirstOrDefault(lib => !string.IsNullOrEmpty(lib.Downloads?.Artifact?.Url));
+        if (library is not null)
+            resources.Add((ResourceKind.Library, library.Downloads!.Artifact!.Url, $"库 {library.Name}"));
+
+        if (version.AssetIndex is { } assetIndex)
+        {
+            resources.Add((ResourceKind.AssetIndex, assetIndex.Url, $"assetIndex {assetIndex.Id}"));
+
+            try
+            {
+                var indexJson = await downloader.GetStringAsync(assetIndex.Url);
+                using var document = System.Text.Json.JsonDocument.Parse(indexJson);
+                var firstObject = document.RootElement.GetProperty("objects").EnumerateObject().First();
+                var hash = firstObject.Value.GetProperty("hash").GetString();
+                if (!string.IsNullOrEmpty(hash) && hash.Length >= 2)
+                    resources.Add((ResourceKind.AssetObject,
+                        $"https://resources.download.minecraft.net/{hash[..2]}/{hash}",
+                        $"资源对象 {hash[..8]}…"));
+            }
+            catch (Exception ex)
+            {
+                Warn($"取资源对象样本失败：{ex.Message}");
+            }
+        }
+
+        if (version.Logging?.Client?.File is { } logFile)
+            resources.Add((ResourceKind.LoggingConfig, logFile.Url, "log4j 配置（必须官方）"));
+
+        var repeat = Math.Max(1, OptInt(rest, "--repeat", 1));
+        var rows = new List<(string Label, string Source, IReadOnlyList<ProbeResult> Results)>();
+
+        foreach (var resource in resources)
+        {
+            Section(resource.Label);
+            Dim($"{resource.Kind}  {resource.OfficialUrl}");
+
+            foreach (var target in router.Resolve(resource.OfficialUrl, resource.Kind))
+            {
+                var results = new List<ProbeResult>(repeat);
+                for (var i = 0; i < repeat; i++)
+                    results.Add(await probe.ProbeAsync(target.Url, sample));
+
+                rows.Add((resource.Label, DescribeSource(target.Source), results));
+
+                var first = results[0];
+                var okTimes = results.Where(r => r.Success).Select(r => r.Elapsed.TotalMilliseconds).ToList();
+                var status = first.Success ? $"{first.FinalStatus}" : $"{first.FinalStatus} {first.Error}";
+                var timing = okTimes.Count == 0
+                    ? "            "
+                    : repeat > 1
+                        ? $"min {okTimes.Min(),4:N0}ms avg {okTimes.Average(),4:N0}ms"
+                        : $"{first.Elapsed.TotalMilliseconds,6:N0}ms     ";
+
+                Console.ForegroundColor = first.Success ? ConsoleColor.Gray : ConsoleColor.Red;
+                Console.WriteLine(
+                    $"  {DescribeSource(target.Source),-8} {status,-6} 跳转{first.RedirectCount}  {timing}  {first.BytesRead,5}B  {ShortHost(first.FinalUrl)}{DescribeNetworkPath(first.FinalUrl)}");
+                Console.ResetColor();
+
+                foreach (var hop in first.Hops)
+                    Dim($"    {hop.StatusCode}  {Truncate(hop.Url, 108)}");
+            }
+        }
+
+        Section("按源汇总");
+        foreach (var group in rows.GroupBy(row => row.Source))
+        {
+            var totalResources = group.Count();
+            var succeeded = group.Count(row => row.Results.Any(r => r.Success));
+
+            // 每个资源取多次采样里的最快值，再对资源求平均 —— 比单次采样稳定得多
+            var perResourceBest = group
+                .Where(row => row.Results.Any(r => r.Success))
+                .Select(row => row.Results.Where(r => r.Success).Min(r => r.Elapsed.TotalMilliseconds))
+                .ToList();
+
+            var average = perResourceBest.Count > 0 ? perResourceBest.Average() : 0;
+            Info($"{group.Key,-8} 成功 {succeeded}/{totalResources}   每资源最快耗时平均 {average:N0}ms");
+        }
+
+        return 0;
+    }
+
+    private static string DescribeSource(DownloadSource source) =>
+        source == DownloadSource.Bmclapi ? "BMCLAPI" : "官方";
+
+    private static string ShortHost(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return url;
+        var path = uri.AbsolutePath;
+        if (path.Length > 60) path = path[..60] + "…";
+        return uri.Host + path;
+    }
+
+    /// <summary>
+    /// 判断一段流量是否被本机的 TUN/代理接管。
+    ///
+    /// Clash/Surge 一类工具的 fake-IP 模式会把域名解析到 198.18.0.0/15（RFC 2544 保留段），
+    /// 流量由代理接管。看到这个地址就说明"耗时"反映的是代理路径，而不是直连速度。
+    /// </summary>
+    private static string DescribeNetworkPath(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return "";
+
+        if (NetworkPathCache.TryGetValue(uri.Host, out var cached)) return cached;
+
+        string description;
+        try
+        {
+            var addresses = System.Net.Dns.GetHostAddresses(uri.Host);
+            if (addresses.Length == 0)
+            {
+                description = "  [解析失败]";
+            }
+            else
+            {
+                var first = addresses[0];
+                var bytes = first.GetAddressBytes();
+                var isFakeIp = bytes.Length == 4 && bytes[0] == 198 && (bytes[1] == 18 || bytes[1] == 19);
+
+                description = isFakeIp
+                    ? $"  [{first} → 经 TUN/代理]"
+                    : $"  [{first}]";
+            }
+        }
+        catch
+        {
+            description = "  [解析失败]";
+        }
+
+        NetworkPathCache[uri.Host] = description;
+        return description;
+    }
+
+    private static readonly Dictionary<string, string> NetworkPathCache = new(StringComparer.OrdinalIgnoreCase);
+
     // -------------------------------------------------------------- helpers
 
     private static async Task<Core.Models.VersionJson> LoadVersionAsync(
@@ -653,6 +833,11 @@ internal static class Program
               npmc instance paths  <Id>               显示该实例的全部目录
               npmc instance remove <Id> [--delete-files]
                                                       从列表移除（默认保留磁盘文件）
+
+            镜像源:
+              npmc mirror test [--source official|bmclapi] [--version 1.20.1] [--sample 1024] [--repeat 3]
+                                                      对每个资源类型，官方与 BMCLAPI 并排探测，
+                                                      打印跳转链、状态、耗时（--repeat 取多次最快值）
 
             示例:
               npmc probe   1.20.1 --root .\data
