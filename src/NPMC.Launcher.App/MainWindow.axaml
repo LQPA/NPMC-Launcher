@@ -100,17 +100,17 @@
           </ListBox.ItemsPanel>
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:ContentTabItem">
-              <TextBlock Text="{Binding DisplayTitle}" FontSize="12" Padding="12,5" />
+              <TextBlock Text="{Binding DisplayTitle}" FontSize="12" Padding="12,5"
+                         Foreground="{Binding TitleColor}" />
             </DataTemplate>
           </ListBox.ItemTemplate>
           <ListBox.Styles>
-            <!-- 不可用的页签直接禁用（不能点进去），并用提示说明原因 -->
+            <!--
+              不给 ListBoxItem 设 IsEnabled：禁用后收不到指针事件，ToolTip 就不显示了，
+              而"为什么不可用"恰恰要靠提示说清楚。改为可悬停 + 由 ViewModel 拒绝选中。
+            -->
             <Style Selector="ListBoxItem" x:DataType="vm:ContentTabItem">
-              <Setter Property="IsEnabled" Value="{Binding IsEnabled}" />
               <Setter Property="ToolTip.Tip" Value="{Binding TabTip}" />
-            </Style>
-            <Style Selector="ListBoxItem:disabled">
-              <Setter Property="Opacity" Value="0.38" />
             </Style>
           </ListBox.Styles>
         </ListBox>

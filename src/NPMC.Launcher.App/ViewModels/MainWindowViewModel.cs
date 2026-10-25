@@ -503,6 +503,14 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             if (value is null) return;
 
+            // 不可用的页签点了也不进去：把选中项推回原值，并说明原因
+            if (!value.IsEnabled)
+            {
+                OnPropertyChanged(nameof(SelectedTab));
+                Status = value.TabTip ?? "该页签当前不可用";
+                return;
+            }
+
             var previousKind = _selectedTab.ContentKind;
             if (!SetProperty(ref _selectedTab, value)) return;
 

@@ -47,6 +47,7 @@ internal static class Program
                 "settings" => await SettingsAsync(args[1..]),
                 "net"      => await NetAsync(args[1..]),
                 "mods"     => await ModsAsync(args[1..]),
+                "loader"   => await LoaderAsync(args[1..]),
                 _          => Unknown(args[0]),
             };
         }
@@ -1105,6 +1106,58 @@ internal static class Program
     /// → 按实例的游戏版本与加载器取版本列表 → 判断有没有更新。
     /// 加载器过滤是必须的：否则会给 Forge 整合包推 Fabric 版本的模组。
     /// </summary>
+    // ---------------------------------------------------------------- loader
+
+    /// <summary>
+    /// 安装模组加载器。目前只有 Fabric —— 它不需要运行安装器，
+    /// 写个 profile JSON 再下几个库就行。
+    /// </summary>
+    private static async Task<int> LoaderAsync(string[] args)
+    {
+        if (args.Length == 0 || !string.Equals(args[0], "fabric", StringComparison.OrdinalIgnoreCase))
+        {
+            Error("用法: npmc loader fabric --version <游戏版本> [--loader <加载器版本>] [--root <目录>]");
+            Dim("  不指定 --loader 时取最新的 stable 版本");
+            return 1;
+        }
+
+        var rest = args[1..];
+        var gameVersion = Opt(rest, "--version") ?? Required(rest);
+        var loaderVersion = Opt(rest, "--loader");
+        var paths = new LauncherPaths(ResolveRoot(rest));
+
+        using var http = HttpFileDownloader.CreateClient();
+        var downloader = new HttpFileDownloader(http);
+        var installer = new FabricLoaderInstaller(http);
+
+        Section($"Fabric 加载器 · 游戏 {gameVersion}");
+
+        var versions = await installer.GetLoaderVersionsAsync(gameVersion);
+        if (versions.Count == 0)
+        {
+            Error($"Fabric 没有适用于 {gameVersion} 的加载器版本");
+            return 1;
+        }
+
+        var newestStable = versions.FirstOrDefault(version => version.Stable)?.Version;
+        Dim($"可用 {versions.Count} 个，最新 stable：{newestStable ?? "无（全部为预览版）"}");
+
+        foreach (var version in versions.Take(3))
+            Console.WriteLine($"  {version.Version}{(version.Stable ? "   (stable)" : "")}");
+
+        var result = await installer.InstallAsync(paths, gameVersion, loaderVersion, downloader);
+
+        Section("结果");
+        Ok($"已安装 {result.ProfileId}（加载器 {result.LoaderVersion}）");
+        Info($"库      下载 {result.LibrariesDownloaded} 个 / 跳过 {result.LibrariesSkipped} 个（已存在）");
+        Info($"版本 JSON {paths.VersionJson(result.ProfileId)}");
+
+        Dim("用 npmc instance create <名字> --version " + result.ProfileId + " 创建实例，或在界面里选择该版本");
+        return 0;
+    }
+
+    // ---------------------------------------------------------------- mods
+
     private static async Task<int> ModsAsync(string[] args)
     {
         if (args.Length == 0)
