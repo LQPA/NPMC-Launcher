@@ -217,7 +217,6 @@
               <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                 <TextBox Grid.Column="0" Text="{Binding SearchQuery}"
                          Watermark="{Binding SearchPlaceholder}" FontSize="12" />
-
                 <!-- 搜索来源：CurseForge 需要 API key；它没有光影分类 -->
                 <ComboBox Grid.Column="1" SelectedIndex="{Binding SearchSourceIndex}"
                           Width="120" Margin="8,0,0,0" FontSize="12">
@@ -247,14 +246,20 @@
                       <DataTemplate x:DataType="vm:ModSearchResultItem">
                         <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,3">
 
-                          <!-- 来源徽标：与列表里的 M/C 配色一致 -->
-                          <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4"
-                                  Background="{Binding SourceColor}" VerticalAlignment="Center"
-                                  Margin="0,0,8,0" ToolTip.Tip="{Binding SourceLabel}">
-                            <TextBlock Text="{Binding SourceBadge}" FontSize="10" FontWeight="Bold"
-                                       Foreground="#FFFFFF" HorizontalAlignment="Center"
-                                       VerticalAlignment="Center" />
-                          </Border>
+                          <!-- 来源徽标 + 缩小后的项目图标 -->
+                          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                                      VerticalAlignment="Center" Margin="0,0,8,0">
+                            <Border Width="18" Height="18" CornerRadius="4"
+                                    Background="{Binding SourceColor}"
+                                    ToolTip.Tip="{Binding SourceLabel}">
+                              <TextBlock Text="{Binding SourceBadge}" FontSize="10" FontWeight="Bold"
+                                         Foreground="#FFFFFF" HorizontalAlignment="Center"
+                                         VerticalAlignment="Center" />
+                            </Border>
+
+                            <!-- 图标未下载完时为 null，Image 什么都不画，但尺寸已占位，列表不会跳动 -->
+                            <Image Source="{Binding Icon}" Width="22" Height="22" />
+                          </StackPanel>
 
                           <StackPanel Grid.Column="1" Spacing="1">
                             <TextBlock Text="{Binding Title}" FontSize="12" Foreground="#E8EAED" />
@@ -275,10 +280,19 @@
                         IsVisible="{Binding IsDetailVisible}">
                   <ScrollViewer MaxHeight="190">
                     <StackPanel Spacing="6">
-                      <TextBlock Text="{Binding DetailTitle}" FontSize="12" FontWeight="SemiBold"
-                                 Foreground="#E8EAED" TextWrapping="Wrap" />
-                      <TextBlock Text="{Binding DetailSubtitle}" FontSize="10" Foreground="#6E7684"
-                                 TextWrapping="Wrap" />
+                      <Grid ColumnDefinitions="Auto,*">
+                        <!-- 详情里的图标按 56px 显示 -->
+                        <Image Grid.Column="0" Source="{Binding DetailIcon}" Width="56" Height="56"
+                               Margin="0,0,10,0" VerticalAlignment="Top" />
+
+                        <StackPanel Grid.Column="1" Spacing="4">
+                          <TextBlock Text="{Binding DetailTitle}" FontSize="13" FontWeight="SemiBold"
+                                     Foreground="#E8EAED" TextWrapping="Wrap" />
+                          <TextBlock Text="{Binding DetailSubtitle}" FontSize="10" Foreground="#6E7684"
+                                     TextWrapping="Wrap" />
+                        </StackPanel>
+                      </Grid>
+
                       <TextBlock Text="{Binding DetailBody}" FontSize="11" Foreground="#B4BCC8"
                                  TextWrapping="Wrap" LineHeight="16" />
                       <Button Content="在浏览器中打开" Command="{Binding OpenDetailInBrowserCommand}"

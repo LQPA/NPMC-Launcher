@@ -21,6 +21,10 @@ internal static class InstanceDump
 {
     private const string Option = "--dump-instances";
 
+    /// <summary>是否请求了 dump 模式（用于在入口处先初始化渲染平台）。</summary>
+    public static bool IsDumpRequested(string[] args) =>
+        Array.FindIndex(args, arg => string.Equals(arg, Option, StringComparison.OrdinalIgnoreCase)) >= 0;
+
     public static bool TryRun(string[] args)
     {
         var index = Array.FindIndex(args, arg => string.Equals(arg, Option, StringComparison.OrdinalIgnoreCase));
@@ -197,6 +201,21 @@ internal static class InstanceDump
                 lines.Add($"    {viewModel.DetailSubtitle}");
                 lines.Add($"    url  = {viewModel.DetailUrl}");
                 lines.Add($"    body = {viewModel.DetailBody}");
+
+                // 图标是异步补的，等第一个到齐
+                for (var i = 0; i < 100 && viewModel.SearchResults.Count > 0
+                     && viewModel.SearchResults[0].Icon is null; i++)
+                    Thread.Sleep(100);
+
+                lines.Add($"[图标] 列表 {viewModel.SearchResults.Count(item => item.Icon is not null)}"
+                          + $"/{viewModel.SearchResults.Count} 个已加载"
+                          + "（无头诊断没有渲染平台，解码不可用；真实窗口才会有图标）");
+
+                // 空查询 → 浏览热门
+                viewModel.SearchForDiagnosticsAsync("").GetAwaiter().GetResult();
+                lines.Add($"[热门] {viewModel.SearchSummaryText}");
+                foreach (var hot in viewModel.SearchResults.Take(4))
+                    lines.Add($"    {hot.Title,-28} {hot.MetaText}");
 
                 viewModel.PrepareInstallForDiagnosticsAsync(topHit).GetAwaiter().GetResult();
 

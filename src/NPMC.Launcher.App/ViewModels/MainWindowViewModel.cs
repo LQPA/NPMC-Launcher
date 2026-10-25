@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Media.Imaging;
 using System.Text;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -32,6 +33,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly ModsUpdateService _updateService;
     private readonly ModrinthClient _modrinth;
     private readonly ModInstaller _installer;
+    private readonly IconLoader _icons;
     private readonly CurseForgeClient? _curseForge;
     private readonly CurseForgeInstaller? _curseForgeInstaller;
 
@@ -63,6 +65,7 @@ public sealed class MainWindowViewModel : ObservableObject
         _updateService = new ModsUpdateService(_http);
         _modrinth = new ModrinthClient(_http);
         _installer = ModInstaller.Create(_http);
+        _icons = new IconLoader(_http);
 
         if (CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out _) && curseForgeKey is not null)
         {
@@ -1121,6 +1124,9 @@ public sealed class MainWindowViewModel : ObservableObject
         set
         {
             if (!SetProperty(ref _searchQuery, value)) return;
+
+            // 空查询时按钮文案变成"热门"
+            OnPropertyChanged(nameof(SearchButtonText));
             (SearchCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
@@ -1150,7 +1156,9 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    public string SearchButtonText => _isSearching ? "搜索中…" : "搜索";
+    public string SearchButtonText => _isSearching
+        ? "搜索中…"
+        : _searchQuery.Trim().Length == 0 ? "热门" : "搜索";
 
     public bool IsPlanVisible
     {
@@ -1176,10 +1184,10 @@ public sealed class MainWindowViewModel : ObservableObject
         ? "收起"
         : SearchResults.Count > 0 ? $"展开（{SearchResults.Count} 条）" : "展开";
 
-    /// <summary>搜索框的占位提示随当前页签变化（模组 / 资源包 / 光影）。</summary>
+    /// <summary>搜索框的占位提示随当前页签变化；查询为空时按钮会去取热门。</summary>
     public string SearchPlaceholder => SelectedTab.ContentKind is { } kind
-        ? $"搜索{kind.DisplayName()}…"
-        : "搜索…";
+        ? $"搜索{kind.DisplayName()}…（留空则看热门）"
+        : "搜索…（留空则看热门）";
 
     // ---- 搜索结果详情 ----
 
@@ -1241,6 +1249,25 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public ICommand OpenDetailInBrowserCommand { get; }
 
+    /// <summary>详情面板里的项目图标。</summary>
+    private Bitmap? _detailIcon;
+
+    public Bitmap? DetailIcon
+    {
+        get => _detailIcon;
+        private set => SetProperty(ref _detailIcon, value);
+    }
+
+    /// <summary>逐个补齐搜索结果图标；取不到的留空，不阻塞列表。</summary>
+    private async Task LoadSearchIconsAsync(IReadOnlyList<ModSearchResultItem> items)
+    {
+        foreach (var item in items)
+        {
+            var icon = await _icons.GetAsync(item.IconUrl);
+            if (icon is not null) item.Icon = icon;
+        }
+    }
+
     private async Task LoadSearchDetailAsync(ModSearchResultItem item)
     {
         IsDetailVisible = true;
@@ -1248,6 +1275,9 @@ public sealed class MainWindowViewModel : ObservableObject
         DetailTitle = item.Title;
         DetailSubtitle = $"{item.SourceLabel} · {item.MetaText}";
         DetailUrl = item.PageUrl;
+
+        // 先用列表里已有的图标，等详情回来再按项目图标刷新
+        DetailIcon = item.Icon;
 
         // CurseForge 的详情页在网页上；我们只拿到摘要，就不假装有正文
         if (item.Source == UpdateSource.CurseForge)
@@ -1282,6 +1312,9 @@ public sealed class MainWindowViewModel : ObservableObject
                              + (detail.Categories.Count > 0 ? $" · {string.Join(", ", detail.Categories)}" : "");
             DetailUrl = detail.PageUrl;
             DetailBody = string.IsNullOrWhiteSpace(body) ? "(该项目没有提供描述)" : body;
+
+            var icon = await _icons.GetAsync(detail.IconUrl);
+            if (icon is not null) DetailIcon = icon;
 
             _detailBodyCache[item.ProjectRef] = DetailBody;
         }
@@ -1361,17 +1394,21 @@ public sealed class MainWindowViewModel : ObservableObject
         (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }
 
-    private bool CanSearch => !IsSearching && SelectedInstance is not null && _searchQuery.Trim().Length > 0;
+    // 空查询也允许 —— 那是"浏览热门"，不是无效操作
+    private bool CanSearch => !IsSearching && SelectedInstance is not null;
 
     private bool CanConfirmInstall => !IsInstalling && _pendingPlan is not null;
 
-    /// <summary>在 Modrinth 搜索模组，按当前实例的游戏版本与加载器过滤。</summary>
+    /// <summary>
+    /// 搜索。**查询为空时改为浏览热门**（按下载量排序）——
+    /// 用户往往不知道该搜什么，先看当前版本/加载器下最常用的项目更有用。
+    /// </summary>
     private async Task SearchModsAsync()
     {
         if (SelectedInstance is not { } instance) return;
 
         var query = _searchQuery.Trim();
-        if (query.Length == 0) return;
+        var browsing = query.Length == 0;
 
         IsSearching = true;
         try
@@ -1404,7 +1441,9 @@ public sealed class MainWindowViewModel : ObservableObject
                 return;
             }
 
-            Status = $"正在 {source} 搜索「{query}」…";
+            Status = browsing
+                ? $"正在 {source} 获取热门{kind.DisplayName()}…"
+                : $"正在 {source} 搜索「{query}」…";
 
             SearchResults.Clear();
             SelectedSearchResult = null;
@@ -1428,13 +1467,15 @@ public sealed class MainWindowViewModel : ObservableObject
                         BeginInstallAsync)
                     {
                         PageUrl = $"https://www.curseforge.com/minecraft/{pageSegment}/{hit.Slug}",
+                        IconUrl = hit.LogoUrl,
                     });
                 }
             }
             else
             {
                 var hits = await _modrinth.SearchAsync(
-                    query, gameVersion, loaders, 8, kind.ModrinthProjectType());
+                    query, gameVersion, loaders, 8, kind.ModrinthProjectType(),
+                    browsing ? "downloads" : "relevance");
 
                 foreach (var hit in hits)
                 {
@@ -1447,20 +1488,29 @@ public sealed class MainWindowViewModel : ObservableObject
                         BeginInstallAsync)
                     {
                         PageUrl = $"https://modrinth.com/{kind.ModrinthProjectType()}/{hit.Slug}",
+                        IconUrl = hit.IconUrl,
                     });
                 }
             }
 
             OnPropertyChanged(nameof(HasSearchResults));
 
+            // 图标是次要信息：先让列表出来，再逐个把图标填上
+            _ = LoadSearchIconsAsync(SearchResults.ToList());
+
             // 搜出结果就展开 —— 收起状态下搜完看不到东西会让人以为没搜到
             IsSearchPanelExpanded = true;
 
             SearchSummaryText = SearchResults.Count == 0
-                ? $"{source} 上没有找到适用于 {gameVersion} 的{kind.DisplayName()}"
-                : $"找到 {SearchResults.Count} 个{kind.DisplayName()}"
-                  + $"（{source} · {gameVersion}"
-                  + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + "）";
+                ? browsing
+                    ? $"{source} 上没有找到适用于 {gameVersion} 的{kind.DisplayName()}"
+                    : $"{source} 上没有找到适用于 {gameVersion} 的{kind.DisplayName()}"
+                : browsing
+                    ? $"热门{kind.DisplayName()}（{source} · {gameVersion}"
+                      + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + " · 按下载量）"
+                    : $"找到 {SearchResults.Count} 个{kind.DisplayName()}"
+                      + $"（{source} · {gameVersion}"
+                      + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + "）";
 
             Status = SearchSummaryText;
         }

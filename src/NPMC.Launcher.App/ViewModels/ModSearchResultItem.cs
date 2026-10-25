@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using Avalonia.Media.Imaging;
 using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Infrastructure.Mods;
 
@@ -11,8 +12,10 @@ namespace NPMC.Launcher.App.ViewModels;
 /// <see cref="Source"/> 决定安装时走哪条解析链路，<see cref="ProjectRef"/> 是那条链路要的标识
 /// （Modrinth 用 slug，CurseForge 用数字 modId 的字符串形式）。
 /// </summary>
-public sealed class ModSearchResultItem
+public sealed class ModSearchResultItem : ObservableObject
 {
+    private Bitmap? _icon;
+
     public ModSearchResultItem(
         UpdateSource source,
         string projectRef,
@@ -41,6 +44,16 @@ public sealed class ModSearchResultItem
 
     /// <summary>该项目的平台页面地址（"在浏览器中打开"用）。</summary>
     public string PageUrl { get; init; } = "";
+
+    /// <summary>图标地址（搜索结果里就带，不必等详情）。</summary>
+    public string IconUrl { get; init; } = "";
+
+    /// <summary>下载完成的图标；未就绪时为 null（界面留空，不做占位跳动）。</summary>
+    public Bitmap? Icon
+    {
+        get => _icon;
+        set => SetProperty(ref _icon, value);
+    }
 
     /// <summary>副标题：来源与下载量。</summary>
     public string MetaText => $"{SourceLabel} · {FormatDownloads(Downloads)} 次下载";

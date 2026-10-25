@@ -69,7 +69,8 @@ public sealed record CurseForgeSearchHit(
     string Slug,
     string Name,
     string Summary,
-    long DownloadCount)
+    long DownloadCount,
+    string LogoUrl = "")
 {
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? Slug : Name;
 }
@@ -290,11 +291,14 @@ public sealed class CurseForgeClient
         {
             $"gameId={MinecraftGameId}",
             $"classId={classId}",
-            $"searchFilter={Uri.EscapeDataString(query)}",
             $"pageSize={Math.Clamp(limit, 1, 50)}",
             "sortField=6",
             "sortOrder=desc",
         };
+
+        // 空查询 = 浏览热门，此时不能带 searchFilter（CF 会当成"搜空字符串"）
+        if (!string.IsNullOrWhiteSpace(query))
+            parameters.Add($"searchFilter={Uri.EscapeDataString(query)}");
 
         if (!string.IsNullOrWhiteSpace(gameVersion))
             parameters.Add($"gameVersion={Uri.EscapeDataString(gameVersion)}");
@@ -327,10 +331,21 @@ public sealed class CurseForgeClient
                 GetString(element, "slug") ?? "",
                 GetString(element, "name") ?? "",
                 GetString(element, "summary") ?? "",
-                GetLong(element, "downloadCount")));
+                GetLong(element, "downloadCount"),
+                GetLogoUrl(element)));
         }
 
         return hits;
+    }
+
+    /// <summary>图标在 logo.thumbnailUrl 里（也可能只有 logo.url）。</summary>
+    private static string GetLogoUrl(JsonElement element)
+    {
+        if (!element.TryGetProperty("logo", out var logo) || logo.ValueKind != JsonValueKind.Object)
+            return "";
+
+        var thumbnail = GetString(logo, "thumbnailUrl");
+        return string.IsNullOrWhiteSpace(thumbnail) ? GetString(logo, "url") ?? "" : thumbnail;
     }
 
     /// <summary>取某个项目在指定游戏版本/加载器下的文件，按发布时间从新到旧排序。</summary>

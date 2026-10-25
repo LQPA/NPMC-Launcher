@@ -99,12 +99,14 @@ public sealed class ModrinthClient
     }
 
     /// <summary>搜索项目（按相关性）。facets 会把项目类型、游戏版本与加载器都限死。</summary>
+    /// <param name="sortIndex">排序：relevance / downloads / follows / newest / updated。</param>
     public async Task<IReadOnlyList<ModrinthSearchHit>> SearchAsync(
         string query,
         string? gameVersion,
         IReadOnlyList<string> loaders,
         int limit = 10,
         string projectType = "mod",
+        string sortIndex = "relevance",
         CancellationToken cancellationToken = default)
     {
         var facets = new List<string> { $"[\"project_type:{projectType}\"]" };
@@ -118,7 +120,7 @@ public sealed class ModrinthClient
         var url = $"{ApiBase}/search?query={Uri.EscapeDataString(query)}"
                 + $"&facets={Uri.EscapeDataString("[" + string.Join(",", facets) + "]")}"
                 + $"&limit={limit}"
-                + "&index=relevance";
+                + $"&index={Uri.EscapeDataString(sortIndex)}";
 
         var json = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
 
