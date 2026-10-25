@@ -6,6 +6,7 @@ using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
 using NPMC.Launcher.Infrastructure.Http;
+using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Mirrors;
 using NPMC.Launcher.Infrastructure.Runtime;
@@ -33,6 +34,7 @@ internal static class Program
                 "launch"   => await LaunchAsync(args[1..]),
                 "instance" => await InstanceAsync(args[1..]),
                 "mirror"   => await MirrorAsync(args[1..]),
+                "doctor"   => await DoctorAsync(args[1..]),
                 _          => Unknown(args[0]),
             };
         }
@@ -719,6 +721,181 @@ internal static class Program
 
     private static readonly Dictionary<string, string> NetworkPathCache = new(StringComparer.OrdinalIgnoreCase);
 
+    // -------------------------------------------------------------- doctor
+
+    private static async Task<int> DoctorAsync(string[] args)
+    {
+        var launcher = new LauncherPaths(ResolveRoot(args));
+        var router = new MirrorRouter();
+        using var http = HttpFileDownloader.CreateClient();
+        var probe = new MirrorProbe();
+
+        var warnings = new List<string>();
+
+        Section("环境");
+        Info($"操作系统    {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+        Info($"体系结构    {System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}（OS: {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}）");
+        Info($"运行时      .NET {Environment.Version}");
+        Info($"启动器根    {launcher.Root}");
+
+        var tempDirectory = Path.GetTempPath();
+        var tempWritable = TryWriteProbe(tempDirectory);
+        Info($"TEMP        {tempDirectory}");
+        Info($"TEMP 可写   {YesNo(tempWritable)}");
+        if (!tempWritable)
+            warnings.Add("TEMP 不可写：受限令牌下测试与临时文件会失败，请改用工作区内的目录。");
+
+        var processHandleBlocked = !CanOpenOwnProcess();
+        Info($"进程句柄    {(processHandleBlocked ? "被禁止" : "可用")}");
+        if (processHandleBlocked)
+            warnings.Add("无法 OpenProcess 自身：监听游戏进程退出不能用 EnableRaisingEvents，应改用 WaitForExitAsync 或轮询。");
+
+        var inSandbox = tempDirectory.Contains("dsh-", StringComparison.OrdinalIgnoreCase);
+        Info($"受限环境     {(inSandbox ? "是（TEMP 含 dsh- 前缀）" : "否")}");
+
+        Section("Java");
+        var installations = JavaLocator.Discover(launcher);
+        if (installations.Count == 0)
+        {
+            Warn("没有找到任何 Java");
+            warnings.Add("没有 Java：1.20.1 需要 17+。可用 npmc runtime java-runtime-gamma 安装内置运行时。");
+        }
+        else
+        {
+            foreach (var java in installations)
+            {
+                var tag = java.IsBundled ? "[内置]" : "[系统]";
+                var version = java.MajorVersion > 0 ? $"Java {java.MajorVersion}" : "版本未知";
+                Info($"{tag} {version,-10} {java.Path}");
+            }
+
+            if (!installations.Any(java => java.MajorVersion >= 17))
+                warnings.Add("没有 17+ 的 Java：1.20.1 及以上需要 Java 17。");
+        }
+
+        Section("网络路径");
+        foreach (var host in new[] { "launchermeta.mojang.com", "piston-meta.mojang.com", "bmclapi2.bangbang93.com" })
+        {
+            var url = $"https://{host}/";
+            Info($"{host,-32}{TrimPath(DescribeNetworkPath(url))}");
+        }
+
+        var mirrorEntry = "https://bmclapi2.bangbang93.com/";
+        if (DescribeNetworkPath(mirrorEntry).Contains("TUN", StringComparison.Ordinal))
+            warnings.Add("BMCLAPI 流量经过本机代理（fake-IP）：测速会失真且可能更慢。建议把 bangbang93.com / sakura.sld.tw / openbmclapi.* 在代理规则里设为 DIRECT。");
+
+        Section("下载源连通性（各取前 512 字节）");
+        foreach (var target in router.Resolve(VersionManifestSource.OfficialManifestUrl, ResourceKind.VersionManifest))
+        {
+            var result = await probe.ProbeAsync(target.Url, 512);
+            var status = result.Success ? result.FinalStatus.ToString() : "失败";
+            Console.ForegroundColor = result.Success ? ConsoleColor.Gray : ConsoleColor.Red;
+            Console.WriteLine(
+                $"  {DescribeSource(target.Source),-8} {status,-6} {result.Elapsed.TotalMilliseconds,6:N0}ms  跳转{result.RedirectCount}  {ShortHost(result.FinalUrl)}");
+            Console.ResetColor();
+
+            if (!result.Success) warnings.Add($"{DescribeSource(target.Source)} 不可用：{result.Error}");
+        }
+
+        Section("目录");
+        foreach (var (name, path) in new (string Name, string Path)[]
+                 {
+                     ("assets", launcher.Assets),
+                     ("libraries", launcher.Libraries),
+                     ("versions", launcher.Versions),
+                     ("runtime", launcher.Runtime),
+                     ("instances", launcher.Instances),
+                 })
+        {
+            if (Directory.Exists(path))
+                Info($"{name,-10} {DirectorySize(path) / 1024d / 1024d,8:N1} MB   {path}");
+            else
+                Dim($"{name,-10}        —   {path}");
+        }
+
+        Section("实例");
+        try
+        {
+            var catalog = new InstanceCatalog(await new JsonInstanceStore(launcher).LoadAsync());
+            if (catalog.Count == 0)
+            {
+                Dim("（无）");
+            }
+            else
+            {
+                foreach (var instance in catalog.Instances)
+                    Info($"{DescribeIsolation(instance.Isolation),-6} {instance.Id,-18} {instance.VersionId,-10} {instance.Settings.MemoryMb} MB");
+
+                foreach (var problem in catalog.Validate()) warnings.Add($"实例数据问题：{problem}");
+            }
+        }
+        catch (Exception ex)
+        {
+            warnings.Add($"读取实例列表失败：{ex.Message}");
+        }
+
+        Section("结论");
+        if (warnings.Count == 0)
+        {
+            Ok("未发现明显问题");
+        }
+        else
+        {
+            foreach (var warning in warnings) Warn(warning);
+        }
+
+        return 0;
+    }
+
+    private static string YesNo(bool value) => value ? "是" : "否";
+
+    /// <summary>去掉 DescribeNetworkPath 前面的两个空格，便于对齐输出。</summary>
+    private static string TrimPath(string description) => description.TrimStart();
+
+    private static bool TryWriteProbe(string directory)
+    {
+        try
+        {
+            var name = "npmc-probe-" + Guid.NewGuid().ToString("N")[..8];
+            var path = Path.Combine(directory, name);
+            Directory.CreateDirectory(path);
+            Directory.Delete(path);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool CanOpenOwnProcess()
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(Environment.ProcessId);
+            process.EnableRaisingEvents = true;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static long DirectorySize(string path)
+    {
+        try
+        {
+            return new DirectoryInfo(path)
+                .EnumerateFiles("*", SearchOption.AllDirectories)
+                .Sum(file => file.Length);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
     // -------------------------------------------------------------- helpers
 
     private static async Task<Core.Models.VersionJson> LoadVersionAsync(
@@ -838,6 +1015,11 @@ internal static class Program
               npmc mirror test [--source official|bmclapi] [--version 1.20.1] [--sample 1024] [--repeat 3]
                                                       对每个资源类型，官方与 BMCLAPI 并排探测，
                                                       打印跳转链、状态、耗时（--repeat 取多次最快值）
+
+            环境诊断:
+              npmc doctor [--root <目录>]
+                                                      检查进程权限、Java 运行时、代理/TUN、
+                                                      下载源连通性、目录与实例状态，并列出自检建议
 
             示例:
               npmc probe   1.20.1 --root .\data

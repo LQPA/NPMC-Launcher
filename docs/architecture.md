@@ -394,10 +394,10 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | `dotnet new` 写用户目录被沙箱拦 | `.templateengine` 访问被拒 | 重定向 `DOTNET_CLI_HOME` / `NUGET_PACKAGES` 到工程内 |
 | 菱形项目引用还原失败 | 同一项目被直接与间接引用时还原失败 | Cli 只引用 Infrastructure，Core 走传递引用 |
 | NuGet 缓存空 | Avalonia / xunit 无法离线 restore | 需联网执行 restore |
-| **vstest testhost 崩溃** | `dotnet test` 直接中止，报 `Win32Exception (5): 拒绝访问`——testhost 在 `SetParentProcessExitCallback` 里无法 `OpenProcess` 父进程 | 用内置反射 runner 绕过 vstest：`dotnet build -p:SelfTestRunner=true` 后直接运行测试工程 exe。换到正常环境仍可用 `dotnet test` |
+| **vstest testhost 崩溃** | `dotnet test` 直接中止，报 `Win32Exception (5): 拒绝访问`——testhost 在 `SetParentProcessExitCallback` 里无法 `OpenProcess` 父进程。**受限与提权两种模式下都复现（已实测）** | 用内置反射 runner 绕过 vstest：`dotnet build -p:SelfTestRunner=true` 后直接运行测试工程 exe。换到真实用户环境仍可用 `dotnet test` |
 | **`.gitignore` 大小写误伤源码** | `core.ignorecase=true` 时，为运行时数据写的 `instances/`、`runtime/` 会同时匹配源码目录 `Core/Instances/`、`Infrastructure/Runtime/`，把新文件静默排除在提交之外（已实际发生：`MojangRuntimeInstaller.cs` 从首次提交起就没进过仓库，导致远端工程一直编译不过） | 运行时数据模式必须**锚定到仓库根**：`/.data/` `/runtime/` `/instances/` …… 提交前用 `git status --ignored=matching -- src tests` 核对，只应看到 `bin/`、`obj/` |
-| **提权后临时目录不可写** | 普通沙箱模式给的 `TEMP` 是低完整性友好的专用目录；`danger-full-access` 撤掉沙箱后 `TEMP` 变成真实用户 Temp（Medium 完整性），而 DSH 的进程是 Low 完整性令牌，在里面建目录直接 `UnauthorizedAccessException`。表现为"同一套测试不提权能过、提权就失败 4 个" | 测试与工具不要依赖 `%TEMP%`。测试统一用测试程序集所在目录下的 `test-scratch/`（见 `TestTemp`）——构建产物已写进 bin，说明该目录对测试进程必然可写 |
-| **`OpenProcess` 被整体禁止** | 不只是 testhost：连对自身 PID 设置 `EnableRaisingEvents`、或用 CIM 查父进程都返回"拒绝访问"。原因是 Low 完整性令牌 + 沙箱拦截 | 启动器监听游戏进程退出不要用 `EnableRaisingEvents`，改用 `WaitForExitAsync` 或轮询 |
+| **临时目录不完全可用** | 同一套测试在受限模式下 6/6 通过，在 `danger-full-access` 下 3/3 失败，报 `UnauthorizedAccessException`（在真实用户 `%TEMP%` 里建目录）。但后续 `npmc doctor` 在同样提权下又能成功建目录 —— **具体机制未完全定位**，推测与令牌/目录完整性级别不匹配有关 | 结论不变：**测试与工具不要依赖 `%TEMP%`**。测试统一用测试程序集所在目录下的 `test-scratch/`（见 `TestTemp`）——构建产物已写进 bin，证明该目录必然可写 |
+| **`OpenProcess` 部分受限** | 受限模式下：对自身 PID 设置 `EnableRaisingEvents`、用 CIM 查父进程都返回"拒绝访问"，testhost 因此崩溃。提权后：**打开自身进程句柄恢复可用**，但 testhost 打开**父进程**句柄仍然失败 | 用 `npmc doctor` 实测当前环境（它直接报告"进程句柄 可用/被禁止"）。真实用户环境是 Medium 完整性，不受此限；本机已实测游戏进程的 `WaitForExitAsync` 在提权下可正常工作 |
 
 ---
 
@@ -420,11 +420,12 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 ## 13. 下一步
 
 **已完成**：M0 参数链与启动（实际进世界并正常存档）、内置 Java 运行时（可整体迁移）、
-3598 个资源对象并发下载、xunit 回归测试（78 用例）、实例管理与三级隔离。
+3598 个资源对象并发下载、xunit 回归测试（98 用例）、实例管理与三级隔离、
+镜像路由与连通性自测（`MirrorRouter` / `MirrorProbe` / `npmc doctor`）。
 
 待做，按依赖顺序：
 
-1. `MirrorRouter`：官方 ↔ BMCLAPI 切换，注意 §4.4 的三条约束
+1. 把 `MirrorRouter` 接进下载流程（`install` / `probe` / `runtime` 目前仍直连官方）
 2. 全局设置持久化（下载源、默认内存、代理）
 3. 接入 Avalonia（需联网 restore）与 MVVM 骨架
 4. 正版登录：等 `aka.ms/AppRegInfo` 审批，通过后接 `MicrosoftAuthProvider`
