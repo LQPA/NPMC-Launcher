@@ -175,7 +175,8 @@ public sealed class ModrinthClient
                     id,
                     GetString(element, "slug") ?? "",
                     GetString(element, "title") ?? "",
-                    GetString(element, "description") ?? "");
+                    GetString(element, "description") ?? "",
+                    GetString(element, "icon_url") ?? "");
             }
         }
 

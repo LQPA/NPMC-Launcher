@@ -34,7 +34,8 @@ public sealed record ModrinthProject(
     string Id,
     string Slug,
     string Title,
-    string Description)
+    string Description,
+    string IconUrl = "")
 {
     /// <summary>界面上优先显示标题，标题为空时退回 slug。</summary>
     public string DisplayName => string.IsNullOrWhiteSpace(Title) ? Slug : Title;

@@ -18,6 +18,7 @@ using NPMC.Launcher.Infrastructure.Modrinth;
 using NPMC.Launcher.Infrastructure.Mods;
 using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Storage;
+using NPMC.Launcher.Infrastructure.Translation;
 
 namespace NPMC.Launcher.App.ViewModels;
 
@@ -34,6 +35,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly ModrinthClient _modrinth;
     private readonly ModInstaller _installer;
     private readonly IconLoader _icons;
+    private readonly TranslationClient _translation;
+    private string? _descriptionLanguage;
     private readonly CurseForgeClient? _curseForge;
     private readonly CurseForgeInstaller? _curseForgeInstaller;
 
@@ -65,7 +68,8 @@ public sealed class MainWindowViewModel : ObservableObject
         _updateService = new ModsUpdateService(_http);
         _modrinth = new ModrinthClient(_http);
         _installer = ModInstaller.Create(_http);
-        _icons = new IconLoader(_http);
+        _icons = new IconLoader(_http, Path.Combine(_launcher.Root, "cache", "icons"));
+        _translation = new TranslationClient(_http, Path.Combine(_launcher.Root, "cache", "translations"));
 
         if (CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out _) && curseForgeKey is not null)
         {
@@ -979,6 +983,9 @@ public sealed class MainWindowViewModel : ObservableObject
             UpdateCount = report.Updates.Count;
             Status = DescribeReport(items.Count, report);
 
+            // 图标后补：不影响列表出现
+            _ = LoadContentIconsAsync(items, report);
+
             LauncherLog.Write(_launcher.Root,
                 $"检查更新 {instance.Id}：文件 {items.Count}，Modrinth {report.ModrinthMatches}，"
                 + $"CurseForge {report.CurseForgeMatches}，可升级 {report.Updates.Count}，"
@@ -1241,6 +1248,21 @@ public sealed class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref _detailBody, value);
     }
 
+    private string _detailTranslation = "";
+
+    /// <summary>简介的机器翻译。为空表示"不需要 / 翻不出来"，界面据此隐藏这一块。</summary>
+    public string DetailTranslation
+    {
+        get => _detailTranslation;
+        private set
+        {
+            if (!SetProperty(ref _detailTranslation, value)) return;
+            OnPropertyChanged(nameof(HasDetailTranslation));
+        }
+    }
+
+    public bool HasDetailTranslation => _detailTranslation.Length > 0;
+
     public string DetailUrl
     {
         get => _detailUrl;
@@ -1258,13 +1280,100 @@ public sealed class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref _detailIcon, value);
     }
 
-    /// <summary>逐个补齐搜索结果图标；取不到的留空，不阻塞列表。</summary>
-    private async Task LoadSearchIconsAsync(IReadOnlyList<ModSearchResultItem> items)
+    /// <summary>
+    /// 把简介翻成用户的语言（默认简体中文）。
+    ///
+    /// 三个"不做"的判据：
+    ///   - 正文已经是中文 → 不必翻
+    ///   - 目标语言是英文 → 原文就是英文，不必翻
+    ///   - 翻译端点失败 → 只显示原文（翻译是附加信息，不是必需品）
+    /// </summary>
+    private async Task TranslateDetailAsync(string body)
     {
+        DetailTranslation = "";
+
+        if (string.IsNullOrWhiteSpace(body)) return;
+        if (LooksChinese(body)) return;
+
+        var language = await DescriptionLanguageAsync();
+        if (string.IsNullOrWhiteSpace(language)) return;
+        if (language.StartsWith("en", StringComparison.OrdinalIgnoreCase)) return;
+
+        var translated = await _translation.TranslateAsync(body, language);
+        if (!string.IsNullOrWhiteSpace(translated)) DetailTranslation = translated;
+    }
+
+    /// <summary>目标语言来自全局设置（暂时没有设置页，默认 zh-CN）。</summary>
+    private async Task<string> DescriptionLanguageAsync()
+    {
+        if (_descriptionLanguage is not null) return _descriptionLanguage;
+
+        try
+        {
+            _descriptionLanguage = (await new JsonSettingsStore(_launcher).LoadAsync()).Language;
+        }
+        catch
+        {
+            _descriptionLanguage = "zh-CN";
+        }
+
+        if (string.IsNullOrWhiteSpace(_descriptionLanguage)) _descriptionLanguage = "zh-CN";
+        return _descriptionLanguage;
+    }
+
+    /// <summary>粗略判断是否中文：汉字占比超过 5% 就算（避免把个别符号当文本）。</summary>
+    private static bool LooksChinese(string text)
+    {
+        var han = 0;
+        foreach (var character in text)
+            if (character is >= '\u4E00' and <= '\u9FFF') han++;
+
+        return han > text.Length / 20;
+    }
+
+    /// <summary>逐个补齐搜索结果图标；取不到的留空，不阻塞列表。</summary>
+    private async Task LoadSearchIconsAsync(IReadOnlyList<ModSearchResultItem> items)    {
         foreach (var item in items)
         {
             var icon = await _icons.GetAsync(item.IconUrl);
             if (icon is not null) item.Icon = icon;
+        }
+    }
+
+    /// <summary>
+    /// 给内容列表里已识别的模组补图标。
+    /// 项目信息用**一次批量请求**拿（`/v2/projects?ids=[...]`），不是逐个查。
+    /// </summary>
+    private async Task LoadContentIconsAsync(
+        IReadOnlyList<ContentEntryItem> items,
+        ModUpdateReport report)
+    {
+        var projectIds = report.LocalMods
+            .Where(local => local.Matched?.Source == UpdateSource.Modrinth)
+            .Select(local => local.Matched!.ProjectId)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (projectIds.Count == 0) return;
+
+        try
+        {
+            var projects = await _modrinth.GetProjectsAsync(projectIds);
+            var byPath = report.LocalMods.ToDictionary(local => local.Path, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var item in items)
+            {
+                if (!byPath.TryGetValue(item.Entry.Path, out var local)) continue;
+                if (local.Matched is not { Source: UpdateSource.Modrinth } matched) continue;
+                if (!projects.TryGetValue(matched.ProjectId, out var project)) continue;
+
+                var icon = await _icons.GetAsync(project.IconUrl);
+                if (icon is not null) item.Icon = icon;
+            }
+        }
+        catch
+        {
+            // 图标拿不到不影响任何功能
         }
     }
 
@@ -1315,6 +1424,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
             var icon = await _icons.GetAsync(detail.IconUrl);
             if (icon is not null) DetailIcon = icon;
+
+            // 翻译是附加信息：单独走，失败就当作没有
+            _ = TranslateDetailAsync(DetailBody);
 
             _detailBodyCache[item.ProjectRef] = DetailBody;
         }
@@ -2114,6 +2226,11 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         (LaunchGameCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (CheckUpdatesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+
+        // 搜索的可用性取决于"有没有选中实例" —— 选中前按钮会一直是灰的，
+        // 所以实例变化时也必须通知它（否则空查询时「热门」永远点不动）。
+        (SearchCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (RefreshLogCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenGameFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenModsFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();

@@ -1,4 +1,4 @@
-using NPMC.Launcher.App.ViewModels;
+﻿using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
@@ -183,9 +183,9 @@ internal static class InstanceDump
 
             viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
             viewModel.SearchForDiagnosticsAsync("sodium").GetAwaiter().GetResult();
-
             lines.Add("");
             lines.Add($"[搜索] 结果 {viewModel.SearchResults.Count} 个 —— {viewModel.SearchSummaryText}");
+            lines.Add($"    搜索按钮可用 = {viewModel.SearchCommand.CanExecute(null)}");
             foreach (var hit in viewModel.SearchResults)
                 lines.Add($"    {hit.Title,-30} {hit.MetaText}");
 

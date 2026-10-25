@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using Avalonia.Media.Imaging;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Mods;
 
@@ -38,6 +39,15 @@ public sealed class ContentEntryItem : ObservableObject
     }
 
     public ContentEntry Entry => _entry;
+
+    private Bitmap? _icon;
+
+    /// <summary>项目图标（识别成功后才会有）；未就绪时为 null，界面留空但占位。</summary>
+    public Bitmap? Icon
+    {
+        get => _icon;
+        set => SetProperty(ref _icon, value);
+    }
 
     public string Name => _entry.Name;
 
