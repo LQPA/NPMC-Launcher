@@ -192,9 +192,22 @@ public sealed class MainWindowViewModel : ObservableObject
             // WaitForExitAsync 在正常用户环境可用（本机已实测过真实启动）。
             await process.WaitForExitAsync();
 
-            Status = process.ExitCode == 0
-                ? $"游戏已正常退出（{instance.Name}）"
-                : $"游戏异常退出，退出码 {process.ExitCode}，详见 {prepared.LatestLog}";
+            if (process.ExitCode == 0)
+            {
+                Status = $"游戏已正常退出（{instance.Name}）";
+            }
+            else
+            {
+                // 早期失败（JVM 起不来）不会写 latest.log，真正的原因在 stderr
+                var stderrTail = GameLauncher.ReadStderrTail(instance.GameDirectory);
+                var reason = string.IsNullOrWhiteSpace(stderrTail)
+                    ? ""
+                    : "：" + stderrTail.Replace("\r", "").Replace("\n", " ");
+
+                Status = $"游戏异常退出，退出码 {process.ExitCode}{reason}";
+                LauncherLog.Write(_launcher.Root,
+                    $"启动失败（实例 {instance.Name}，退出码 {process.ExitCode}）：{stderrTail}");
+            }
 
             if (IsLogTab) await RefreshLogAsync();
         }

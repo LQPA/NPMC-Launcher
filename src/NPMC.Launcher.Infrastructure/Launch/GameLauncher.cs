@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Launch;
 using NPMC.Launcher.Core.Models;
@@ -167,6 +167,11 @@ public static class GameLauncher
         if (!prepared.CanLaunch)
             throw new InvalidOperationException(string.Join("；", prepared.Problems));
 
+        // 同一实例同时只允许一个游戏进程。
+        // 第二个进程会拿不到 session.lock，行为是"退出码 1 且不写日志"，
+        // 用户只能看到一句无从下手的错误 —— 所以在启动前就拦下来。
+        var lockPath = PrepareInstanceLock(prepared.Plan.WorkingDirectory);
+
         var startInfo = new ProcessStartInfo(prepared.Plan.JavaPath)
         {
             WorkingDirectory = prepared.Plan.WorkingDirectory,
@@ -187,15 +192,172 @@ public static class GameLauncher
         foreach (var argument in prepared.Plan.ToProcessArguments())
             startInfo.ArgumentList.Add(argument);
 
-        var process = Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动 java 进程");
+        Process process;
 
-        // 逐行丢弃：内存占用有界，且能持续把管道读空。
-        // 真正的可读日志在 <gameDir>\logs\latest.log，界面读那个。
-        process.OutputDataReceived += static (_, _) => { };
-        process.ErrorDataReceived += static (_, _) => { };
+        try
+        {
+            process = Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动 java 进程");
+        }
+        catch
+        {
+            ReleaseInstanceLock(lockPath);
+            throw;
+        }
+
+        // 游戏退出后释放锁；异常退出也不会留下永久锁（PID 检查会兜底）
+        process.EnableRaisingEvents = true;
+        process.Exited += (_, _) => ReleaseInstanceLock(lockPath);
+
+        // 早期失败（JVM 起不来、main class 找不到等）**不会**写 latest.log，
+        // 唯一的信息就在 stderr 里。所以这里不能丢：写到实例 logs 下供失败后查看，
+        // 同时持续把管道读空，避免缓冲区写满导致游戏卡死。
+        var stdoutPath = StdoutLogPath(prepared.Plan.WorkingDirectory);
+        var stderrPath = StderrLogPath(prepared.Plan.WorkingDirectory);
+
+        TryDelete(stdoutPath);
+        TryDelete(stderrPath);
+
+        var stdoutWriter = TryCreateWriter(stdoutPath);
+        var stderrWriter = TryCreateWriter(stderrPath);
+
+        process.OutputDataReceived += (_, line) => WriteLine(stdoutWriter, line.Data);
+        process.ErrorDataReceived += (_, line) => WriteLine(stderrWriter, line.Data);
+
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
+        process.Exited += (_, _) =>
+        {
+            CloseQuietly(stdoutWriter);
+            CloseQuietly(stderrWriter);
+        };
+
         return process;
+    }
+    /// <summary>游戏标准输出的落盘位置（每次启动覆盖）。</summary>
+    public static string StdoutLogPath(string gameDirectory)
+        => Path.Combine(gameDirectory, "logs", "nmpc-stdout.log");
+
+    /// <summary>游戏标准错误的落盘位置（每次启动覆盖）。</summary>
+    public static string StderrLogPath(string gameDirectory)
+        => Path.Combine(gameDirectory, "logs", "nmpc-stderr.log");
+
+    /// <summary>读 stderr 日志的最后若干行（启动失败时给用户看）。</summary>
+    public static string ReadStderrTail(string gameDirectory, int maxChars = 600)
+    {
+        var path = StderrLogPath(gameDirectory);
+
+        try
+        {
+            if (!File.Exists(path)) return "";
+
+            var text = File.ReadAllText(path).Trim();
+            return text.Length <= maxChars ? text : text[^maxChars..];
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static StreamWriter? TryCreateWriter(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            return new StreamWriter(path, append: false) { AutoFlush = true };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void WriteLine(StreamWriter? writer, string? line)
+    {
+        if (writer is null || line is null) return;
+
+        try { writer.WriteLine(line); } catch { }
+    }
+
+    private static void CloseQuietly(StreamWriter? writer)
+    {
+        try { writer?.Dispose(); } catch { }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { }
+    }
+
+    /// <summary>
+    /// 在实例目录里建一个运行锁（含启动器 PID），并返回锁文件路径。
+    ///
+    /// 已存在且持有者仍在运行时抛出 <see cref="InvalidOperationException"/>，
+    /// 让调用方给出"该实例已在运行"这种可理解的提示；
+    /// 持有者已消失（上次异常退出）则视为残留锁，直接接管。
+    /// </summary>
+    private static string PrepareInstanceLock(string gameDirectory)
+    {
+        var lockPath = Path.Combine(gameDirectory, ".nmpc-running");
+
+        try
+        {
+            Directory.CreateDirectory(gameDirectory);
+
+            if (File.Exists(lockPath))
+            {
+                if (IsLockHolderAlive(lockPath))
+                    throw new InvalidOperationException(
+                        "该实例已经在运行了（同一实例不能同时启动两次）。请先关闭正在运行的游戏窗口。");
+
+                // 残留锁：上次异常退出留下的，直接接管
+                File.Delete(lockPath);
+            }
+
+            File.WriteAllText(lockPath, Environment.ProcessId.ToString());
+            return lockPath;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
+        {
+            // 锁只是辅助手段，建不了也不该阻止启动
+            return "";
+        }
+    }
+
+    /// <summary>锁文件里记录的进程是否还活着。</summary>
+    private static bool IsLockHolderAlive(string lockPath)
+    {
+        try
+        {
+            var text = File.ReadAllText(lockPath).Trim();
+            if (!int.TryParse(text, out var pid)) return false;
+
+            using var process = Process.GetProcessById(pid);
+            return !process.HasExited;
+        }
+        catch
+        {
+            // 进程不存在（或无权查询）→ 当作残留锁
+            return false;
+        }
+    }
+
+    private static void ReleaseInstanceLock(string lockPath)
+    {
+        if (string.IsNullOrEmpty(lockPath)) return;
+
+        try
+        {
+            if (File.Exists(lockPath)) File.Delete(lockPath);
+        }
+        catch
+        {
+            // 删不掉就留给下次的 PID 检查处理
+        }
     }
 }

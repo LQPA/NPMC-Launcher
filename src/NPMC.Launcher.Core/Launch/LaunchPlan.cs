@@ -87,22 +87,38 @@ public static class ClasspathBuilder
 {
     /// <summary>
     /// 组装 classpath。
-    /// client jar 放在最前：万一某个库带了同名类，游戏自身的类必须优先。
+    /// client jar 放在**最后**（与官方启动器一致）：Fabric 依赖这个顺序定位游戏 jar。
     /// </summary>
     public static IReadOnlyList<string> Build(
         LauncherPaths paths,
         IEnumerable<Library> effectiveLibraries,
         string clientJarPath)
     {
-        var list = new List<string> { clientJarPath };
+        var list = new List<string>();
 
         foreach (var library in effectiveLibraries)
         {
             var artifact = library.Downloads?.Artifact;
-            if (artifact is null || string.IsNullOrEmpty(artifact.Path)) continue;
-            list.Add(paths.LibraryFile(artifact.Path));
+
+            if (artifact is { Path.Length: > 0 })
+            {
+                list.Add(paths.LibraryFile(artifact.Path));
+                continue;
+            }
+
+            // Fabric / Quilt 的库来自各自的 meta，只有 name（group:artifact:version）
+            // 与 url，**没有 downloads 段**。只认 downloads 的话这些库会被整包跳过，
+            // 表现就是"找不到或无法加载主类 net.fabricmc.loader.impl.launch.knot.KnotClient"。
+            // 这类库的落盘位置由 Maven 坐标决定，安装器也是按坐标放的。
+            if (library.Name.Split(':', StringSplitOptions.RemoveEmptyEntries).Length >= 3)
+                list.Add(paths.LibraryFile(MavenPath.FromCoordinate(library.Name)));
         }
 
+
+        // client jar 放**最后**：与官方启动器一致。
+        // Fabric 会按 classpath 顺序定位游戏 jar 做重映射，
+        // 放在最前会让它把加载器自己的类当成游戏内容，报 "error remapping game jars"。
+        list.Add(clientJarPath);
         return list;
     }
 }

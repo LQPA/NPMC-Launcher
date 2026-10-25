@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
@@ -1779,6 +1779,14 @@ internal static class Program
         VersionManifestSource source, HttpFileDownloader downloader, LauncherPaths paths,
         string versionId, MirrorRouter router)
     {
+        // 本地已安装的版本优先：加载器 profile（fabric-loader-…）不在官方清单里，
+        // 只能从 versions\<id>\<id>.json 读，并且要按 inheritsFrom 合并父版本。
+        if (File.Exists(paths.VersionJson(versionId)))
+        {
+            var installed = await GameLauncher.TryLoadInstalledVersionAsync(paths, versionId);
+            if (installed is not null) return installed;
+        }
+
         var manifest = await source.GetManifestAsync();
         var entry = manifest.Find(versionId)
                     ?? throw new InvalidOperationException($"版本清单里没有 {versionId}");

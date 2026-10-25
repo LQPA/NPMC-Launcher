@@ -1,4 +1,4 @@
-using NPMC.Launcher.Core.Launch;
+﻿using NPMC.Launcher.Core.Launch;
 using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Paths;
 using Xunit;
@@ -79,10 +79,11 @@ public class ClasspathBuilderTests
     };
 
     [Fact]
-    public void Client_jar_comes_first()
+    public void Client_jar_comes_last()
     {
+        // 官方启动器把 client jar 放最后，Fabric 依赖这个顺序定位游戏 jar
         var classpath = ClasspathBuilder.Build(Paths, new[] { Lib("a/b/c.jar") }, "/client.jar");
-        Assert.Equal("/client.jar", classpath[0]);
+        Assert.Equal("/client.jar", classpath[^1]);
         Assert.Equal(2, classpath.Count);
     }
 
@@ -94,15 +95,28 @@ public class ClasspathBuilderTests
 
         Assert.Equal(
             Path.Combine(Paths.Root, "libraries", "com", "google", "gson", "2.10", "gson-2.10.jar"),
-            classpath[1]);
+            classpath[0]);
     }
 
     [Fact]
-    public void Library_without_artifact_is_skipped()
+    public void Library_without_artifact_or_coordinate_is_skipped()
     {
+        // 名字不是 Maven 坐标、又没有 downloads → 无处可取，跳过
         var noArtifact = new Library { Name = "no-artifact", Downloads = null };
         var classpath = ClasspathBuilder.Build(Paths, new[] { noArtifact, Lib("a/b/c.jar") }, "/client.jar");
         Assert.Equal(2, classpath.Count);
+    }
+
+    [Fact]
+    public void Maven_coordinate_library_without_downloads_is_included()
+    {
+        // Fabric / Quilt 的库就长这样：只有 name 与 url，没有 downloads
+        var fabric = new Library { Name = "net.fabricmc:fabric-loader:0.20.1", Downloads = null };
+        var classpath = ClasspathBuilder.Build(Paths, new[] { fabric }, "/client.jar");
+
+        Assert.Equal(2, classpath.Count);
+        Assert.Contains("fabric-loader-0.20.1.jar", classpath[0]);
+        Assert.Equal("/client.jar", classpath[^1]);
     }
 
     [Fact]

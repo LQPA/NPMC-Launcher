@@ -117,6 +117,17 @@ internal static class InstanceDump
                 lines.Add($"    classpath  = {prepared.Plan.JvmArguments.FirstOrDefault(a => a.Contains(".jar"))?.Split(';').Length} 项");
 
                 foreach (var problem in prepared.Problems) lines.Add($"    问题: {problem}");
+
+                // 打印完整命令行：出问题时要能自己复现一次
+                if (args.Any(arg => string.Equals(arg, "--print-launch-command", StringComparison.OrdinalIgnoreCase)))
+                {
+                    lines.Add("");
+                    lines.Add("[命令行]");
+                    lines.Add($"EXE|{prepared.Plan.JavaPath}");
+                    lines.Add($"DIR|{prepared.Plan.WorkingDirectory}");
+                    foreach (var argument in prepared.Plan.JvmArguments) lines.Add($"JVM|{argument}");
+                    foreach (var argument in prepared.Plan.GameArguments) lines.Add($"GAME|{argument}");
+                }
             }
         }
 
@@ -449,6 +460,49 @@ internal static class InstanceDump
         lines.Add($"[导航] 下载/整合包 版本区块={viewModel.IsVersionsMode} "
                   + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
 
+        // 真跑一次启动（界面同一条路径），确认游戏能起来、锁文件到位
+        if (args.Any(arg => string.Equals(arg, "--exercise-launch", StringComparison.OrdinalIgnoreCase)))
+        {
+            var target = viewModel.Instances.FirstOrDefault(item =>
+                             item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
+                         ?? viewModel.Instances.FirstOrDefault();
+
+            if (target is not null)
+            {
+                viewModel.SelectedInstance = target;
+                Thread.Sleep(1000);
+
+                var lockFile = Path.Combine(target.GameDirectory, ".nmpc-running");
+                if (File.Exists(lockFile)) File.Delete(lockFile);
+
+                viewModel.LaunchGameCommand.Execute(null);
+
+                Thread.Sleep(45000);
+
+                // 先读状态再杀进程：杀了之后必然变成"异常退出"，那是我造成的
+                var statusBeforeKill = viewModel.Status;
+                var running = System.Diagnostics.Process.GetProcessesByName("java").Length;
+                var logFile = Path.Combine(target.GameDirectory, "logs", "latest.log");
+                var logTail = File.Exists(logFile)
+                    ? string.Join(" / ", File.ReadLines(logFile).TakeLast(3).Select(line => line.Trim()))
+                    : "(没有日志)";
+
+                lines.Add("");
+                lines.Add($"[启动] 实例 {target.Name}");
+                lines.Add($"    状态(杀之前) = {statusBeforeKill}");
+                lines.Add($"    java 进程 = {running} 个");
+                lines.Add($"    锁文件   = {File.Exists(lockFile)}");
+                lines.Add($"    日志末尾 = {logTail}");
+
+                foreach (var process in System.Diagnostics.Process.GetProcessesByName("java"))
+                {
+                    try { process.Kill(true); } catch { }
+                }
+
+                Thread.Sleep(1500);
+                lines.Add($"    清理后锁 = {File.Exists(lockFile)}");
+            }
+        }
         // Java 候选在"选中实例"时异步加载，等它落定再报告
         Thread.Sleep(2500);
         lines.Add("");
