@@ -215,6 +215,9 @@ internal static class InstanceDump
 
             lines.Add($"    选中 = {viewModel.SelectedDownloadVersion?.Id ?? "(无)"}"
                       + $"   副标题 = {viewModel.DownloadVersionSubtitle}");
+
+            // 按钮是否可点，取决于命令的 CanExecute —— 这里直接问它，而不是看界面
+            lines.Add($"    下载按钮可用 = {viewModel.DownloadCommand.CanExecute(null)}");
         }
 
         File.WriteAllLines(outputPath, lines);

@@ -1571,6 +1571,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
             if (!string.IsNullOrWhiteSpace(value?.Id) && _downloadInstanceName.Length == 0)
                 DownloadInstanceName = value!.Id;
+
+            // 按钮的可用性来自命令的 CanExecute；不主动通知的话，
+            // 即使已经选中版本，按钮仍停留在"无选中"时算出的禁用状态。
+            (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -1676,6 +1680,7 @@ public sealed class MainWindowViewModel : ObservableObject
             if (DownloadVersions.Count > 0)
             {
                 SelectedDownloadVersion ??= DownloadVersions[0];
+                (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
                 DownloadStatus = $"共 {DownloadVersions.Count} 个{(_includeSnapshots ? "版本（含快照）" : "正式版")}";
             }
             else
