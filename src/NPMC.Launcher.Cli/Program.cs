@@ -16,6 +16,7 @@ using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Mirrors;
 using NPMC.Launcher.Infrastructure.Modrinth;
+using NPMC.Launcher.Infrastructure.Mods;
 using NPMC.Launcher.Infrastructure.Network;
 using NPMC.Launcher.Infrastructure.Runtime;
 using NPMC.Launcher.Infrastructure.Storage;
@@ -1263,151 +1264,33 @@ internal static class Program
 
         Info($"文件     {mods.Count} 个");
 
-        // 1) 本地哈希
-        Dim("计算 SHA1…");
-        var hashByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var mod in mods)
-        {
-            try
-            {
-                hashByPath[mod.Path] = await FileHashing.Sha1Async(mod.Path);
-            }
-            catch (Exception ex)
-            {
-                Warn($"跳过 {mod.FileName}：{ex.GetBaseException().Message}");
-            }
-        }
+        using var http = HttpFileDownloader.CreateClient();
+        var service = new ModsUpdateService(http);
 
-        if (hashByPath.Count == 0)
+        Section("查询");
+        if (curseForgeOnly) Dim("--curseforge-only：跳过 Modrinth，全部交给 CurseForge");
+
+        var report = await service.CheckAsync(
+            mods.Select(mod => mod.Path).ToList(),
+            versionId,
+            loaders,
+            withPrerelease,
+            curseForgeOnly);
+
+        Info($"Modrinth 认领 {report.ModrinthMatches} 个 / CurseForge 认领 {report.CurseForgeMatches} 个"
+             + $" / 无法识别 {report.UnmatchedCount} 个");
+
+        if (report.CurseForgeNote is { } curseForgeNote)
+            Warn($"CurseForge 未生效：{curseForgeNote}");
+
+        if (report.TotalFiles == 0)
         {
             Error("没有可读取的模组文件");
             return 1;
         }
 
-        // 2) 批量反查
-        using var http = HttpFileDownloader.CreateClient();
-        var client = new ModrinthClient(http);
-
-        // 统一成与平台无关的候选版本（接 CurseForge 后共用同一套判定）
-        var matchedCandidates = new Dictionary<string, UpdateCandidate>(StringComparer.OrdinalIgnoreCase);
-        var projectVersions = new Dictionary<UpdateProjectKey, IReadOnlyList<UpdateCandidate>>();
-
-        if (curseForgeOnly)
-        {
-            Dim("--curseforge-only：跳过 Modrinth");
-        }
-        else
-        {
-            Dim("查询 Modrinth（按哈希）…");
-            var matched = await client.GetVersionsByHashesAsync(hashByPath.Values.ToList());
-
-            foreach (var pair in matched)
-            {
-                if (pair.Value.ToCandidate() is { } candidate) matchedCandidates[pair.Key] = candidate;
-            }
-
-            // 3) 每个命中的项目单独取版本列表（按游戏版本 + 加载器过滤）
-            var projectKeys = matchedCandidates.Values.Select(candidate => candidate.Key).Distinct().ToList();
-            Dim($"命中 {matchedCandidates.Count} 个，需要查询 {projectKeys.Count} 个项目…");
-
-            foreach (var key in projectKeys)
-            {
-                try
-                {
-                    var versions = await client.GetProjectVersionsAsync(key.ProjectId, versionId, loaders);
-                    projectVersions[key] = versions
-                        .Select(version => version.ToCandidate())
-                        .Where(candidate => candidate is not null)
-                        .Select(candidate => candidate!)
-                        .ToList();
-                }
-                catch (Exception ex)
-                {
-                    Warn($"项目 {key.ProjectId} 查询失败：{ex.GetBaseException().Message}");
-                }
-            }
-        }
-
-        // 3.5) CurseForge 作为补充：只处理 Modrinth 认领不到的文件
-        if (!CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out var curseForgeProblem)
-            || curseForgeKey is null)
-        {
-            Warn($"跳过 CurseForge：{curseForgeProblem ?? "未配置"}");
-        }
-        else
-        {
-            var unmatched = curseForgeOnly
-                ? hashByPath.ToList()
-                : hashByPath.Where(pair => !matchedCandidates.ContainsKey(pair.Value)).ToList();
-
-            if (unmatched.Count == 0)
-            {
-                Dim("Modrinth 已认领全部文件，无需查询 CurseForge");
-            }
-            else
-            {
-                Dim($"待查 {unmatched.Count} 个，交给 CurseForge（按指纹）…");
-                try
-                {
-                    var curseForge = new CurseForgeClient(http, curseForgeKey);
-
-                    // CurseForge 靠指纹识别，先算出来
-                    var pathByFingerprint = new Dictionary<uint, string>();
-                    foreach (var pair in unmatched)
-                    {
-                        try
-                        {
-                            pathByFingerprint[await MurmurHash2.ComputeFileAsync(pair.Key)] = pair.Key;
-                        }
-                        catch (Exception ex)
-                        {
-                            Warn($"指纹计算失败 {Path.GetFileName(pair.Key)}：{ex.GetBaseException().Message}");
-                        }
-                    }
-
-                    var matches = await curseForge.GetMatchesAsync(pathByFingerprint.Keys.ToList());
-                    Dim($"CurseForge 认领 {matches.Count} 个");
-
-                    foreach (var match in matches)
-                    {
-                        if (!pathByFingerprint.TryGetValue(match.Fingerprint, out var localPath)) continue;
-
-                        var currentCandidate = match.File.ToCandidate();
-                        matchedCandidates[hashByPath[localPath]] = currentCandidate;
-
-                        // 取该项目在当前游戏版本/加载器下的最新文件
-                        var files = await curseForge.GetFilesAsync(match.File.ModId, versionId, loaders);
-                        var newest = files.FirstOrDefault();
-                        if (newest is null) continue;
-
-                        // 文件列表通常不带下载地址，需要单独申请；
-                        // 作者禁止第三方下载时这里会拿到 null，于是不会被建议升级
-                        var url = newest.DownloadUrl
-                                  ?? await curseForge.TryGetDownloadUrlAsync(newest.ModId, newest.FileId);
-
-                        projectVersions[currentCandidate.Key] =
-                            new[] { currentCandidate, (newest with { DownloadUrl = url }).ToCandidate() };
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Warn($"CurseForge 查询失败：{ex.GetBaseException().Message}");
-                }
-            }
-        }
-
-        // 4) 组装本地信息并判定
-        var localMods = hashByPath
-            .Select(pair => new LocalModInfo
-            {
-                Path = pair.Key,
-                FileName = Path.GetFileName(pair.Key),
-                Sha1 = pair.Value,
-                Matched = matchedCandidates.GetValueOrDefault(pair.Value),
-            })
-            .ToList();
-
-        var updates = UpdatePlanner.Plan(localMods, projectVersions, withPrerelease);
+        var localMods = report.LocalMods;
+        var updates = report.Updates;
 
         Section("结果");
         var unknown = 0;
@@ -1418,7 +1301,7 @@ internal static class Program
             if (mod.Matched is null)
             {
                 unknown++;
-                Dim($"[未知]   {mod.FileName}   Modrinth 上查不到（自制或未上传）");
+                Dim($"[未知]   {mod.FileName}   两个平台都认不出（自制或未上传）");
                 continue;
             }
 

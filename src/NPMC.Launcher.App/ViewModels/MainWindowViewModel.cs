@@ -836,15 +836,26 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <summary>供诊断用：直接触发一次更新检查并等待完成。</summary>
     public Task CheckUpdatesAsync() => CheckModUpdatesAsync();
 
-    /// <summary>把检查结果组织成一句人能读的话（含两个平台各自的认领数与不可用原因）。</summary>
+    /// <summary>
+    /// 把检查结果组织成一句人能读的话。
+    ///
+    /// 三个数字必须分开说清楚："已识别"（平台能认出这是哪个项目的哪个版本）、
+    /// "可升级"、以及"未识别"（两个平台都查不到，通常是自制或未上传的模组）。
+    /// 早先只报"都已是当前版本"，会把"认不出来"错说成"已是最新"。
+    /// </summary>
     private static string DescribeReport(int fileCount, ModUpdateReport report)
     {
-        var sources = $"Modrinth {report.ModrinthMatches}、CurseForge {report.CurseForgeMatches}";
-        var note = report.CurseForgeNote is { } problem ? $"（CurseForge 不可用：{problem}）" : "";
+        // 状态栏只有一行，用 · 分隔并把"已识别"的两个来源压在括号里，尽量不触发省略号
+        var text = $"更新检查：{fileCount} 个文件 · {report.Updates.Count} 可升级 · "
+                 + $"{report.MatchedCount} 已识别（Modrinth {report.ModrinthMatches} / CurseForge {report.CurseForgeMatches}）";
 
-        return report.Updates.Count == 0
-            ? $"检查完成：{fileCount} 个模组都已是当前版本（认领 {report.MatchedCount} 个：{sources}）{note}"
-            : $"检查完成：{report.Updates.Count} 个可升级（共 {fileCount} 个，认领 {report.MatchedCount} 个：{sources}）{note}";
+        if (report.UnmatchedCount > 0)
+            text += $" · {report.UnmatchedCount} 无法识别";
+
+        if (report.CurseForgeNote is { } problem)
+            text += $" · CF 不可用（{problem}）";
+
+        return text;
     }
 
     /// <summary>
