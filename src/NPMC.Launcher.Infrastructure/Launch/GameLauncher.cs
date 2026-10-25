@@ -1,0 +1,130 @@
+using System.Diagnostics;
+using NPMC.Launcher.Core.Instances;
+using NPMC.Launcher.Core.Launch;
+using NPMC.Launcher.Core.Models;
+using NPMC.Launcher.Core.Paths;
+using NPMC.Launcher.Core.Rules;
+using NPMC.Launcher.Core.Settings;
+
+namespace NPMC.Launcher.Infrastructure.Launch;
+
+/// <summary>启动前的准备结果。Problems 非空表示不能启动，原因逐条列出。</summary>
+public sealed record PreparedLaunch
+{
+    public required LaunchPlan Plan { get; init; }
+    public required IReadOnlyList<string> Problems { get; init; }
+
+    /// <summary>游戏日志路径（&lt;gameDir&gt;\logs\latest.log），供界面 tail。</summary>
+    public string? LatestLog { get; init; }
+
+    public string GameDirectory => Plan.WorkingDirectory;
+
+    public bool CanLaunch => Problems.Count == 0;
+}
+
+/// <summary>
+/// 组装启动计划并启动 java。界面与 CLI 共用这一份逻辑，避免两边行为漂移。
+///
+/// 关于日志：**不要依赖进程 stdout**。客户端配置的 log4j（client-1.12.xml）会把
+/// 日志按 XML 格式写到 stdout，人读不了；真正的可读日志在 &lt;gameDir&gt;\logs\latest.log。
+/// 因此这里的 Start 不重定向标准输出 —— 既避免管道缓冲区写满造成 java 卡死，
+/// 也让界面去 tail latest.log。
+/// </summary>
+public static class GameLauncher
+{
+    /// <summary>
+    /// 读取本地已安装的版本 JSON。启动**不应依赖网络**：
+    /// 版本 JSON 在 install 阶段就已落盘，直接读缓存即可。
+    /// </summary>
+    public static async Task<VersionJson?> TryLoadInstalledVersionAsync(
+        LauncherPaths paths, string versionId, CancellationToken cancellationToken = default)
+    {
+        var jsonPath = paths.VersionJson(versionId);
+        if (!File.Exists(jsonPath)) return null;
+
+        var json = await File.ReadAllTextAsync(jsonPath, cancellationToken).ConfigureAwait(false);
+        return VersionJsonSerializer.Parse(json);
+    }
+
+    /// <summary>组装启动计划，并检查 java 与 client jar 是否就位。不启动任何进程。</summary>
+    public static PreparedLaunch Prepare(
+        LauncherPaths launcher,
+        LauncherInstance? instance,
+        VersionJson version,
+        LauncherSettings launcherSettings)
+    {
+        var layout = instance is null ? null : new InstanceLayout(launcher, instance);
+        layout?.EnsureDirectories();
+
+        var paths = layout?.Paths ?? launcher;
+        var instanceSettings = instance?.Settings ?? new InstanceSettings();
+        var os = OsInfo.Windows64();
+        var logConfig = version.Logging?.Client?.File is { } file ? paths.LogConfigFile(file.Id) : null;
+
+        var context = LaunchContext.OfflineProbe() with
+        {
+            Width = instanceSettings.WindowWidth,
+            Height = instanceSettings.WindowHeight,
+        };
+
+        var memory = instanceSettings.MemoryMb > 0
+            ? instanceSettings.MemoryMb
+            : launcherSettings.DefaultMemoryMb;
+
+        var plan = LaunchPlanFactory.Create(paths, version.Id, version, context, os,
+            memoryMb: memory,
+            hasCustomResolution: !instanceSettings.Fullscreen,
+            logConfigFile: logConfig,
+            gameDirectory: layout?.GameDirectory);
+
+        // Java 优先级：实例指定路径 → 实例指定组件 → 版本元数据声明的组件
+        var javaPath = plan.JavaPath;
+        if (!string.IsNullOrWhiteSpace(instanceSettings.JavaPath))
+            javaPath = instanceSettings.JavaPath!;
+        else if (!string.IsNullOrWhiteSpace(instanceSettings.JavaComponent))
+            javaPath = paths.JavaExe(instanceSettings.JavaComponent!);
+
+        if (!string.Equals(javaPath, plan.JavaPath, StringComparison.OrdinalIgnoreCase))
+            plan = plan with { JavaPath = javaPath };
+
+        if (instanceSettings.ExtraJvmArguments.Count > 0)
+            plan = plan with { JvmArguments = plan.JvmArguments.Concat(instanceSettings.ExtraJvmArguments).ToList() };
+
+        var problems = new List<string>();
+
+        if (!File.Exists(plan.JavaPath))
+            problems.Add($"缺少 Java 运行时：{plan.JavaPath}（可运行 npmc runtime {version.JavaVersion?.Component ?? "java-runtime-gamma"}）");
+
+        var clientJar = paths.ClientJar(version.Id);
+        if (!File.Exists(clientJar))
+            problems.Add($"缺少 client jar：{clientJar}（可运行 npmc install {version.Id}）");
+
+        Directory.CreateDirectory(paths.NativesDir(version.Id));
+
+        return new PreparedLaunch
+        {
+            Plan = plan,
+            Problems = problems,
+            LatestLog = layout?.LatestLog,
+        };
+    }
+
+    /// <summary>启动 java。调用方负责等待退出（<c>WaitForExitAsync</c>）与处置进程对象。</summary>
+    public static Process Start(PreparedLaunch prepared)
+    {
+        if (!prepared.CanLaunch)
+            throw new InvalidOperationException(string.Join("；", prepared.Problems));
+
+        var startInfo = new ProcessStartInfo(prepared.Plan.JavaPath)
+        {
+            WorkingDirectory = prepared.Plan.WorkingDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = false,
+        };
+
+        foreach (var argument in prepared.Plan.ToProcessArguments())
+            startInfo.ArgumentList.Add(argument);
+
+        return Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动 java 进程");
+    }
+}

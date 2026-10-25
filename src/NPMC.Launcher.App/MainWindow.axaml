@@ -197,7 +197,7 @@
         <!-- 操作 -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
                     IsVisible="{Binding ShowOverview}">
-          <Button Content="启动游戏" IsEnabled="False" ToolTip.Tip="第三阶段接入启动链路" />
+          <Button Content="{Binding LaunchButtonText}" Command="{Binding LaunchGameCommand}" />
           <Button Content="打开游戏目录" Command="{Binding OpenGameFolderCommand}" />
 
           <!-- 目录入口按实际存在与否显示：没装光影就不该出现一个只会新建空文件夹的按钮 -->

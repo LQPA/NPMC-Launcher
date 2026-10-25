@@ -1,9 +1,10 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Windows.Input;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Paths;
+using NPMC.Launcher.Core.Settings;
+using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Storage;
 
 namespace NPMC.Launcher.App.ViewModels;
@@ -47,6 +48,100 @@ public sealed class MainWindowViewModel : ObservableObject
 
         DisableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: false), () => CanBulk);
         EnableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: true), () => CanBulk);
+
+        LaunchGameCommand = new AsyncRelayCommand(LaunchGameAsync,
+            () => SelectedInstance is not null && !IsGameRunning, OnOpenError);
+    }
+
+    // ---- 启动游戏 ----
+
+    private bool _isGameRunning;
+
+    public bool IsGameRunning
+    {
+        get => _isGameRunning;
+        private set
+        {
+            if (!SetProperty(ref _isGameRunning, value)) return;
+            OnPropertyChanged(nameof(LaunchButtonText));
+            RaiseCommandStates();
+        }
+    }
+
+    public string LaunchButtonText => IsGameRunning ? "运行中…" : "启动游戏";
+
+    public ICommand LaunchGameCommand { get; }
+
+    private async Task LaunchGameAsync()
+    {
+        var instance = SelectedInstance;
+        if (instance is null) return;
+
+        var versionId = instance.VersionId;
+        Status = $"正在准备启动 {instance.Name}…";
+
+        PreparedLaunch prepared;
+        try
+        {
+            var launcherSettings = await LoadLauncherSettingsAsync();
+
+            // 启动不依赖网络：版本 JSON 在 install 阶段就已落盘
+            var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, versionId);
+            if (version is null)
+            {
+                Status = $"版本 {versionId} 尚未安装（缺少 version json）。先运行 npmc install {versionId}";
+                return;
+            }
+
+            prepared = GameLauncher.Prepare(_launcher, instance.Model, version, launcherSettings);
+        }
+        catch (Exception ex)
+        {
+            Status = $"准备启动失败：{ex.GetBaseException().Message}";
+            return;
+        }
+
+        if (!prepared.CanLaunch)
+        {
+            Status = string.Join("；", prepared.Problems);
+            return;
+        }
+
+        try
+        {
+            IsGameRunning = true;
+            using var process = GameLauncher.Start(prepared);
+
+            Status = $"游戏已启动（PID {process.Id}）  日志 {prepared.LatestLog}";
+
+            // 不要用 EnableRaisingEvents：受限环境下打开父进程句柄会被拒绝。
+            // WaitForExitAsync 在正常用户环境可用（本机已实测过真实启动）。
+            await process.WaitForExitAsync();
+
+            Status = process.ExitCode == 0
+                ? $"游戏已正常退出（{instance.Name}）"
+                : $"游戏异常退出，退出码 {process.ExitCode}，详见 {prepared.LatestLog}";
+        }
+        catch (Exception ex)
+        {
+            Status = $"启动失败：{ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            IsGameRunning = false;
+        }
+    }
+
+    private async Task<LauncherSettings> LoadLauncherSettingsAsync()
+    {
+        try
+        {
+            return await new JsonSettingsStore(_launcher).LoadAsync();
+        }
+        catch
+        {
+            return new LauncherSettings();
+        }
     }
 
     // ---- 顶部信息 ----
@@ -423,6 +518,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void RaiseCommandStates()
     {
+        (LaunchGameCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenGameFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenModsFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenResourcePacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
