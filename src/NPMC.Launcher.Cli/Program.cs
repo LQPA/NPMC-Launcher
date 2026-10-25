@@ -1,11 +1,13 @@
 using System.Diagnostics;
 using System.Text;
+using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Launch;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
 using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Runtime;
+using NPMC.Launcher.Infrastructure.Storage;
 
 namespace NPMC.Launcher.Cli;
 
@@ -23,11 +25,12 @@ internal static class Program
         {
             return args[0] switch
             {
-                "probe"   => await ProbeAsync(args[1..]),
-                "install" => await InstallAsync(args[1..]),
-                "runtime" => await RuntimeAsync(args[1..]),
-                "launch"  => await LaunchAsync(args[1..]),
-                _         => Unknown(args[0]),
+                "probe"    => await ProbeAsync(args[1..]),
+                "install"  => await InstallAsync(args[1..]),
+                "runtime"  => await RuntimeAsync(args[1..]),
+                "launch"   => await LaunchAsync(args[1..]),
+                "instance" => await InstanceAsync(args[1..]),
+                _          => Unknown(args[0]),
             };
         }
         catch (Exception ex)
@@ -247,8 +250,35 @@ internal static class Program
 
     private static async Task<int> LaunchAsync(string[] args)
     {
-        var versionId = Required(args);
-        var paths = new LauncherPaths(ResolveRoot(args));
+        var launcher = new LauncherPaths(ResolveRoot(args));
+
+        var instanceId = Opt(args, "--instance");
+        LauncherInstance? instance = null;
+        InstanceLayout? layout = null;
+        var paths = launcher;
+        string versionId;
+
+        if (!string.IsNullOrWhiteSpace(instanceId))
+        {
+            var catalog = new InstanceCatalog(await new JsonInstanceStore(launcher).LoadAsync());
+            instance = catalog.Find(instanceId!)
+                       ?? throw new InvalidOperationException($"找不到实例 '{instanceId}'。先用 npmc instance list 看看。");
+
+            layout = new InstanceLayout(launcher, instance);
+            layout.EnsureDirectories();
+            paths = layout.Paths;
+            versionId = instance.VersionId;
+
+            Section("实例");
+            Info($"名称     {instance.Name}  ({instance.Id})");
+            Info($"版本     {versionId}");
+            Info($"隔离     {DescribeIsolation(instance.Isolation)}");
+            Info($"游戏目录 {layout.GameDirectory}");
+        }
+        else
+        {
+            versionId = Required(args);
+        }
 
         using var http = HttpFileDownloader.CreateClient();
         var downloader = new HttpFileDownloader(http);
@@ -257,11 +287,30 @@ internal static class Program
         var version = await LoadVersionAsync(source, downloader, paths, versionId);
         var os = OsInfo.Windows64();
         var logConfig = version.Logging?.Client?.File is { } f ? paths.LogConfigFile(f.Id) : null;
+        var settings = instance?.Settings ?? new InstanceSettings();
 
-        var plan = LaunchPlanFactory.Create(paths, versionId, version, LaunchContext.OfflineProbe(), os,
-            memoryMb: OptInt(args, "--memory", 4096),
+        var context = LaunchContext.OfflineProbe() with
+        {
+            Width = settings.WindowWidth,
+            Height = settings.WindowHeight,
+        };
+
+        var plan = LaunchPlanFactory.Create(paths, versionId, version, context, os,
+            memoryMb: OptInt(args, "--memory", settings.MemoryMb),
             hasCustomResolution: true,
-            logConfigFile: logConfig);
+            logConfigFile: logConfig,
+            gameDirectory: layout?.GameDirectory);
+
+        // Java 优先级：实例指定路径 → 实例指定组件 → 版本元数据声明的组件
+        var javaPath = plan.JavaPath;
+        if (!string.IsNullOrWhiteSpace(settings.JavaPath)) javaPath = settings.JavaPath!;
+        else if (!string.IsNullOrWhiteSpace(settings.JavaComponent)) javaPath = paths.JavaExe(settings.JavaComponent!);
+
+        if (!string.Equals(javaPath, plan.JavaPath, StringComparison.OrdinalIgnoreCase))
+            plan = plan with { JavaPath = javaPath };
+
+        if (settings.ExtraJvmArguments.Count > 0)
+            plan = plan with { JvmArguments = plan.JvmArguments.Concat(settings.ExtraJvmArguments).ToList() };
 
         if (!File.Exists(plan.JavaPath))
         {
@@ -280,7 +329,9 @@ internal static class Program
 
         Section("启动");
         Info($"java  {plan.JavaPath}");
-        Info($"窗口  {versionId} / {plan.GameArguments.Count} 个游戏参数");
+        Info($"内存  {plan.JvmArguments.FirstOrDefault(a => a.StartsWith("-Xmx", StringComparison.Ordinal)) ?? "-"}");
+        Info($"窗口  {settings.WindowWidth}x{settings.WindowHeight} / {plan.GameArguments.Count} 个游戏参数");
+        if (layout is not null) Info($"日志  {layout.LatestLog}");
 
         var psi = new ProcessStartInfo(plan.JavaPath)
         {
@@ -300,11 +351,193 @@ internal static class Program
         process.BeginErrorReadLine();
         await process.WaitForExitAsync();
 
-        if (process.ExitCode == 0) Success($"游戏正常退出（退出码 0）");
+        if (process.ExitCode == 0) Success("游戏正常退出（退出码 0）");
         else Error($"游戏退出码 {process.ExitCode}");
 
         return process.ExitCode;
     }
+
+    // ------------------------------------------------------------- instance
+
+    private static async Task<int> InstanceAsync(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Error("instance 需要子命令：list | create | paths | remove");
+            PrintHelp();
+            return 1;
+        }
+
+        var action = args[0];
+        var rest = args[1..];
+        var launcher = new LauncherPaths(ResolveRoot(rest));
+        var store = new JsonInstanceStore(launcher);
+        var catalog = new InstanceCatalog(await store.LoadAsync());
+
+        switch (action)
+        {
+            case "list":
+            {
+                Section("实例列表");
+
+                if (catalog.Count == 0)
+                {
+                    Warn("还没有任何实例。");
+                    Dim("npmc instance create 原版生存 --version 1.20.1");
+                    return 0;
+                }
+
+                foreach (var item in catalog.Instances)
+                {
+                    var marker = item.Isolation switch
+                    {
+                        IsolationLevel.None => "[共享]",
+                        IsolationLevel.Version => "[版本]",
+                        _ => "[完全]",
+                    };
+                    Info($"{marker} {item.Id,-20} {item.Name,-20} {item.VersionId,-10} {item.Settings.MemoryMb} MB");
+                }
+
+                var problems = catalog.Validate();
+                if (problems.Count > 0)
+                {
+                    Section("数据问题");
+                    foreach (var problem in problems) Error(problem);
+                    return 2;
+                }
+
+                Info($"\n共 {catalog.Count} 个实例");
+                Dim(store.FilePath);
+                return 0;
+            }
+
+            case "create":
+            {
+                var name = Required(rest);
+                var versionId = Opt(rest, "--version")
+                                ?? throw new ArgumentException("必须用 --version 指定游戏版本，例如 --version 1.20.1");
+                var isolation = ParseIsolation(Opt(rest, "--isolation"));
+
+                var instance = catalog.Add(name, versionId, isolation);
+                var instanceLayout = new InstanceLayout(launcher, instance);
+                instanceLayout.EnsureDirectories();
+                await store.SaveAsync(catalog.Instances);
+
+                Section("已创建实例");
+                Info($"Id        {instance.Id}");
+                Info($"名称      {instance.Name}");
+                Info($"版本      {instance.VersionId}");
+                Info($"隔离      {DescribeIsolation(instance.Isolation)}");
+                Info($"游戏目录  {instanceLayout.GameDirectory}");
+                Info($"共享根    {instanceLayout.SharedRoot}");
+
+                Section("已建好的目录");
+                foreach (var directory in instanceLayout.StableDirectories) Dim(directory);
+
+                Info($"\n实例列表：{store.FilePath}");
+                return 0;
+            }
+
+            case "paths":
+            {
+                var id = Required(rest);
+                var instance = catalog.Find(id) ?? throw new InvalidOperationException($"找不到实例 '{id}'");
+                var instanceLayout = new InstanceLayout(launcher, instance);
+
+                Section($"实例 {instance.Name} ({instance.Id})");
+                Info($"版本        {instance.VersionId}");
+                Info($"隔离        {DescribeIsolation(instance.Isolation)}");
+                Info($"游戏目录    {instanceLayout.GameDirectory}");
+                Info($"共享根      {instanceLayout.SharedRoot}");
+
+                Section("实例目录");
+                Info($"mods          {instanceLayout.Mods}");
+                Info($"resourcepacks {instanceLayout.ResourcePacks}");
+                Info($"shaderpacks   {instanceLayout.ShaderPacks}");
+                Info($"saves         {instanceLayout.Saves}");
+                Info($"config        {instanceLayout.Config}");
+                Info($"logs          {instanceLayout.Logs}");
+
+                Section("共享目录");
+                Info($"versions      {instanceLayout.Paths.Versions}");
+                Info($"libraries     {instanceLayout.Paths.Libraries}");
+                Info($"assets        {instanceLayout.Paths.Assets}");
+
+                Section("现有内容");
+                Info($"mods          {instanceLayout.ListFiles(instanceLayout.Mods).Count} 个文件");
+                Info($"resourcepacks {instanceLayout.ListFiles(instanceLayout.ResourcePacks).Count} 个文件");
+                Info($"shaderpacks   {instanceLayout.ListFiles(instanceLayout.ShaderPacks).Count} 个文件");
+                return 0;
+            }
+
+            case "remove":
+            {
+                var id = Required(rest);
+                var instance = catalog.Find(id) ?? throw new InvalidOperationException($"找不到实例 '{id}'");
+                var instanceLayout = new InstanceLayout(launcher, instance);
+                var deleteFiles = Has(rest, "--delete-files");
+
+                catalog.Remove(instance.Id);
+                await store.SaveAsync(catalog.Instances);
+                Ok($"已从列表移除：{instance.Name} ({instance.Id})");
+
+                if (!deleteFiles)
+                {
+                    Info("磁盘文件保留（加 --delete-files 才会删）");
+                    return 0;
+                }
+
+                if (!instanceLayout.OwnsGameDirectory)
+                {
+                    Warn("该实例是无隔离模式，游戏目录就是启动器根目录 —— 拒绝删除。");
+                    return 0;
+                }
+
+                var target = Path.GetFullPath(instanceLayout.GameDirectory);
+                var instancesRoot = Path.GetFullPath(launcher.Instances) + Path.DirectorySeparatorChar;
+
+                // 安全闸：只允许删除 instances 目录下的子目录
+                if (!target.StartsWith(instancesRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    Error($"拒绝删除：{target} 不在 instances 目录下");
+                    return 1;
+                }
+
+                if (Directory.Exists(target))
+                {
+                    Directory.Delete(target, recursive: true);
+                    Ok($"已删除目录 {target}");
+                }
+                else
+                {
+                    Info("目录本来就不存在");
+                }
+                return 0;
+            }
+
+            default:
+                Error($"未知的 instance 子命令：{action}");
+                PrintHelp();
+                return 1;
+        }
+    }
+
+    private static IsolationLevel ParseIsolation(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        null or "" => IsolationLevel.Version,
+        "none" => IsolationLevel.None,
+        "version" => IsolationLevel.Version,
+        "full" => IsolationLevel.Full,
+        _ => throw new ArgumentException($"未知的隔离级别 '{value}'，可选：none | version | full"),
+    };
+
+    private static string DescribeIsolation(IsolationLevel level) => level switch
+    {
+        IsolationLevel.None => "无隔离",
+        IsolationLevel.Version => "版本隔离",
+        IsolationLevel.Full => "完全隔离",
+        _ => level.ToString(),
+    };
 
     // -------------------------------------------------------------- helpers
 
@@ -410,18 +643,29 @@ internal static class Program
                                      下载 client jar / libraries / log4j 配置 / assetIndex
               npmc runtime <组件名>  [--root <目录>] [--platform windows-x64] [--concurrency 12]
                                      安装 Mojang 官方 Java 运行时到 <root>\runtime\<组件名>\
-              npmc launch  <版本>    [--root <目录>] [--memory <MB>]
-                                     组装参数并启动游戏
+              npmc launch  <版本>    [--root <目录>] [--memory <MB>] [--instance <Id>]
+                                     组装参数并启动游戏；给 --instance 时用实例的目录与设置
+
+            实例管理:
+              npmc instance list                      列出所有实例
+              npmc instance create <名字> --version <版本> [--isolation none|version|full]
+                                                      创建实例（默认 version 隔离）
+              npmc instance paths  <Id>               显示该实例的全部目录
+              npmc instance remove <Id> [--delete-files]
+                                                      从列表移除（默认保留磁盘文件）
 
             示例:
               npmc probe   1.20.1 --root .\data
               npmc install 1.20.1 --root .\data
               npmc runtime java-runtime-gamma --root .\data
-              npmc launch  1.20.1 --root .\data --memory 4096
+              npmc instance create 原版生存 --version 1.20.1 --root .\data
+              npmc launch  1.20.1 --instance 原版生存 --root .\data
 
             说明:
               --root 省略时使用程序所在目录（便携模式：整个文件夹可整体迁移）。
               运行时的组件名直接来自版本 JSON 的 javaVersion.component。
+              隔离级别决定哪些目录共享：无隔离全共享；版本隔离共享 versions/libraries/assets；
+              完全隔离连库与资源也放进实例目录，可单独拷走。
             """);
     }
 }

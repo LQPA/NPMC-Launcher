@@ -33,7 +33,11 @@ internal static class SelfTestRunner
             foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (method.GetParameters().Length != 0) continue;
-                if (method.ReturnType != typeof(void)) continue;
+
+                // xunit 支持 void 与 async Task 两种用例；其余一律跳过
+                var isVoid = method.ReturnType == typeof(void);
+                var isTask = typeof(Task).IsAssignableFrom(method.ReturnType);
+                if (!isVoid && !isTask) continue;
 
                 var isFact = method.GetCustomAttributes(inherit: true)
                     .Any(a => a.GetType().Name == "FactAttribute");
@@ -70,7 +74,10 @@ internal static class SelfTestRunner
             try
             {
                 instance = Activator.CreateInstance(type);
-                method.Invoke(instance, null);
+                var result = method.Invoke(instance, null);
+
+                // async 用例必须等它跑完，否则异常会被吞掉、用例变成假通过
+                if (result is Task task) task.GetAwaiter().GetResult();
 
                 passed++;
                 Console.ForegroundColor = ConsoleColor.Green;

@@ -12,9 +12,10 @@
   <!--
     默认编译成测试库，供 dotnet test 使用。
     加 -p:SelfTestRunner=true 时切成可执行程序，改用 SelfTestRunner.cs 里的反射 runner。
-    原因：某些受限环境下 vstest 的 testhost 会在 SetParentProcessExitCallback 处
-    因无法 OpenProcess 父进程而崩溃（Win32Exception 5: 拒绝访问），dotnet test 完全不可用。
     GenerateProgramFile=false 是为了阻止 Microsoft.NET.Test.Sdk 注入它自己的 Main。
+
+    注意：只引用 Infrastructure，Core 走传递引用。
+    同一项目被直接与间接同时引用时，本机 SDK 会在还原阶段静默失败。
   -->
   <PropertyGroup Condition="'$(SelfTestRunner)' == 'true'">
     <OutputType>Exe</OutputType>
@@ -29,7 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\NPMC.Launcher.Core\NPMC.Launcher.Core.csproj" />
+    <ProjectReference Include="..\..\src\NPMC.Launcher.Infrastructure\NPMC.Launcher.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

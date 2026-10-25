@@ -241,18 +241,52 @@ foreach (var a in plan.ToProcessArguments()) psi.ArgumentList.Add(a);
 
 ---
 
-## 7. 实例与隔离（待实现）
+## 7. 实例与隔离（已实现）
 
-三级隔离：
+三级隔离，**默认「版本隔离」**：
 
-| 级别 | gameDir | mods / 资源包 / 光影 | versions / libraries |
+| 级别 | gameDir | mods / 资源包 / 光影 / 存档 | versions / libraries / assets |
 |---|---|---|---|
-| 无隔离 | 根目录 | 共享 | 共享 |
-| 版本隔离（默认） | `instances\<id>\` | 独立 | 共享 |
-| 完全隔离 | `instances\<id>\` | 独立 | 独立 |
+| 无隔离 `None` | 启动器根目录 | 共享 | 共享 |
+| **版本隔离 `Version`（默认）** | `instances\<Id>\` | **独立** | 共享 |
+| 完全隔离 `Full` | `instances\<Id>\` | 独立 | **独立**（整个实例可单独拷走） |
 
-目录访问入口（全部由 `LauncherPaths` 推导）：
+### 实现结构
+
+| 文件 | 职责 |
+|---|---|
+| `Core/Instances/LauncherInstance.cs` | 实例模型 + `IsolationLevel` + `InstanceSettings` |
+| `Core/Instances/InstanceId.cs` | 显示名 → 目录名（保留中文，只替换非法字符）、同名去重、合法性校验 |
+| `Core/Instances/InstanceLayout.cs` | 由实例推导全部路径：`GameDirectory` / `SharedRoot` / 各子目录 |
+| `Core/Instances/InstanceCatalog.cs` | 增删改查 + 校验（纯逻辑，无 I/O） |
+| `Core/Abstractions/IInstanceStore.cs` | 持久化抽象（Core 不关心落盘格式） |
+| `Infrastructure/Storage/JsonInstanceStore.cs` | JSON 落盘，枚举与中文都保持可读 |
+| `Infrastructure/Storage/AtomicFile.cs` | 临时文件 + rename 的原子写入 |
+
+### 关键设计点
+
+- **`LauncherPaths` 有两个根**：`Root`（runtime、instances 固定在此）与 `SharedRoot`
+  （versions / libraries / assets 的根）。`InstanceLayout.Paths` 按隔离级别设置 `SharedRoot`，
+  于是"完全隔离"只改一处就能把库与资源搬进实例目录。
+- **`OwnsGameDirectory` 是删除的安全闸**：无隔离实例的游戏目录就是启动器根目录，
+  必须拒绝删除。CLI 里 `instance remove --delete-files` 会检查它，并且再校验目标路径
+  确实位于 `instances\` 之下。
+- **`instances.json` 可手改**：缩进 + 枚举写成字符串 + 中文不转义（`UnsafeRelaxedJsonEscaping`）。
+
+### 目录访问入口
+
 `mods` / `resourcepacks` / `shaderpacks` / `saves` / `config` / `logs` / `crash-reports`
+全部由 `InstanceLayout` 推导，UI 侧「打开文件夹」直接取这些属性。
+
+### CLI
+
+```
+npmc instance list
+npmc instance create <名字> --version <版本> [--isolation none|version|full]
+npmc instance paths  <Id>
+npmc instance remove <Id> [--delete-files]
+npmc launch <版本> --instance <Id>
+```
 
 ---
 
@@ -347,7 +381,7 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | M0.5 | 内置 Java 运行时 | ✅ **下载/校验/运行/迁移全部验证** |
 | M1 | 原版安装 + 启动 + 日志窗口 | 🚧 Cli 已有 install / launch，UI 待接入 |
 | M2 | 镜像切换 + 内存/窗口设置 | ⏳ 参数层已就绪 |
-| M3 | 实例管理与三级隔离 | ⏳ |
+| M3 | 实例管理与三级隔离 | ✅ 模型 / 目录 / JSON 持久化 / CLI 均已完成，28 个相关测试通过 |
 | M4 | Modrinth 搜索与依赖安装 | ⏳ API 已核实 |
 | M5 | 正版登录 | 🔒 **阻塞于外部审批** |
 | M6 | Forge / Fabric / NeoForge 安装 | ⏳ Fabric 可通过 launcherMeta 直接合成，无需跑安装器 |
@@ -358,11 +392,12 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 ## 13. 下一步
 
 **已完成**：M0 参数链与启动（实际进世界并正常存档）、内置 Java 运行时（可整体迁移）、
-3598 个资源对象并发下载、xunit 回归测试（50 用例）。
+3598 个资源对象并发下载、xunit 回归测试（78 用例）、实例管理与三级隔离。
 
 待做，按依赖顺序：
 
-1. 实例管理：三级隔离 + 设置持久化 —— 全部在 Core 层，不依赖 UI
-2. `MirrorRouter`：官方 ↔ BMCLAPI 切换，注意 §4.4 的三条约束
+1. `MirrorRouter`：官方 ↔ BMCLAPI 切换，注意 §4.4 的三条约束
+2. 全局设置持久化（下载源、默认内存、代理）
 3. 接入 Avalonia（需联网 restore）与 MVVM 骨架
 4. 正版登录：等 `aka.ms/AppRegInfo` 审批，通过后接 `MicrosoftAuthProvider`
+5. Modrinth 搜索与依赖解析
