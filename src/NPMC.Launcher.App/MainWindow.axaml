@@ -521,43 +521,55 @@
         </StackPanel>
       </Grid>
 
-      <!-- ================= 下载页：左边版本列表 ================= -->
-      <Grid Grid.Column="1" Background="#1B1D23" IsVisible="{Binding ShowVersionList}">
-        <Grid RowDefinitions="Auto,*">
-          <StackPanel Grid.Row="0" Spacing="8" Margin="12,14,12,6">
-            <TextBlock Text="可下载版本" FontSize="13" Foreground="#B4BCC8" />
-            <CheckBox Content="包含快照" IsChecked="{Binding IncludeSnapshots}" FontSize="12" />
-          </StackPanel>
+      <!-- ================= 下载页：左边两个分类 ================= -->
+      <Border Grid.Column="1" Background="#1B1D23" Padding="12,14"
+              IsVisible="{Binding IsDownloadsPage}">
+        <StackPanel Spacing="4">
+          <Button Command="{Binding ShowVersionsModeCommand}" BorderThickness="0" Padding="12,9"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                  Background="{Binding VersionsModeBackground}">
+            <TextBlock Text="游戏本体" FontSize="13" Foreground="{Binding VersionsModeForeground}" />
+          </Button>
 
-          <ListBox Grid.Row="1" ItemsSource="{Binding DownloadVersions}"
-                   SelectedItem="{Binding SelectedDownloadVersion, Mode=TwoWay}"
-                   Background="Transparent" BorderThickness="0" Padding="8">
-            <ListBox.ItemTemplate>
-              <DataTemplate x:DataType="vm:DownloadVersionItem">
-                <StackPanel Spacing="3" Margin="2,4">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Border Width="18" Height="18" CornerRadius="4" Background="{Binding TypeColor}"
-                            VerticalAlignment="Center" ToolTip.Tip="{Binding TypeLabel}">
-                      <TextBlock Text="{Binding TypeBadge}" FontSize="10" FontWeight="Bold"
-                                 Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <TextBlock Text="{Binding Id}" FontSize="14" FontWeight="SemiBold" Foreground="#E8EAED" />
-                  </StackPanel>
-                  <TextBlock Text="{Binding ReleasedText}" FontSize="11" Foreground="#949CA9" />
-                </StackPanel>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
-        </Grid>
-      </Grid>
+          <Button Command="{Binding ShowModpacksModeCommand}" BorderThickness="0" Padding="12,9"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                  Background="{Binding ModpacksModeBackground}">
+            <TextBlock Text="整合包" FontSize="13" Foreground="{Binding ModpacksModeForeground}" />
+          </Button>
+        </StackPanel>
+      </Border>
 
       <!-- ================= 下载页：右边详情与操作 ================= -->
-      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,58,24,20"
+      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
             IsVisible="{Binding IsVersionsMode}">
-        <StackPanel Grid.Row="0" Spacing="4">
-          <TextBlock Text="{Binding SelectedDownloadVersion.Id}" FontSize="22" FontWeight="SemiBold"
-                     Foreground="#E8EAED" />
-          <TextBlock Text="{Binding DownloadVersionSubtitle}" FontSize="12" Foreground="#949CA9" />
+
+        <!-- 版本改成下拉：左侧只留分类，不再占一整列列表 -->
+        <StackPanel Grid.Row="0" Spacing="8">
+          <TextBlock Text="游戏本体" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
+
+          <Grid ColumnDefinitions="*,Auto">
+            <ComboBox ItemsSource="{Binding DownloadVersions}"
+                      SelectedItem="{Binding SelectedDownloadVersion}"
+                      HorizontalAlignment="Stretch" FontSize="12">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:DownloadVersionItem">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Border Width="16" Height="16" CornerRadius="3" Background="{Binding TypeColor}"
+                            VerticalAlignment="Center" ToolTip.Tip="{Binding TypeLabel}">
+                      <TextBlock Text="{Binding TypeBadge}" FontSize="9" FontWeight="Bold"
+                                 Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="{Binding DisplayText}" FontSize="12" VerticalAlignment="Center" />
+                  </StackPanel>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <CheckBox Grid.Column="1" Content="包含快照" IsChecked="{Binding IncludeSnapshots}"
+                      FontSize="12" Margin="10,0,0,0" VerticalAlignment="Center" />
+          </Grid>
+
+          <TextBlock Text="{Binding DownloadVersionSubtitle}" FontSize="11" Foreground="#949CA9" />
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
@@ -617,22 +629,8 @@
         </StackPanel>
       </Grid>
 
-      <!-- 下载页区域切换（两个区域共用） -->
-      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
-                  VerticalAlignment="Top" Margin="24,20,24,0"
-                  IsVisible="{Binding IsDownloadsPage}">
-        <Button Command="{Binding ShowVersionsModeCommand}" BorderThickness="0" Padding="14,6"
-                Background="{Binding VersionsModeBackground}">
-          <TextBlock Text="游戏版本" FontSize="12" Foreground="{Binding VersionsModeForeground}" />
-        </Button>
-        <Button Command="{Binding ShowModpacksModeCommand}" BorderThickness="0" Padding="14,6"
-                Background="{Binding ModpacksModeBackground}">
-          <TextBlock Text="整合包" FontSize="12" Foreground="{Binding ModpacksModeForeground}" />
-        </Button>
-      </StackPanel>
-
       <!-- 下载页：整合包（本地 .mrpack，可选择或拖入） -->
-      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,58,24,20"
+      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
             IsVisible="{Binding IsModpacksMode}">
         <StackPanel Grid.Row="0" Spacing="4">
           <TextBlock Text="整合包" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
