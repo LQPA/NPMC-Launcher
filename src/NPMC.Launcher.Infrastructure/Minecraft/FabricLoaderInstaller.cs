@@ -7,7 +7,11 @@ using NPMC.Launcher.Infrastructure.Storage;
 namespace NPMC.Launcher.Infrastructure.Minecraft;
 
 /// <summary>Fabric 的一个加载器版本。</summary>
-public sealed record FabricLoaderVersion(string Version, bool Stable);
+public sealed record FabricLoaderVersion(string Version, bool Stable)
+{
+    /// <summary>下拉里显示的文字：stable 标出来，避免选到预览版。</summary>
+    public string DisplayText => Stable ? $"{Version}（stable）" : Version;
+}
 
 /// <summary>安装结果。</summary>
 public sealed record FabricInstallResult(

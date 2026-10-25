@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NPMC.Launcher.App.ViewModels"
+        xmlns:mc="using:NPMC.Launcher.Infrastructure.Minecraft"
         x:Class="NPMC.Launcher.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="NPMC Launcher"
@@ -569,11 +570,29 @@
                 <CheckBox Content="同时安装 Fabric 加载器（装完才能加载模组）"
                           IsChecked="{Binding InstallFabric}" FontSize="12" />
 
+                <!-- 加载器版本：实例名会跟着变，两个不同加载器的实例才不会同名 -->
+                <Grid ColumnDefinitions="64,*" IsVisible="{Binding HasFabricLoaderVersions}">
+                  <TextBlock Text="加载器" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding FabricLoaderVersions}"
+                            SelectedItem="{Binding SelectedFabricLoader}"
+                            FontSize="12" HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="mc:FabricLoaderVersion">
+                        <TextBlock Text="{Binding DisplayText}" FontSize="12" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </Grid>
+
                 <Grid ColumnDefinitions="64,*">
                   <TextBlock Text="实例名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                   <TextBox Grid.Column="1" Text="{Binding DownloadInstanceName}"
                            Watermark="留空则用版本号" FontSize="12" />
                 </Grid>
+
+                <!-- 重名会被拦住：两个同名实例在列表里根本分不清 -->
+                <TextBlock Text="已存在同名实例，请改成别的名字" FontSize="10" Foreground="#E0A458"
+                           IsVisible="{Binding DownloadConflictsWithExisting}" />
               </StackPanel>
             </Border>
 

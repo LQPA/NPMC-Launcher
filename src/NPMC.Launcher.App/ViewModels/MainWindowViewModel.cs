@@ -2052,12 +2052,17 @@ public sealed class MainWindowViewModel : ObservableObject
             if (!SetProperty(ref _selectedDownloadVersion, value)) return;
 
             OnPropertyChanged(nameof(DownloadVersionSubtitle));
+            OnPropertyChanged(nameof(DownloadConflictsWithExisting));
 
-            if (!string.IsNullOrWhiteSpace(value?.Id) && _downloadInstanceName.Length == 0)
-                DownloadInstanceName = value!.Id;
+            // 名称默认跟随版本；用户手改过就不再覆盖
+            SyncInstanceNameFromSelection();
 
-            // 按钮的可用性来自命令的 CanExecute；不主动通知的话，
-            // 即使已经选中版本，按钮仍停留在"无选中"时算出的禁用状态。
+            // 换了游戏版本，旧加载器列表不再适用
+            FabricLoaderVersions.Clear();
+            SelectedFabricLoader = null;
+            OnPropertyChanged(nameof(HasFabricLoaderVersions));
+            if (_installFabric) _ = LoadFabricLoaderVersionsAsync();
+
             (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
@@ -2067,11 +2072,98 @@ public sealed class MainWindowViewModel : ObservableObject
         ? $"{version.TypeLabel} · 发布于 {version.ReleasedText}"
         : "请选择一个版本";
 
-    /// <summary>新实例名。默认跟版本号一致，用户可以改。</summary>
+    // ---- Fabric 加载器版本 ----
+
+    private FabricLoaderVersion? _selectedFabricLoader;
+    private bool _instanceNameEdited;
+    private bool _suppressNameEdit;
+
+    public ObservableCollection<FabricLoaderVersion> FabricLoaderVersions { get; } = new();
+
+    public bool HasFabricLoaderVersions => FabricLoaderVersions.Count > 0;
+
+    public FabricLoaderVersion? SelectedFabricLoader
+    {
+        get => _selectedFabricLoader;
+        set
+        {
+            if (!SetProperty(ref _selectedFabricLoader, value)) return;
+
+            // 名称里带加载器版本，两个不同加载器的实例才不会同名
+            SyncInstanceNameFromSelection();
+        }
+    }
+
+    /// <summary>默认实例名：版本号；勾了 Fabric 时再带上加载器版本。</summary>
+    private string DefaultInstanceName()
+    {
+        var version = _selectedDownloadVersion?.Id ?? "";
+        if (string.IsNullOrWhiteSpace(version)) return "";
+
+        return _installFabric && _selectedFabricLoader is { } loader
+            ? $"{version}-fabric-{loader.Version}"
+            : version;
+    }
+
+    /// <summary>用户没手改过名称时，让它跟着版本/加载器走。</summary>
+    private void SyncInstanceNameFromSelection()
+    {
+        if (_instanceNameEdited) return;
+
+        var name = DefaultInstanceName();
+        if (string.IsNullOrWhiteSpace(name) || name == _downloadInstanceName) return;
+
+        _suppressNameEdit = true;
+        DownloadInstanceName = name;
+        _suppressNameEdit = false;
+    }
+
+    private async Task LoadFabricLoaderVersionsAsync()
+    {
+        if (_selectedDownloadVersion is not { } version) return;
+
+        try
+        {
+            DownloadStatus = "正在获取 Fabric 加载器版本…";
+
+            var fabric = new FabricLoaderInstaller(_http);
+            var versions = await fabric.GetLoaderVersionsAsync(version.Id);
+
+            FabricLoaderVersions.Clear();
+            foreach (var loader in versions) FabricLoaderVersions.Add(loader);
+
+            OnPropertyChanged(nameof(HasFabricLoaderVersions));
+
+            SelectedFabricLoader = FabricLoaderVersions.FirstOrDefault(loader => loader.Stable)
+                                   ?? FabricLoaderVersions.FirstOrDefault();
+
+            DownloadStatus = versions.Count == 0
+                ? $"Fabric 没有适用于 {version.Id} 的加载器"
+                : $"共 {versions.Count} 个 Fabric 加载器版本";
+        }
+        catch (Exception ex)
+        {
+            DownloadStatus = $"获取 Fabric 加载器版本失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    /// <summary>是否与已有实例重名（重名会让人分不清哪个是新的）。</summary>
+    public bool DownloadConflictsWithExisting => Instances.Any(item =>
+        string.Equals(item.Name, _downloadInstanceName.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>新实例名。默认跟版本/加载器走，用户手改后不再覆盖。</summary>
     public string DownloadInstanceName
     {
         get => _downloadInstanceName;
-        set => SetProperty(ref _downloadInstanceName, value);
+        set
+        {
+            if (!SetProperty(ref _downloadInstanceName, value)) return;
+
+            if (!_suppressNameEdit) _instanceNameEdited = true;
+
+            OnPropertyChanged(nameof(DownloadConflictsWithExisting));
+            (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
     }
 
     public bool IncludeSnapshots
@@ -2090,7 +2182,15 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool InstallFabric
     {
         get => _installFabric;
-        set => SetProperty(ref _installFabric, value);
+        set
+        {
+            if (!SetProperty(ref _installFabric, value)) return;
+
+            OnPropertyChanged(nameof(HasFabricLoaderVersions));
+            SyncInstanceNameFromSelection();
+
+            if (value && FabricLoaderVersions.Count == 0) _ = LoadFabricLoaderVersionsAsync();
+        }
     }
 
     public bool IsDownloading
@@ -2119,7 +2219,12 @@ public sealed class MainWindowViewModel : ObservableObject
     public ICommand ShowDownloadsCommand { get; }
     public ICommand DownloadCommand { get; }
 
-    private bool CanDownload => !IsDownloading && _selectedDownloadVersion is not null;
+    // 名字为空或与已有实例重名时不允许开始下载 —— 先把名字改好再装
+
+    private bool CanDownload => !IsDownloading
+                                && _selectedDownloadVersion is not null
+                                && _downloadInstanceName.Trim().Length > 0
+                                && !DownloadConflictsWithExisting;
 
     private void Navigate(NavPage page)
     {
@@ -2225,7 +2330,9 @@ public sealed class MainWindowViewModel : ObservableObject
                 DownloadProgressText = "";
 
                 var fabric = new FabricLoaderInstaller(_http);
-                var fabricResult = await fabric.InstallAsync(_launcher, choice.Id, null, _downloader);
+                // 用界面上选定的加载器版本；未选则让安装器取最新 stable
+                var fabricResult = await fabric.InstallAsync(
+                    _launcher, choice.Id, _selectedFabricLoader?.Version, _downloader);
 
                 instanceVersionId = fabricResult.ProfileId;
                 DownloadStatus = $"Fabric {fabricResult.LoaderVersion} 已安装（库 {fabricResult.LibrariesDownloaded} 个）";
@@ -2235,7 +2342,9 @@ public sealed class MainWindowViewModel : ObservableObject
             var store = new JsonInstanceStore(_launcher);
             var catalog = new InstanceCatalog(await store.LoadAsync());
 
-            var name = string.IsNullOrWhiteSpace(_downloadInstanceName) ? choice.Id : _downloadInstanceName.Trim();
+            var name = string.IsNullOrWhiteSpace(_downloadInstanceName)
+                ? DefaultInstanceName()
+                : _downloadInstanceName.Trim();
             var instance = catalog.Add(name, instanceVersionId);
 
             await store.SaveAsync(catalog.Instances);

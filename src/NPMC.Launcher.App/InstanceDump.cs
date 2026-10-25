@@ -318,6 +318,38 @@ internal static class InstanceDump
 
             // 按钮是否可点，取决于命令的 CanExecute —— 这里直接问它，而不是看界面
             lines.Add($"    下载按钮可用 = {viewModel.DownloadCommand.CanExecute(null)}");
+
+            // 名称跟随、加载器选择、重名拦截
+            if (viewModel.DownloadVersions.Count >= 3)
+            {
+                lines.Add("");
+                lines.Add("[下载页·名称与加载器]");
+
+                viewModel.SelectedDownloadVersion = viewModel.DownloadVersions[1];
+                lines.Add($"    切到 {viewModel.SelectedDownloadVersion?.Id} → 名称 = {viewModel.DownloadInstanceName}");
+
+                viewModel.InstallFabric = false;
+                lines.Add($"    关闭 Fabric → 名称 = {viewModel.DownloadInstanceName}");
+
+                viewModel.InstallFabric = true;
+                for (var i = 0; i < 150 && viewModel.FabricLoaderVersions.Count == 0; i++) Thread.Sleep(100);
+
+                lines.Add($"    Fabric 加载器 {viewModel.FabricLoaderVersions.Count} 个，选中 {viewModel.SelectedFabricLoader?.Version}");
+                lines.Add($"    名称 = {viewModel.DownloadInstanceName}");
+
+                // 手动改名之后不再跟随版本
+                viewModel.DownloadInstanceName = "自定义名字";
+                viewModel.SelectedDownloadVersion = viewModel.DownloadVersions[2];
+                lines.Add($"    手改后切版本 → 名称 = {viewModel.DownloadInstanceName}");
+
+                // 重名：用已有实例的名字
+                if (viewModel.Instances.Count > 0)
+                {
+                    viewModel.DownloadInstanceName = viewModel.Instances[0].Name;
+                    lines.Add($"    与已有实例同名 = {viewModel.DownloadConflictsWithExisting}，"
+                              + $"按钮可用 = {viewModel.DownloadCommand.CanExecute(null)}");
+                }
+            }
         }
 
         File.WriteAllLines(outputPath, lines);
