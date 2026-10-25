@@ -2032,7 +2032,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private NavPage _navPage = NavPage.Instances;
     private int _versionFilterIndex;
     private bool _isDownloading;
-    private bool _installFabric = true;
+    // 默认不装加载器：直接玩原版是最常见的路径，加载器应当由用户主动勾选
+    private bool _installFabric;
     private bool _versionsLoaded;
     private string _downloadStatus = "尚未加载版本清单";    private string _downloadProgressText = "";
     private string _downloadInstanceName = "";
