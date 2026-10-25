@@ -418,6 +418,11 @@ public sealed class MainWindowViewModel : ObservableObject
             RaiseCommandStates();
             UpdateLogTimer();
 
+            // 离开模组页签就把搜索面板收起来。
+            // 结果不删（同一实例下它依然有效，删了等于让人白搜一次），
+            // 但切回来时不该再顶着一屏上次的结果 —— 收起后只留一个「展开」按钮。
+            if (!IsModsTab) IsSearchPanelExpanded = false;
+
             if (IsLogTab) _ = RefreshLogAsync();
             else _ = RefreshContentAsync();
         }
@@ -986,7 +991,10 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    public string SearchPanelToggleText => _isSearchPanelExpanded ? "收起" : "展开";
+    /// <summary>收起时把结果条数写进按钮，否则用户不知道里面还有东西。</summary>
+    public string SearchPanelToggleText => _isSearchPanelExpanded
+        ? "收起"
+        : SearchResults.Count > 0 ? $"展开（{SearchResults.Count} 条）" : "展开";
 
     public bool IsInstalling
     {
@@ -1017,6 +1025,7 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         SearchResults.Clear();
         OnPropertyChanged(nameof(HasSearchResults));
+        OnPropertyChanged(nameof(SearchPanelToggleText));
 
         SearchSummaryText = "";
 
@@ -1127,6 +1136,7 @@ public sealed class MainWindowViewModel : ObservableObject
             PlanLines.Clear();
             SearchResults.Clear();
             OnPropertyChanged(nameof(HasSearchResults));
+            OnPropertyChanged(nameof(SearchPanelToggleText));
             SearchSummaryText = "";
 
             await RefreshContentAsync();
