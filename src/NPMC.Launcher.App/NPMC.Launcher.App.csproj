@@ -10,6 +10,9 @@
 
     <!-- 绑定写在 XAML 里、编译期检查：写错属性名会直接编译失败，而不是运行期静默不生效 -->
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+
+    <!-- 显式清单：asInvoker / PerMonitorV2 / longPathAware，见 app.manifest 的说明 -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>

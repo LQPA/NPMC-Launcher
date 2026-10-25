@@ -86,7 +86,7 @@ internal static class InstanceDump
         // 逐个页签走一遍刷新，验证内容扫描这条链路
         foreach (var kind in new[] { ContentKind.Mod, ContentKind.ResourcePack, ContentKind.ShaderPack })
         {
-            viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.Kind == kind);
+            viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == kind);
             viewModel.RefreshContentAsync().GetAwaiter().GetResult();
 
             lines.Add("");

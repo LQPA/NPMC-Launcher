@@ -197,6 +197,24 @@
           </StackPanel>
         </Grid>
 
+        <!-- 日志 -->
+        <Grid Grid.Row="2" Margin="0,14,0,0" IsVisible="{Binding ShowLog}"
+              RowDefinitions="Auto,*">
+          <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+            <TextBlock Text="{Binding LogPathText}" FontSize="11" Foreground="#5C616B"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="刷新" FontSize="11" Padding="10,3"
+                    Command="{Binding RefreshLogCommand}" />
+          </Grid>
+
+          <TextBox Grid.Row="1" Text="{Binding LogText, Mode=OneWay}"
+                   IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                   FontFamily="Cascadia Mono,Consolas,monospace" FontSize="11"
+                   Background="#16181D" Foreground="#C9CDD3"
+                   BorderBrush="#31353F" BorderThickness="1" CornerRadius="8"
+                   Padding="10" VerticalContentAlignment="Top" />
+        </Grid>
+
         <!-- 操作 -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
                     IsVisible="{Binding ShowOverview}">

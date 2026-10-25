@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Text;
 using System.Windows.Input;
+using Avalonia.Threading;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Paths;
@@ -14,6 +16,7 @@ public sealed class MainWindowViewModel : ObservableObject
 {
     private readonly LauncherPaths _launcher;
     private readonly ContentManager _contentManager = new();
+    private readonly DispatcherTimer _logTimer;
 
     private InstanceListItem? _selectedInstance;
     private ContentTabItem _selectedTab;
@@ -27,12 +30,17 @@ public sealed class MainWindowViewModel : ObservableObject
 
         ContentTabs = new ObservableCollection<ContentTabItem>
         {
-            new("概览", null),
-            new("模组", ContentKind.Mod),
-            new("资源包", ContentKind.ResourcePack),
-            new("光影", ContentKind.ShaderPack),
+            new("概览", DetailTabKind.Overview),
+            new("模组", DetailTabKind.Content, ContentKind.Mod),
+            new("资源包", DetailTabKind.Content, ContentKind.ResourcePack),
+            new("光影", DetailTabKind.Content, ContentKind.ShaderPack),
+            new("日志", DetailTabKind.Log),
         };
         _selectedTab = ContentTabs[0];
+
+        // 日志页在显示时每 2 秒重新读取一次文件尾部；游戏运行时能看到实时输出
+        _logTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _logTimer.Tick += (_, _) => _ = RefreshLogAsync();
 
         RefreshCommand = new AsyncRelayCommand(LoadAsync, onError: ex => Status = $"刷新失败：{ex.Message}");
 
@@ -49,6 +57,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
         DisableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: false), () => CanBulk);
         EnableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: true), () => CanBulk);
+
+        RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
 
         LaunchGameCommand = new AsyncRelayCommand(LaunchGameAsync,
             () => SelectedInstance is not null && !IsGameRunning, OnOpenError);
@@ -122,6 +132,8 @@ public sealed class MainWindowViewModel : ObservableObject
             Status = process.ExitCode == 0
                 ? $"游戏已正常退出（{instance.Name}）"
                 : $"游戏异常退出，退出码 {process.ExitCode}，详见 {prepared.LatestLog}";
+
+            if (IsLogTab) await RefreshLogAsync();
         }
         catch (Exception ex)
         {
@@ -175,9 +187,13 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(ShowOverview));
             OnPropertyChanged(nameof(ShowContentList));
+            OnPropertyChanged(nameof(ShowLog));
             RaiseFolderVisibilityChanged();
             RaiseCommandStates();
-            _ = RefreshContentAsync();
+            UpdateLogTimer();
+
+            if (IsLogTab) _ = RefreshLogAsync();
+            else _ = RefreshContentAsync();
         }
     }
 
@@ -210,27 +226,36 @@ public sealed class MainWindowViewModel : ObservableObject
 
             OnPropertyChanged(nameof(IsOverview));
             OnPropertyChanged(nameof(IsContentList));
+            OnPropertyChanged(nameof(IsLogTab));
             OnPropertyChanged(nameof(ShowOverview));
             OnPropertyChanged(nameof(ShowContentList));
+            OnPropertyChanged(nameof(ShowLog));
             OnPropertyChanged(nameof(ContentEmptyHint));
             RaiseCommandStates();
-            _ = RefreshContentAsync();
+            UpdateLogTimer();
+
+            if (IsLogTab) _ = RefreshLogAsync();
+            else _ = RefreshContentAsync();
         }
     }
 
-    public bool IsOverview => SelectedTab.Kind is null;
+    public bool IsOverview => SelectedTab.Kind == DetailTabKind.Overview;
 
-    public bool IsContentList => SelectedTab.Kind is not null;
+    public bool IsContentList => SelectedTab.Kind == DetailTabKind.Content;
+
+    public bool IsLogTab => SelectedTab.Kind == DetailTabKind.Log;
 
     public bool ShowOverview => HasSelection && IsOverview;
 
     public bool ShowContentList => HasSelection && IsContentList;
 
+    public bool ShowLog => HasSelection && IsLogTab;
+
     public ObservableCollection<ContentEntryItem> Content { get; } = new();
 
     public bool IsContentEmpty => Content.Count == 0;
 
-    public string ContentEmptyHint => SelectedTab.Kind switch
+    public string ContentEmptyHint => SelectedTab.ContentKind switch
     {
         ContentKind.Mod => "mods 文件夹是空的。把 .jar 放进这个文件夹（或将来自动安装），就会出现在这里。",
         ContentKind.ResourcePack => "resourcepacks 文件夹是空的。支持 .zip 和文件夹两种形式。",
@@ -312,7 +337,7 @@ public sealed class MainWindowViewModel : ObservableObject
         // 用版本号丢弃过期结果：快速切换实例/页签时，先发出的扫描可能后返回
         var version = ++_contentScanVersion;
         var instance = SelectedInstance;
-        var kind = SelectedTab.Kind;
+        var kind = SelectedTab.ContentKind;
 
         await RefreshCountsAsync(instance);
 
@@ -357,7 +382,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         foreach (var tab in ContentTabs)
         {
-            if (tab.Kind is not { } kind || instance is null)
+            if (tab.ContentKind is not { } kind || instance is null)
             {
                 tab.Count = 0;
                 continue;
@@ -372,7 +397,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task ToggleAsync(ContentEntryItem item)
     {
-        if (SelectedInstance is null || SelectedTab.Kind is not { } kind) return;
+        if (SelectedInstance is null || SelectedTab.ContentKind is not { } kind) return;
 
         var wasEnabled = item.IsEnabled;
         var instance = SelectedInstance;
@@ -397,7 +422,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task DeleteAsync(ContentEntryItem item)
     {
-        if (SelectedInstance is null || SelectedTab.Kind is not { } kind) return;
+        if (SelectedInstance is null || SelectedTab.ContentKind is not { } kind) return;
 
         var instance = SelectedInstance;
 
@@ -422,7 +447,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private async Task ToggleAllAsync(bool enable)
     {
-        if (SelectedInstance is null || SelectedTab.Kind is not { } kind) return;
+        if (SelectedInstance is null || SelectedTab.ContentKind is not { } kind) return;
 
         var instance = SelectedInstance;
         var directory = instance.DirectoryFor(kind);
@@ -451,6 +476,90 @@ public sealed class MainWindowViewModel : ObservableObject
         RaiseCommandStates();
     }
 
+    // ---- 日志 ----
+
+    private string _logText = "";
+    private string _logPathText = "尚未读取日志";
+
+    public string LogText
+    {
+        get => _logText;
+        private set => SetProperty(ref _logText, value);
+    }
+
+    public string LogPathText
+    {
+        get => _logPathText;
+        private set => SetProperty(ref _logPathText, value);
+    }
+
+    public ICommand RefreshLogCommand { get; }
+
+    /// <summary>
+    /// 读取 logs/latest.log 的尾部。
+    ///
+    /// 为什么不读进程 stdout：客户端配置的 log4j（client-1.12.xml）会把日志按 XML 写到 stdout，
+    /// 人读不了；而 latest.log 是纯文本，且游戏运行中会持续追加。
+    /// 打开时必须带 FileShare.ReadWrite —— 游戏正在写这个文件。
+    /// </summary>
+    public async Task RefreshLogAsync()
+    {
+        var instance = SelectedInstance;
+        if (instance is null)
+        {
+            LogPathText = "尚未选中实例";
+            LogText = "";
+            return;
+        }
+
+        var path = Path.Combine(instance.GameDirectory, "logs", "latest.log");
+        LogPathText = path;
+
+        try
+        {
+            if (!File.Exists(path))
+            {
+                LogText = $"还没有日志文件。启动一次游戏后这里会出现内容。{Environment.NewLine}{Environment.NewLine}预期位置：{path}";
+                return;
+            }
+
+            var text = await Task.Run(() => ReadTail(path, 128 * 1024));
+            if (text != LogText) LogText = text;
+        }
+        catch (Exception ex)
+        {
+            LogText = $"读取日志失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"读取日志失败 {path} → {ex.GetBaseException().Message}");
+        }
+    }
+
+    private static string ReadTail(string path, int maxBytes)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var start = Math.Max(0, stream.Length - maxBytes);
+        stream.Seek(start, SeekOrigin.Begin);
+
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var text = reader.ReadToEnd();
+
+        // 从中间开始读时首行可能是半截，丢掉
+        if (start > 0)
+        {
+            var index = text.IndexOf('\n');
+            if (index >= 0) text = text[(index + 1)..];
+        }
+
+        return text;
+    }
+
+    private void UpdateLogTimer()
+    {
+        if (IsLogTab && SelectedInstance is not null) _logTimer.Start();
+        else _logTimer.Stop();
+    }
+
     // ---- 打开目录 ----
 
     /// <summary>由窗口注入的剪贴板写入器。全部打开方式都失败时，把路径复制给用户兜底。</summary>
@@ -471,7 +580,7 @@ public sealed class MainWindowViewModel : ObservableObject
         => SelectedInstance is null ? Task.CompletedTask : OpenDirectoryAsync(SelectedInstance.ShaderPacksDirectory);
 
     private Task OpenContentFolder()
-        => SelectedInstance is null || SelectedTab.Kind is not { } kind
+        => SelectedInstance is null || SelectedTab.ContentKind is not { } kind
             ? Task.CompletedTask
             : OpenDirectoryAsync(SelectedInstance.DirectoryFor(kind));
 
@@ -553,6 +662,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private void RaiseCommandStates()
     {
         (LaunchGameCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (RefreshLogCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenGameFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenModsFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenResourcePacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
