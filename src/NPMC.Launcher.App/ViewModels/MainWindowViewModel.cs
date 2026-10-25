@@ -151,6 +151,15 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public string RootHint => $"用 --root <目录> 或环境变量 {LauncherRoot.EnvironmentVariable} 指定";
 
+    /// <summary>
+    /// 当前进程的完整性级别。
+    ///
+    /// 直接显示在标题栏下方：Low（S-1-16-4096）时系统不允许调起资源管理器，
+    /// 有了这行，用户一眼就能确认"是环境受限"还是"功能坏了"，
+    /// 也能区分窗口是从哪个终端启动的。
+    /// </summary>
+    public string IntegrityText => $"权限 {Interop.ProcessContext.IntegrityLabel}";
+
     // ---- 实例 ----
 
     public ObservableCollection<InstanceListItem> Instances { get; } = new();
