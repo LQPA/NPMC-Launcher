@@ -565,8 +565,13 @@
               </ComboBox.ItemTemplate>
             </ComboBox>
 
-            <CheckBox Grid.Column="1" Content="包含快照" IsChecked="{Binding IncludeSnapshots}"
-                      FontSize="12" Margin="10,0,0,0" VerticalAlignment="Center" />
+            <!-- 版本类型：愚人节版本在清单里就是 snapshot，早期版本是 old_alpha/old_beta -->
+            <ComboBox Grid.Column="1" SelectedIndex="{Binding VersionFilterIndex}"
+                      Width="160" Margin="10,0,0,0" FontSize="12" VerticalAlignment="Center">
+              <ComboBoxItem Content="仅正式版" />
+              <ComboBoxItem Content="正式版 + 快照" />
+              <ComboBoxItem Content="全部（含早期）" />
+            </ComboBox>
           </Grid>
 
           <TextBlock Text="{Binding DownloadVersionSubtitle}" FontSize="11" Foreground="#949CA9" />

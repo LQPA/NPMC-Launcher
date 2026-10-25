@@ -374,6 +374,26 @@ internal static class InstanceDump
             lines.Add($"    可安装 = {viewModel.InstallModpackCommand.CanExecute(null)}");
         }
 
+        // 验证版本类型过滤（正式版 / 含快照 / 全部）
+        if (args.Any(arg => string.Equals(arg, "--exercise-version-filter", StringComparison.OrdinalIgnoreCase)))
+        {
+            viewModel.ShowDownloadsCommand.Execute(null);
+            for (var i = 0; i < 300 && viewModel.DownloadVersions.Count == 0; i++) Thread.Sleep(100);
+
+            lines.Add("");
+            lines.Add("[版本过滤]");
+
+            for (var filter = 0; filter <= 2; filter++)
+            {
+                viewModel.VersionFilterIndex = filter;
+
+                // 列表重建是 fire-and-forget，等状态行更新
+                Thread.Sleep(3500);
+
+                lines.Add($"    {viewModel.VersionFilterText,-22} {viewModel.DownloadVersions.Count,4} 个"
+                          + $"   首个 {viewModel.DownloadVersions.FirstOrDefault()?.Id}");
+            }
+        }
         // 验证"实例页/下载页"两个区块的可见性互斥（曾经在实例页也显示下载区块）
         lines.Add("");
         lines.Add($"[导航] 实例页     版本区块={viewModel.IsVersionsMode} "

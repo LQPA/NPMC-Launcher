@@ -2029,7 +2029,7 @@ public sealed class MainWindowViewModel : ObservableObject
     // ---- 导航与下载页 ----
 
     private NavPage _navPage = NavPage.Instances;
-    private bool _includeSnapshots;
+    private int _versionFilterIndex;
     private bool _isDownloading;
     private bool _installFabric = true;
     private bool _versionsLoaded;
@@ -2185,14 +2185,21 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    public bool IncludeSnapshots
+    /// <summary>
+    /// 版本类型过滤：0 仅正式版 / 1 正式版+快照 / 2 全部（含早期 alpha、beta）。
+    ///
+    /// 愚人节版本在 Mojang 的清单里就是 snapshot，所以"含快照"就能看到它们；
+    /// 而 2010 年前后的早期版本被标成 old_alpha / old_beta，需要"全部"才出现。
+    /// </summary>
+    public int VersionFilterIndex
     {
-        get => _includeSnapshots;
+        get => _versionFilterIndex;
         set
         {
-            if (!SetProperty(ref _includeSnapshots, value)) return;
-            // 切换过滤条件要重新填列表
+            if (!SetProperty(ref _versionFilterIndex, value)) return;
+
             _versionsLoaded = false;
+            OnPropertyChanged(nameof(VersionFilterText));
             _ = LoadDownloadVersionsAsync();
         }
     }
@@ -2280,8 +2287,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             foreach (var entry in versions)
             {
-                if (!_includeSnapshots && !string.Equals(entry.Type, "release", StringComparison.OrdinalIgnoreCase))
-                    continue;
+                if (!AcceptVersionType(entry.Type)) continue;
 
                 DownloadVersions.Add(new DownloadVersionItem(entry));
             }
@@ -2292,7 +2298,7 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 SelectedDownloadVersion ??= DownloadVersions[0];
                 (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
-                DownloadStatus = $"共 {DownloadVersions.Count} 个{(_includeSnapshots ? "版本（含快照）" : "正式版")}";
+                DownloadStatus = $"共 {DownloadVersions.Count} 个版本（{VersionFilterText}）";
             }
             else
             {
@@ -2372,9 +2378,11 @@ public sealed class MainWindowViewModel : ObservableObject
             DownloadStatus = $"完成：已创建实例「{instance.Name}」（版本 {instanceVersionId}）";
             DownloadProgressText = "";
 
-            // 回到实例页并选中新建的那个
+            // 回到实例页并选中新建的那个；页签显式落回概览，
+            // 否则新实例若不支持当前页签（比如原版打开着"模组"），会没有选中项
             await LoadAsync();
             Navigate(NavPage.Instances);
+            SelectedTab = ContentTabs[0];
 
             SelectedInstance = Instances.FirstOrDefault(item =>
                 string.Equals(item.Id, instance.Id, StringComparison.OrdinalIgnoreCase));
@@ -2390,6 +2398,23 @@ public sealed class MainWindowViewModel : ObservableObject
             (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
+
+    /// <summary>当前过滤条件是否接受该版本类型。</summary>
+    private bool AcceptVersionType(string type) => _versionFilterIndex switch
+    {
+        0 => string.Equals(type, "release", StringComparison.OrdinalIgnoreCase),
+        1 => string.Equals(type, "release", StringComparison.OrdinalIgnoreCase)
+             || string.Equals(type, "snapshot", StringComparison.OrdinalIgnoreCase),
+        _ => true,
+    };
+
+    /// <summary>过滤条件的中文描述（用于状态行）。</summary>
+    public string VersionFilterText => _versionFilterIndex switch
+    {
+        0 => "仅正式版",
+        1 => "正式版 + 快照",
+        _ => "全部，含早期 alpha/beta",
+    };
 
     /// <summary>按全局设置构造安装器（镜像源、并发数都取自设置）。</summary>
     private async Task<MinecraftInstaller> CreateMinecraftInstallerAsync()
@@ -2605,6 +2630,7 @@ public sealed class MainWindowViewModel : ObservableObject
             // 回到实例页并选中它
             await LoadAsync();
             Navigate(NavPage.Instances);
+            SelectedTab = ContentTabs[0];
             SelectedInstance = Instances.FirstOrDefault(item =>
                 string.Equals(item.Id, instance.Id, StringComparison.OrdinalIgnoreCase));
         }
