@@ -7,15 +7,16 @@ internal sealed record FolderOpenAttempt(string Strategy, bool Success, string? 
 /// <summary>
 /// 打开目录的尝试链。依次尝试，成功即止，并把每次的结果都记下来。
 ///
-/// 为什么**默认不启动 explorer.exe**：
-///   在这台机器上 explorer.exe 启动即失败（0xC0000142 STATUS_DLL_INIT_FAILED），
-///   而且它失败时会**弹出一个系统错误对话框**，用户必须手动关掉。
-///   一个"打开文件夹"按钮每次点都弹出这种对话框是不可接受的，
-///   所以正式流程只用不会打弹窗的两种方式：
-///     1. shell32 —— 交给已在运行的资源管理器，不新起进程（首选）
-///     2. shell   —— 让系统按默认关联打开目录
-///   两者都失败时由上层把路径复制到剪贴板。
-///   explorer.exe 只留给诊断命令显式开启（--all），便于以后排查。
+/// 顺序与理由：
+///   1. **shell（把目录路径交给 ShellExecute）** —— 这是唯一"进入该目录内部"
+///      的标准做法。注意 shell32 那条路（SHOpenFolderAndSelectItems，cidl=0）
+///      的实际表现是打开**父目录并定位**到该文件夹，用户会觉得"没进去"，
+///      所以它只能做兜底而不是首选。
+///   2. shell32 —— 交给已运行的外壳，不新起进程；在 shell 失败时仍值得一试。
+///   3. explorer.exe —— **默认不启用**：在这台机器上它启动即失败
+///      （0xC0000142）并弹出系统错误对话框，每次点击都留一个弹窗不可接受。
+///      仅诊断命令 --all 会尝试。
+/// 全部失败时由上层把路径复制到剪贴板。
 /// </summary>
 internal static class FolderLauncher
 {
@@ -26,6 +27,15 @@ internal static class FolderLauncher
     {
         var attempts = new List<FolderOpenAttempt>(3);
 
+        if (allowProcessLaunch)
+        {
+            // 首选：直接把目录交给 shell，打开的是"目录内部"
+            var shellError = await TryStartAsync(directory, null);
+            attempts.Add(new FolderOpenAttempt("shell", shellError is null, shellError));
+            if (shellError is null) return attempts;
+        }
+
+        // 兜底：请已在运行的外壳打开（可能表现为打开父目录并选中）
         if (ShellFolder.TryOpen(directory, out var shell32Error))
         {
             attempts.Add(new FolderOpenAttempt("shell32", true, null));
@@ -33,13 +43,6 @@ internal static class FolderLauncher
         }
 
         attempts.Add(new FolderOpenAttempt("shell32", false, shell32Error));
-
-        if (!allowProcessLaunch) return attempts;
-
-        // 把目录路径直接交给 shell 打开（失败只会抛异常，不会弹窗）
-        var shellError = await TryStartAsync(directory, null);
-        attempts.Add(new FolderOpenAttempt("shell", shellError is null, shellError));
-        if (shellError is null) return attempts;
 
         if (!allowExplorer) return attempts;
 

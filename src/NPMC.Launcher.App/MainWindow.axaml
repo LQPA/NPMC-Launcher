@@ -18,9 +18,9 @@
         <StackPanel Spacing="2">
           <TextBlock Text="NPMC Launcher" FontSize="18" FontWeight="SemiBold" Foreground="#F2F3F5" />
           <StackPanel Orientation="Horizontal" Spacing="10">
-            <TextBlock Text="{Binding RootPath}" FontSize="11" Foreground="#6E747E"
+            <TextBlock Text="{Binding RootPath}" FontSize="11" Foreground="#949CA9"
                        TextTrimming="CharacterEllipsis" />
-            <TextBlock Text="{Binding IntegrityText}" FontSize="11" Foreground="#4E535D" />
+            <TextBlock Text="{Binding IntegrityText}" FontSize="11" Foreground="#6E7684" />
           </StackPanel>
         </StackPanel>
         <Button Grid.Column="1" Content="刷新" VerticalAlignment="Center"
@@ -37,13 +37,13 @@
             <TextBlock Text="实例" FontSize="13" Foreground="#DCE4F5" />
           </Border>
           <Border CornerRadius="6" Padding="12,9" IsEnabled="False">
-            <TextBlock Text="下载" FontSize="13" Foreground="#6E747E" />
+            <TextBlock Text="下载" FontSize="13" Foreground="#949CA9" />
           </Border>
           <Border CornerRadius="6" Padding="12,9" IsEnabled="False">
-            <TextBlock Text="设置" FontSize="13" Foreground="#6E747E" />
+            <TextBlock Text="设置" FontSize="13" Foreground="#949CA9" />
           </Border>
 
-          <TextBlock Margin="12,20,12,0" FontSize="11" Foreground="#4E535D"
+          <TextBlock Margin="12,20,12,0" FontSize="11" Foreground="#6E7684"
                      TextWrapping="Wrap" LineHeight="17"
                      Text="下载与设置页在后续阶段接入。模组/资源包/光影管理在右侧页签里。" />
         </StackPanel>
@@ -61,8 +61,8 @@
               <StackPanel Spacing="3" Margin="2,5">
                 <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
                            Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
-                <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#8A8F98" />
-                <TextBlock Text="{Binding ContentText}" FontSize="11" Foreground="#5C616B" />
+                <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#B4BCC8" />
+                <TextBlock Text="{Binding ContentText}" FontSize="11" Foreground="#949CA9" />
               </StackPanel>
             </DataTemplate>
           </ListBox.ItemTemplate>
@@ -70,10 +70,10 @@
 
         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                     Spacing="8" Margin="24" IsVisible="{Binding IsEmpty}">
-          <TextBlock Text="还没有实例" FontSize="14" Foreground="#8A8F98"
+          <TextBlock Text="还没有实例" FontSize="14" Foreground="#B4BCC8"
                      HorizontalAlignment="Center" />
           <TextBlock Text="npmc instance create 原版生存 --version 1.20.1"
-                     FontSize="11" Foreground="#5C616B" HorizontalAlignment="Center"
+                     FontSize="11" Foreground="#949CA9" HorizontalAlignment="Center"
                      TextWrapping="Wrap" />
         </StackPanel>
       </Grid>
@@ -84,7 +84,7 @@
         <StackPanel Grid.Row="0" Spacing="3" IsVisible="{Binding HasSelection}">
           <TextBlock Text="{Binding SelectedInstance.Name}" FontSize="24" FontWeight="SemiBold"
                      Foreground="#F2F3F5" TextTrimming="CharacterEllipsis" />
-          <TextBlock Text="{Binding SelectedInstance.SummaryText}" FontSize="12" Foreground="#8A8F98" />
+          <TextBlock Text="{Binding SelectedInstance.SummaryText}" FontSize="12" Foreground="#B4BCC8" />
         </StackPanel>
 
         <!-- 页签（用横向 ListBox，选中样式由主题提供，不需要写转换器） -->
@@ -113,45 +113,45 @@
             <StackPanel Spacing="9">
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="版本" FontSize="12" Foreground="#6E747E" />
+                <TextBlock Grid.Column="0" Text="版本" FontSize="12" Foreground="#949CA9" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.VersionId}"
                            FontSize="12" Foreground="#C9CDD3" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="隔离级别" FontSize="12" Foreground="#6E747E" />
+                <TextBlock Grid.Column="0" Text="隔离级别" FontSize="12" Foreground="#949CA9" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.IsolationText}"
                            FontSize="12" Foreground="#C9CDD3" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="内存" FontSize="12" Foreground="#6E747E" />
+                <TextBlock Grid.Column="0" Text="内存" FontSize="12" Foreground="#949CA9" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.MemoryText}"
                            FontSize="12" Foreground="#C9CDD3" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="窗口" FontSize="12" Foreground="#6E747E" />
+                <TextBlock Grid.Column="0" Text="窗口" FontSize="12" Foreground="#949CA9" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.WindowText}"
                            FontSize="12" Foreground="#C9CDD3" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="内容" FontSize="12" Foreground="#6E747E" />
+                <TextBlock Grid.Column="0" Text="内容" FontSize="12" Foreground="#949CA9" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.ContentText}"
                            FontSize="12" Foreground="#C9CDD3" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="创建时间" FontSize="12" Foreground="#6E747E" />
+                <TextBlock Grid.Column="0" Text="创建时间" FontSize="12" Foreground="#949CA9" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.CreatedText}"
                            FontSize="12" Foreground="#C9CDD3" />
               </Grid>
 
               <Grid ColumnDefinitions="96,*">
-                <TextBlock Grid.Column="0" Text="游戏目录" FontSize="12" Foreground="#6E747E" />
+                <TextBlock Grid.Column="0" Text="游戏目录" FontSize="12" Foreground="#949CA9" />
                 <TextBlock Grid.Column="1" Text="{Binding SelectedInstance.GameDirectory}"
-                           FontSize="11" Foreground="#8A8F98" TextWrapping="Wrap" />
+                           FontSize="11" Foreground="#B4BCC8" TextWrapping="Wrap" />
               </Grid>
 
             </StackPanel>
@@ -161,38 +161,46 @@
         <!-- 内容列表 -->
         <Grid Grid.Row="2" Margin="0,14,0,0" IsVisible="{Binding ShowContentList}">
 
-          <ListBox ItemsSource="{Binding Content}"
-                   Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
-                   CornerRadius="8" Padding="8"
-                   IsVisible="{Binding !IsContentEmpty}">
-            <ListBox.ItemTemplate>
-              <DataTemplate x:DataType="vm:ContentEntryItem">
-                <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="4,5">
-                  <StackPanel Spacing="2">
-                    <TextBlock Text="{Binding Name}" FontSize="13" Foreground="#E8EAED"
-                               TextTrimming="CharacterEllipsis" />
-                    <TextBlock Text="{Binding MetaText}" FontSize="11" Foreground="#5C616B"
-                               TextTrimming="CharacterEllipsis" />
-                  </StackPanel>
+          <!--
+            这里用 ItemsControl 而不是 ListBox：内容行不需要"选中"这个概念
+            （每行自己带按钮），而 ListBox 的选中态会给行铺一层蓝色，
+            把次要文字压得看不清。去掉选中态也就顺便消掉了这一类高亮问题。
+          -->
+          <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                  CornerRadius="8" Padding="8"
+                  IsVisible="{Binding !IsContentEmpty}">
+            <ScrollViewer>
+              <ItemsControl ItemsSource="{Binding Content}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ContentEntryItem">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="4,5">
+                      <StackPanel Spacing="2">
+                        <TextBlock Text="{Binding Name}" FontSize="13" Foreground="#E8EAED"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding MetaText}" FontSize="11" Foreground="#949CA9"
+                                   TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
 
-                  <TextBlock Grid.Column="1" Text="{Binding StatusText}" FontSize="11"
-                             Foreground="#8A8F98" VerticalAlignment="Center" Margin="10,0" />
+                      <TextBlock Grid.Column="1" Text="{Binding StatusText}" FontSize="11"
+                                 Foreground="#B4BCC8" VerticalAlignment="Center" Margin="10,0" />
 
-                  <Button Grid.Column="2" Content="{Binding ToggleText}"
-                          Command="{Binding ToggleCommand}"
-                          FontSize="11" Padding="10,3" Margin="0,0,6,0" />
+                      <Button Grid.Column="2" Content="{Binding ToggleText}"
+                              Command="{Binding ToggleCommand}"
+                              FontSize="11" Padding="10,3" Margin="0,0,6,0" />
 
-                  <Button Grid.Column="3" Content="删除"
-                          Command="{Binding DeleteCommand}"
-                          FontSize="11" Padding="10,3" />
-                </Grid>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+                      <Button Grid.Column="3" Content="删除"
+                              Command="{Binding DeleteCommand}"
+                              FontSize="11" Padding="10,3" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Border>
 
           <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                       Spacing="8" Margin="24" IsVisible="{Binding IsContentEmpty}">
-            <TextBlock Text="{Binding ContentEmptyHint}" FontSize="12" Foreground="#6E747E"
+            <TextBlock Text="{Binding ContentEmptyHint}" FontSize="12" Foreground="#949CA9"
                        TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" LineHeight="19" />
           </StackPanel>
         </Grid>
@@ -201,7 +209,7 @@
         <Grid Grid.Row="2" Margin="0,14,0,0" IsVisible="{Binding ShowLog}"
               RowDefinitions="Auto,*">
           <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
-            <TextBlock Text="{Binding LogPathText}" FontSize="11" Foreground="#5C616B"
+            <TextBlock Text="{Binding LogPathText}" FontSize="11" Foreground="#949CA9"
                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
             <Button Grid.Column="1" Content="刷新" FontSize="11" Padding="10,3"
                     Command="{Binding RefreshLogCommand}" />
@@ -243,9 +251,9 @@
     <Border Grid.Row="2" Background="#1F2229"
             BorderBrush="#31353F" BorderThickness="0,1,0,0" Padding="24,9">
       <Grid ColumnDefinitions="*,Auto">
-        <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#6E747E"
+        <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#949CA9"
                    TextTrimming="CharacterEllipsis" />
-        <TextBlock Grid.Column="1" Text="{Binding RootHint}" FontSize="11" Foreground="#41454E" />
+        <TextBlock Grid.Column="1" Text="{Binding RootHint}" FontSize="11" Foreground="#6E7684" />
       </Grid>
     </Border>
 

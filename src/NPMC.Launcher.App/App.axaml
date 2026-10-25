@@ -5,4 +5,17 @@
   <Application.Styles>
     <FluentTheme />
   </Application.Styles>
+
+  <Application.Resources>
+    <!--
+      覆盖 ListBoxItem 的默认选中色。
+      Fluent 默认用饱和度较高的系统蓝，铺在实例列表那种深色面板上会压
+      低次要文字的对比度。这里换成与界面配色一致的深蓝灰。
+      键名若与当前 Avalonia 版本不一致，覆盖会静默失效，不影响功能。
+    -->
+    <SolidColorBrush x:Key="ListBoxItemBackgroundSelected" Color="#2E3B52" />
+    <SolidColorBrush x:Key="ListBoxItemBackgroundSelectedPointerOver" Color="#36445E" />
+    <SolidColorBrush x:Key="ListBoxItemBackgroundSelectedPressed" Color="#3D4C69" />
+    <SolidColorBrush x:Key="ListBoxItemBackgroundPointerOver" Color="#262A33" />
+  </Application.Resources>
 </Application>
