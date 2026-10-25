@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Models;
 
 namespace NPMC.Launcher.Infrastructure.Minecraft;
@@ -34,13 +35,21 @@ public sealed class VersionManifestSource
         PropertyNameCaseInsensitive = true,
     };
 
-    private readonly Func<string, CancellationToken, Task<string>> _fetch;
+    private readonly Func<string, ResourceKind, CancellationToken, Task<string>> _fetch;
 
-    public VersionManifestSource(Func<string, CancellationToken, Task<string>> fetch) => _fetch = fetch;
+    /// <summary>单一地址的构造：用于镜像测试自身的参照，避免参照值也被镜像影响。</summary>
+    public VersionManifestSource(Func<string, CancellationToken, Task<string>> fetch)
+        : this((url, _, ct) => fetch(url, ct))
+    {
+    }
+
+    /// <summary>按资源类别选择下载源（清单 / 版本 JSON 各对应一条镜像规则）。</summary>
+    public VersionManifestSource(Func<string, ResourceKind, CancellationToken, Task<string>> fetch)
+        => _fetch = fetch;
 
     public async Task<VersionManifest> GetManifestAsync(string? url = null, CancellationToken ct = default)
     {
-        var json = await _fetch(url ?? OfficialManifestUrl, ct).ConfigureAwait(false);
+        var json = await _fetch(url ?? OfficialManifestUrl, ResourceKind.VersionManifest, ct).ConfigureAwait(false);
         var dto = JsonSerializer.Deserialize<ManifestDto>(json, JsonOptions)
                   ?? throw new InvalidDataException("版本清单解析失败。");
 
@@ -55,7 +64,7 @@ public sealed class VersionManifestSource
 
     public async Task<VersionJson> GetVersionJsonAsync(VersionManifestEntry entry, CancellationToken ct = default)
     {
-        var json = await _fetch(entry.Url, ct).ConfigureAwait(false);
+        var json = await _fetch(entry.Url, ResourceKind.VersionMetadata, ct).ConfigureAwait(false);
         return VersionJsonSerializer.Parse(json);
     }
 

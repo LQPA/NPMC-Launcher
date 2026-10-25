@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Infrastructure.Http;
 
@@ -30,8 +31,14 @@ public sealed class AssetInstaller
     public const string OfficialObjectBase = "https://resources.download.minecraft.net";
 
     private readonly HttpFileDownloader _downloader;
+    private readonly MirrorRouter? _router;
 
-    public AssetInstaller(HttpFileDownloader downloader) => _downloader = downloader;
+    /// <param name="router">为 null 时只走官方资源源；传入时按 AssetObject 规则生成候选地址。</param>
+    public AssetInstaller(HttpFileDownloader downloader, MirrorRouter? router = null)
+    {
+        _downloader = downloader;
+        _router = router;
+    }
 
     public async Task<AssetInstallResult> InstallAsync(
         LauncherPaths paths,
@@ -67,9 +74,14 @@ public sealed class AssetInstaller
                 var url = $"{baseUrl}/{item.Hash[..2]}/{item.Hash}";
                 var destination = paths.AssetObjectFile(item.Hash);
 
-                var wrote = await _downloader
-                    .EnsureAsync(url, destination, item.Hash, ct)
+                var candidates = _router is null
+                    ? new[] { url }
+                    : _router.Resolve(url, ResourceKind.AssetObject).Select(target => target.Url).ToArray();
+
+                var outcome = await _downloader
+                    .EnsureFromAsync(candidates, destination, item.Hash, ct)
                     .ConfigureAwait(false);
+                var wrote = outcome.Downloaded;
 
                 if (wrote)
                 {

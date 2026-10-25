@@ -56,9 +56,10 @@ internal static class Program
 
         using var http = HttpFileDownloader.CreateClient();
         var downloader = new HttpFileDownloader(http);
-        var source = new VersionManifestSource(downloader.GetStringAsync);
+        var router = CreateRouter(args);
+        var source = CreateSource(router, downloader);
 
-        var version = await LoadVersionAsync(source, downloader, paths, versionId);
+        var version = await LoadVersionAsync(source, downloader, paths, versionId, router);
 
         var context = LaunchContext.OfflineProbe();
         var os = OsInfo.Windows64();
@@ -110,10 +111,29 @@ internal static class Program
 
         using var http = HttpFileDownloader.CreateClient();
         var downloader = new HttpFileDownloader(http);
-        var source = new VersionManifestSource(downloader.GetStringAsync);
+        var router = CreateRouter(args);
+        var source = CreateSource(router, downloader);
 
-        var version = await LoadVersionAsync(source, downloader, paths, versionId);
+        var version = await LoadVersionAsync(source, downloader, paths, versionId, router);
         var os = OsInfo.Windows64();
+
+        // 统计每个文件最终从哪个源拿到，便于判断镜像是否真的帮上忙
+        var mirrorHits = 0;
+        var officialHits = 0;
+        var fallbacks = new List<string>();
+
+        void CountSource(string label, DownloadOutcome outcome)
+        {
+            if (!outcome.Downloaded) return;
+
+            if (IsMirrorUrl(router, outcome.Url)) mirrorHits++;
+            else officialHits++;
+
+            // 有失败尝试说明镜像这一路不通、退回了下一个候选
+            if (outcome.Attempts.Count > 0)
+                fallbacks.Add($"{label}：{outcome.Attempts[0].Error} → 改用 {ShortHost(outcome.Url)}");
+        }
+
         var effective = version.Libraries
             .Where(lib => RuleEvaluator.IsAllowed(lib.Rules, os, FeatureSet.ForLaunch(true)))
             .ToList();
@@ -122,7 +142,10 @@ internal static class Program
         if (version.Downloads?.Client is { } client)
         {
             Section("client.jar");
-            await downloader.EnsureAsync(client.Url, paths.ClientJar(versionId), client.Sha1);
+            var clientOutcome = await downloader.EnsureFromAsync(
+                Candidates(router, client.Url, ResourceKind.ClientJar),
+                paths.ClientJar(versionId), client.Sha1);
+            CountSource($"client.jar", clientOutcome);
             Info($"{versionId}.jar  {Mb(client.Size)}");
         }
 
@@ -137,7 +160,10 @@ internal static class Program
                 Warn($"跳过（无 artifact）: {lib.Name}");
                 continue;
             }
-            await downloader.EnsureAsync(artifact.Url, paths.LibraryFile(artifact.Path), artifact.Sha1);
+            var libraryOutcome = await downloader.EnsureFromAsync(
+                Candidates(router, artifact.Url, ResourceKind.Library),
+                paths.LibraryFile(artifact.Path), artifact.Sha1);
+            CountSource(lib.Name, libraryOutcome);
             done++;
             if (done % 20 == 0) Dim($"{done}/{effective.Count}");
         }
@@ -147,21 +173,26 @@ internal static class Program
         if (version.Logging?.Client?.File is { } logFile)
         {
             Section("log4j 配置");
-            await downloader.EnsureAsync(logFile.Url, paths.LogConfigFile(logFile.Id), logFile.Sha1);
-            Info($"{logFile.Id}  {Mb(logFile.Size)}");
+            await downloader.EnsureFromAsync(
+                Candidates(router, logFile.Url, ResourceKind.LoggingConfig),
+                paths.LogConfigFile(logFile.Id), logFile.Sha1);
+            Info($"{logFile.Id}  {Mb(logFile.Size)}  （该类别不可镜像，恒走官方）");
         }
 
         // 4) assetIndex
         if (version.AssetIndex is { } index)
         {
             Section("assetIndex");
-            await downloader.EnsureAsync(index.Url, paths.AssetIndexFile(index.Id), index.Sha1);
+            var indexOutcome = await downloader.EnsureFromAsync(
+                Candidates(router, index.Url, ResourceKind.AssetIndex),
+                paths.AssetIndexFile(index.Id), index.Sha1);
+            CountSource($"assetIndex {index.Id}", indexOutcome);
             Info($"{index.Id}.json  总 {Mb(index.TotalSize)}");
 
             if (withAssets)
             {
                 Section("assets 对象");
-                var assetInstaller = new AssetInstaller(downloader);
+                var assetInstaller = new AssetInstaller(downloader, router);
 
                 var lastReport = 0;
                 var assetProgress = new Progress<AssetProgress>(p =>
@@ -197,6 +228,19 @@ internal static class Program
 
         // 5) natives 目录（1.20.1 不需要解压，但 -Djava.library.path 必须指向存在的目录）
         Directory.CreateDirectory(paths.NativesDir(versionId));
+
+        Section("下载源");
+        Info($"镜像 {mirrorHits} 个 / 官方 {officialHits} 个   （首选：{DescribeSource(router.Settings.Source)}）");
+
+        if (fallbacks.Count > 0)
+        {
+            Section($"回退记录（{fallbacks.Count} 个）");
+            foreach (var fallback in fallbacks.Take(15)) Dim(fallback);
+            if (fallbacks.Count > 15) Dim($"…还有 {fallbacks.Count - 15} 条");
+        }
+
+        if (router.Settings.Source == DownloadSource.Bmclapi && mirrorHits == 0)
+            Warn("首选镜像但没有文件走镜像 —— 检查镜像连通性，或用 npmc mirror test 对比");
 
         Success("安装完成");
         return 0;
@@ -288,9 +332,10 @@ internal static class Program
 
         using var http = HttpFileDownloader.CreateClient();
         var downloader = new HttpFileDownloader(http);
-        var source = new VersionManifestSource(downloader.GetStringAsync);
+        var router = CreateRouter(args);
+        var source = CreateSource(router, downloader);
 
-        var version = await LoadVersionAsync(source, downloader, paths, versionId);
+        var version = await LoadVersionAsync(source, downloader, paths, versionId, router);
         var os = OsInfo.Windows64();
         var logConfig = version.Logging?.Client?.File is { } f ? paths.LogConfigFile(f.Id) : null;
         var settings = instance?.Settings ?? new InstanceSettings();
@@ -901,15 +946,59 @@ internal static class Program
 
     // -------------------------------------------------------------- helpers
 
+    /// <summary>由 --source 参数构造镜像路由器（默认官方优先，镜像作为回退）。</summary>
+    private static MirrorRouter CreateRouter(string[] args) => new(new MirrorSettings
+    {
+        Source = string.Equals(Opt(args, "--source"), "bmclapi", StringComparison.OrdinalIgnoreCase)
+            ? DownloadSource.Bmclapi
+            : DownloadSource.Official,
+    });
+
+    /// <summary>按资源类别自动选源的文本抓取器：逐个候选尝试，全部失败才抛。</summary>
+    private static VersionManifestSource CreateSource(MirrorRouter router, HttpFileDownloader downloader)
+    {
+        Func<string, ResourceKind, CancellationToken, Task<string>> fetch = async (url, kind, ct) =>
+        {
+            Exception? last = null;
+
+            foreach (var target in router.Resolve(url, kind))
+            {
+                try
+                {
+                    return await downloader.GetStringAsync(target.Url, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    last = ex;
+                }
+            }
+
+            throw last ?? new InvalidOperationException($"无法获取 {url}");
+        };
+
+        return new VersionManifestSource(fetch);
+    }
+
+    /// <summary>把官方 URL 展开成候选地址列表。</summary>
+    private static IReadOnlyList<string> Candidates(MirrorRouter router, string url, ResourceKind kind)
+        => router.Resolve(url, kind).Select(target => target.Url).ToList();
+
+    /// <summary>判断某个成功地址是不是镜像入口。</summary>
+    private static bool IsMirrorUrl(MirrorRouter router, string url)
+        => url.StartsWith(router.Settings.BmclapiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+
     private static async Task<Core.Models.VersionJson> LoadVersionAsync(
-        VersionManifestSource source, HttpFileDownloader downloader, LauncherPaths paths, string versionId)
+        VersionManifestSource source, HttpFileDownloader downloader, LauncherPaths paths,
+        string versionId, MirrorRouter router)
     {
         var manifest = await source.GetManifestAsync();
         var entry = manifest.Find(versionId)
                     ?? throw new InvalidOperationException($"版本清单里没有 {versionId}");
 
         var jsonPath = paths.VersionJson(versionId);
-        await downloader.EnsureAsync(entry.Url, jsonPath, entry.Sha1);
+        await downloader.EnsureFromAsync(
+            Candidates(router, entry.Url, ResourceKind.VersionMetadata), jsonPath, entry.Sha1);
+
         return Core.Models.VersionJsonSerializer.Parse(await File.ReadAllTextAsync(jsonPath));
     }
 
@@ -999,7 +1088,7 @@ internal static class Program
             用法:
               npmc probe   <版本>    [--root <目录>] [--memory <MB>]
                                      只组装参数并打印，不下载大文件、不启动游戏
-              npmc install <版本>    [--root <目录>] [--with-assets]
+              npmc install <版本>    [--root <目录>] [--with-assets] [--source official|bmclapi]
                                      下载 client jar / libraries / log4j 配置 / assetIndex
               npmc runtime <组件名>  [--root <目录>] [--platform windows-x64] [--concurrency 12]
                                      安装 Mojang 官方 Java 运行时到 <root>\runtime\<组件名>\

@@ -182,6 +182,11 @@ BMCLAPI 拓扑（实测）：
 2. **`client.jar` 必须直连官方**：镜像只是把它 302 回 `piston-data`，反而多一跳。
 3. **Range 支持因节点而异**：实测有节点对同名请求返回 `200` 而非 `206` →
    断点续传必须能容忍"服务端不支持 Range，退回整包重下"。
+4. **镜像节点偶发 TLS 握手失败**：全新安装 1.20.1 时，66 个可镜像文件里有 **4～7 个
+   （约 6%～11%）** 首次请求报 `The SSL connection could not be established`。
+   同一文件重试或退回官方即可成功。**没有候选回退的镜像实现会随机装坏** ——
+   这也是 `HttpFileDownloader.EnsureFromAsync` 存在的直接原因；
+   `npmc install` 会打印"镜像 N / 官方 M"和逐条回退记录。
 4. **代理环境会干扰判断**：本机挂 TUN 时 DNS 会返回 `198.18.0.0/15` 的 fake-IP，
    但这**只说明 TUN 接管了 DNS**，不代表流量走代理 —— DIRECT 规则下 DNS 依然返回假地址
    （`fake-ip-filter` 才影响 DNS 答案，规则只影响走向）。
