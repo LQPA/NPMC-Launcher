@@ -1,17 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Avalonia 前端。首次 restore 需要联网拉 Avalonia / CommunityToolkit.Mvvm。 -->
+  <!-- Avalonia 前端。首次 restore 需要联网拉 Avalonia 包。 -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <OutputType>WinExe</OutputType>
+
+    <!-- 绑定写在 XAML 里、编译期检查：写错属性名会直接编译失败，而不是运行期静默不生效 -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\NPMC.Launcher.Core\NPMC.Launcher.Core.csproj" />
     <ProjectReference Include="..\NPMC.Launcher.Infrastructure\NPMC.Launcher.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.2" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,42 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPMC.Launcher.App.MainWindow"
+        Title="NPMC Launcher"
+        Width="920" Height="620"
+        MinWidth="720" MinHeight="480"
+        WindowStartupLocation="CenterScreen"
+        Background="#1B1D23">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="28">
+
+    <StackPanel Grid.Row="0" Spacing="6">
+      <TextBlock Text="NPMC Launcher"
+                 FontSize="30" FontWeight="SemiBold" Foreground="#F2F3F5" />
+      <TextBlock x:Name="SubtitleBlock"
+                 FontSize="13" Foreground="#8A8F98" />
+    </StackPanel>
+
+    <Border Grid.Row="1" Margin="0,22,0,0"
+            Background="#23262E" CornerRadius="10"
+            BorderBrush="#31353F" BorderThickness="1"
+            Padding="24">
+      <StackPanel Spacing="10" VerticalAlignment="Center">
+        <TextBlock Text="界面骨架已接通"
+                   FontSize="18" FontWeight="SemiBold" Foreground="#E8EAED" />
+        <TextBlock TextWrapping="Wrap" Foreground="#9AA0A8" FontSize="13"
+                   Text="这是第二阶段之前的验证窗口：确认 Avalonia 能启动、主题与字体正常、程序集能读到启动器目录。下一步会把左侧导航、实例列表和右侧详情接上来。" />
+
+        <Border Background="#1B1D23" CornerRadius="8" Padding="16,12" Margin="0,8,0,0">
+          <StackPanel Spacing="6">
+            <TextBlock Text="当前环境" FontSize="12" Foreground="#6E747E" />
+            <TextBlock x:Name="RootBlock" FontSize="13" Foreground="#C9CDD3" TextWrapping="Wrap" />
+            <TextBlock x:Name="RuntimeBlock" FontSize="13" Foreground="#C9CDD3" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Border>
+
+    <TextBlock Grid.Row="2" Margin="0,16,0,0" FontSize="12" Foreground="#5C616B"
+               Text="命令行工具仍然可用：npmc doctor / mirror test / net selftest / install / launch" />
+  </Grid>
+</Window>

@@ -8,6 +8,9 @@
 # 若写成 "instances/" 会同时匹配 src/NPMC.Launcher.Core/Instances/，
 # 把源码目录静默忽略掉；"runtime/" 也会误伤 src/.../Runtime/。
 /.data/
+# 早期用 --root .\data 试跑留下的安装（与 .data 内容重复）。
+# 注意：这个目录曾经因为只写了 /.data/ 而漏网，被误提交过一次 —— 见 9054dd4 的重写记录。
+/data/
 /runtime/
 /libraries/
 /versions/
