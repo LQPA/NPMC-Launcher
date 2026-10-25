@@ -137,6 +137,29 @@ internal static class InstanceDump
             }
         }
 
+        // 验证"搜索 → 依赖计划"链路（联网，但不下载）
+        if (args.Any(arg => string.Equals(arg, "--exercise-search", StringComparison.OrdinalIgnoreCase)))
+        {
+            viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
+            viewModel.SearchForDiagnosticsAsync("sodium").GetAwaiter().GetResult();
+
+            lines.Add("");
+            lines.Add($"[搜索] 结果 {viewModel.SearchResults.Count} 个 —— {viewModel.SearchSummaryText}");
+            foreach (var hit in viewModel.SearchResults)
+                lines.Add($"    {hit.Title,-30} {hit.MetaText}");
+
+            if (viewModel.SearchResults.FirstOrDefault() is { } topHit)
+            {
+                viewModel.PrepareInstallForDiagnosticsAsync(topHit).GetAwaiter().GetResult();
+
+                lines.Add($"[计划] 可见={viewModel.IsPlanVisible} 共 {viewModel.PlanLines.Count} 行");
+                foreach (var line in viewModel.PlanLines)
+                    lines.Add($"    {line.Label,-14} {line.Detail}");
+
+                lines.Add($"    status = {viewModel.Status}");
+            }
+        }
+
         File.WriteAllLines(outputPath, lines);
         return true;
     }

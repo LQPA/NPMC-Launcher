@@ -184,14 +184,84 @@
         </ScrollViewer>
 
         <!-- 内容列表 -->
-        <Grid Grid.Row="2" Margin="0,14,0,0" IsVisible="{Binding ShowContentList}">
+        <Grid Grid.Row="2" Margin="0,14,0,0" RowDefinitions="Auto,*"
+              IsVisible="{Binding ShowContentList}">
+
+          <!--
+            搜索安装面板：只在模组页签出现。
+            两步走 —— 先搜索、点「安装」解析出依赖计划，确认后才下载。
+            直接把下载按钮做在搜索结果上会让用户不知道会额外装什么（Fabric API 之类）。
+          -->
+          <Border Grid.Row="0" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                  CornerRadius="8" Padding="10" Margin="0,0,0,10"
+                  IsVisible="{Binding IsModsTab}">
+            <StackPanel Spacing="8">
+
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Grid.Column="0" Text="{Binding SearchQuery}"
+                         Watermark="搜索 Modrinth 上的模组（按回车或点搜索）" FontSize="12" />
+                <Button Grid.Column="1" Content="{Binding SearchButtonText}"
+                        Command="{Binding SearchCommand}" Margin="8,0,0,0" FontSize="12" />
+              </Grid>
+
+              <TextBlock Text="{Binding SearchSummaryText}" FontSize="11" Foreground="#949CA9"
+                         IsVisible="{Binding HasSearchSummary}" TextWrapping="Wrap" />
+
+              <ScrollViewer MaxHeight="150" IsVisible="{Binding HasSearchResults}">
+                <ItemsControl ItemsSource="{Binding SearchResults}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ModSearchResultItem">
+                      <Grid ColumnDefinitions="*,Auto" Margin="0,3">
+                        <StackPanel Spacing="1">
+                          <TextBlock Text="{Binding Title}" FontSize="12" Foreground="#E8EAED" />
+                          <TextBlock Text="{Binding MetaText}" FontSize="10" Foreground="#6E7684"
+                                     TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="安装" Command="{Binding InstallCommand}"
+                                FontSize="11" Padding="10,3" VerticalAlignment="Center"
+                                Margin="8,0,0,0" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+
+              <!-- 依赖计划确认 -->
+              <Border Background="#1B1D23" CornerRadius="6" Padding="8"
+                      IsVisible="{Binding IsPlanVisible}">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="将安装以下文件" FontSize="11" Foreground="#B4BCC8" />
+
+                  <ItemsControl ItemsSource="{Binding PlanLines}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:InstallPlanLineItem">
+                        <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                          <TextBlock Text="{Binding Label}" FontSize="11"
+                                     Foreground="{Binding LabelColor}" Width="88" />
+                          <TextBlock Grid.Column="1" Text="{Binding Detail}" FontSize="11"
+                                     Foreground="#949CA9" TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="{Binding InstallButtonText}" Command="{Binding ConfirmInstallCommand}"
+                            FontSize="11" Padding="10,3" />
+                    <Button Content="取消" Command="{Binding CancelPlanCommand}"
+                            FontSize="11" Padding="10,3" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </Border>
 
           <!--
             这里用 ItemsControl 而不是 ListBox：内容行不需要"选中"这个概念
             （每行自己带按钮），而 ListBox 的选中态会给行铺一层蓝色，
             把次要文字压得看不清。去掉选中态也就顺便消掉了这一类高亮问题。
           -->
-          <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+          <Border Grid.Row="1" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="8"
                   IsVisible="{Binding !IsContentEmpty}">
             <ScrollViewer>
@@ -263,7 +333,7 @@
             </ScrollViewer>
           </Border>
 
-          <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+          <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
                       Spacing="8" Margin="24" IsVisible="{Binding IsContentEmpty}">
             <TextBlock Text="{Binding ContentEmptyHint}" FontSize="12" Foreground="#949CA9"
                        TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" LineHeight="19" />

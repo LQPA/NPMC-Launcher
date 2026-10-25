@@ -27,6 +27,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly HttpClient _http = HttpFileDownloader.CreateClient();
     private readonly HttpFileDownloader _downloader;
     private readonly ModsUpdateService _updateService;
+    private readonly ModrinthClient _modrinth;
+    private readonly ModInstaller _installer;
 
     private InstanceListItem? _selectedInstance;
     private ContentTabItem _selectedTab;
@@ -54,6 +56,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
         _downloader = new HttpFileDownloader(_http);
         _updateService = new ModsUpdateService(_http);
+        _modrinth = new ModrinthClient(_http);
+        _installer = ModInstaller.Create(_http);
 
         RefreshCommand = new AsyncRelayCommand(LoadAsync, onError: ex => Status = $"刷新失败：{ex.Message}");
 
@@ -72,6 +76,10 @@ public sealed class MainWindowViewModel : ObservableObject
         EnableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: true), () => CanBulk);
 
         CheckUpdatesCommand = new AsyncRelayCommand(CheckModUpdatesAsync, () => CanCheckUpdates);
+
+        SearchCommand = new AsyncRelayCommand(SearchModsAsync, () => CanSearch);
+        ConfirmInstallCommand = new AsyncRelayCommand(ConfirmInstallAsync, () => CanConfirmInstall);
+        CancelPlanCommand = new RelayCommand(CancelPlan);
 
         RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
 
@@ -904,6 +912,217 @@ public sealed class MainWindowViewModel : ObservableObject
             // 文件集合变了（新增一个新版本、移走一个旧版本），整表刷新
             await RefreshContentAsync();
         }
+    }
+
+    // ---- 搜索与安装 ----
+
+    private string _searchQuery = "";
+    private string _searchSummaryText = "";
+    private bool _isSearching;
+    private bool _isPlanVisible;
+    private bool _isInstalling;
+    private InstallPlan? _pendingPlan;
+
+    public ObservableCollection<ModSearchResultItem> SearchResults { get; } = new();
+    public ObservableCollection<InstallPlanLineItem> PlanLines { get; } = new();
+
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            if (!SetProperty(ref _searchQuery, value)) return;
+            (SearchCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string SearchSummaryText
+    {
+        get => _searchSummaryText;
+        private set
+        {
+            if (!SetProperty(ref _searchSummaryText, value)) return;
+            OnPropertyChanged(nameof(HasSearchSummary));
+        }
+    }
+
+    public bool HasSearchSummary => _searchSummaryText.Length > 0;
+
+    public bool HasSearchResults => SearchResults.Count > 0;
+
+    public bool IsSearching
+    {
+        get => _isSearching;
+        private set
+        {
+            if (!SetProperty(ref _isSearching, value)) return;
+            OnPropertyChanged(nameof(SearchButtonText));
+            (SearchCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string SearchButtonText => _isSearching ? "搜索中…" : "搜索";
+
+    public bool IsPlanVisible
+    {
+        get => _isPlanVisible;
+        private set => SetProperty(ref _isPlanVisible, value);
+    }
+
+    public bool IsInstalling
+    {
+        get => _isInstalling;
+        private set
+        {
+            if (!SetProperty(ref _isInstalling, value)) return;
+            OnPropertyChanged(nameof(InstallButtonText));
+            (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string InstallButtonText => _isInstalling ? "安装中…" : "确认安装";
+
+    public ICommand SearchCommand { get; }
+    public ICommand ConfirmInstallCommand { get; }
+    public ICommand CancelPlanCommand { get; }
+
+    private bool CanSearch => !IsSearching && SelectedInstance is not null && _searchQuery.Trim().Length > 0;
+
+    private bool CanConfirmInstall => !IsInstalling && _pendingPlan is not null;
+
+    /// <summary>在 Modrinth 搜索模组，按当前实例的游戏版本与加载器过滤。</summary>
+    private async Task SearchModsAsync()
+    {
+        if (SelectedInstance is not { } instance) return;
+
+        var query = _searchQuery.Trim();
+        if (query.Length == 0) return;
+
+        IsSearching = true;
+        try
+        {
+            var loaders = await DetectLoadersAsync(instance);
+
+            Status = $"正在搜索「{query}」…";
+            var hits = await _modrinth.SearchAsync(query, instance.VersionId, loaders, limit: 8);
+
+            SearchResults.Clear();
+            foreach (var hit in hits)
+                SearchResults.Add(new ModSearchResultItem(hit, BeginInstallAsync));
+
+            OnPropertyChanged(nameof(HasSearchResults));
+
+            SearchSummaryText = hits.Count == 0
+                ? $"没有找到适用于 {instance.VersionId} 的模组"
+                : $"找到 {hits.Count} 个（已按 {instance.VersionId}"
+                  + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + " 过滤）";
+
+            Status = SearchSummaryText;
+        }
+        catch (Exception ex)
+        {
+            SearchSummaryText = $"搜索失败：{ex.GetBaseException().Message}";
+            Status = SearchSummaryText;
+            LauncherLog.Write(_launcher.Root, $"搜索失败 {query} → {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            IsSearching = false;
+        }
+    }
+
+    /// <summary>解析依赖并展示安装计划，等用户确认后才真正下载。</summary>
+    private async Task BeginInstallAsync(ModSearchResultItem item)
+    {
+        if (SelectedInstance is not { } instance) return;
+
+        try
+        {
+            Status = $"正在解析 {item.Title} 的依赖…";
+            var loaders = await DetectLoadersAsync(instance);
+
+            var plan = await _installer.ResolveAsync(item.Slug, instance.VersionId, loaders);
+
+            _pendingPlan = plan;
+
+            PlanLines.Clear();
+            foreach (var target in plan.Main) PlanLines.Add(new InstallPlanLineItem(target));
+            foreach (var target in plan.Dependencies) PlanLines.Add(new InstallPlanLineItem(target));
+
+            IsPlanVisible = true;
+            (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+
+            Status = $"待确认：{item.Title} 共 {plan.Targets.Count} 个文件";
+        }
+        catch (Exception ex)
+        {
+            Status = $"解析失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"解析安装计划失败 {item.Slug} → {ex.GetBaseException().Message}");
+        }
+    }
+
+    private async Task ConfirmInstallAsync()
+    {
+        if (_pendingPlan is not { } plan || SelectedInstance is not { } instance) return;
+
+        IsInstalling = true;
+        try
+        {
+            Status = "正在下载…";
+            var outcome = await _installer.InstallAsync(plan, instance.ModsDirectory);
+
+            Status = $"安装完成：新增 {outcome.Installed.Count} 个，跳过 {outcome.Skipped.Count} 个"
+                   + (outcome.Failed.Count > 0 ? $"，失败 {outcome.Failed.Count} 个" : "");
+
+            LauncherLog.Write(_launcher.Root,
+                $"安装 {string.Join(",", plan.Targets.Select(target => target.FileName))}"
+                + $" → 新增 {outcome.Installed.Count}，跳过 {outcome.Skipped.Count}，失败 {outcome.Failed.Count}");
+
+            IsPlanVisible = false;
+            _pendingPlan = null;
+            PlanLines.Clear();
+            SearchResults.Clear();
+            OnPropertyChanged(nameof(HasSearchResults));
+            SearchSummaryText = "";
+
+            await RefreshContentAsync();
+            await RefreshCountsAsync(instance);
+        }
+        catch (Exception ex)
+        {
+            Status = $"安装失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"安装失败 → {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            IsInstalling = false;
+        }
+    }
+
+    private void CancelPlan()
+    {
+        _pendingPlan = null;
+        PlanLines.Clear();
+        IsPlanVisible = false;
+        (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        Status = "已取消安装";
+    }
+
+    /// <summary>供诊断用：直接触发一次搜索并等待完成。</summary>
+    public Task SearchForDiagnosticsAsync(string query)
+    {
+        SearchQuery = query;
+        return SearchModsAsync();
+    }
+
+    /// <summary>供诊断用：解析某个搜索结果的依赖计划（不下载）。</summary>
+    public Task PrepareInstallForDiagnosticsAsync(ModSearchResultItem item) => BeginInstallAsync(item);
+
+    /// <summary>从已安装的版本 JSON 推断加载器；判断不出来时返回空（不按加载器过滤）。</summary>
+    private async Task<IReadOnlyList<string>> DetectLoadersAsync(InstanceListItem instance)
+    {
+        var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
+        return version is null ? Array.Empty<string>() : LoaderDetector.Detect(version);
     }
 
     // ---- 打开目录 ----
