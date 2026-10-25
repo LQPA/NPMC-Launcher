@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using NPMC.Launcher.Core.Abstractions;
@@ -17,16 +16,7 @@ namespace NPMC.Launcher.Infrastructure.Storage;
 /// </summary>
 public sealed class JsonInstanceStore : IInstanceStore
 {
-    private static readonly JsonSerializerOptions Options = new()
-    {
-        WriteIndented = true,
-        PropertyNameCaseInsensitive = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() },
-
-        // 默认编码器会把中文转成 \uXXXX，那样"单文件可手改"就失去意义了
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    private static readonly JsonSerializerOptions Options = JsonConfig.Options;
 
     private readonly string _filePath;
 

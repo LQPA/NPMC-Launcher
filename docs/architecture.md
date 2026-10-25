@@ -428,13 +428,14 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 ## 13. 下一步
 
 **已完成**：M0 参数链与启动（实际进世界并正常存档）、内置 Java 运行时（可整体迁移）、
-3598 个资源对象并发下载、xunit 回归测试（98 用例）、实例管理与三级隔离、
-镜像路由与连通性自测（`MirrorRouter` / `MirrorProbe` / `npmc doctor`）。
+3598 个资源对象并发下载、实例管理与三级隔离、镜像路由与候选回退（`install` / `probe` / `launch`
+已全部走 `MirrorRouter`，含同候选重试）、全局设置持久化（`settings.json`）、运行时源自测
+（`npmc net selftest`）、环境诊断（`npmc doctor`）；xunit 回归测试 112 用例。
 
 待做，按依赖顺序：
 
-1. 把 `MirrorRouter` 接进下载流程（`install` / `probe` / `runtime` 目前仍直连官方）
-2. 全局设置持久化（下载源、默认内存、代理）
-3. 接入 Avalonia（需联网 restore）与 MVVM 骨架
-4. 正版登录：等 `aka.ms/AppRegInfo` 审批，通过后接 `MicrosoftAuthProvider`
-5. Modrinth 搜索与依赖解析
+1. 接入 Avalonia（需联网 restore）与 MVVM 骨架
+2. 正版登录：等 `aka.ms/AppRegInfo` 审批，通过后接 `MicrosoftAuthProvider`
+3. Modrinth 搜索与依赖解析
+4. 运行时文件（JRE）镜像化 —— 实测该路径一律 302 回官方 `piston-data`，收益为零，暂不接
+5. 大文件分片并发下载（client.jar 22 MB 目前是单连接）

@@ -5,6 +5,7 @@ using NPMC.Launcher.Core.Launch;
 using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
+using NPMC.Launcher.Core.Settings;
 using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Minecraft;
@@ -36,6 +37,8 @@ internal static class Program
                 "instance" => await InstanceAsync(args[1..]),
                 "mirror"   => await MirrorAsync(args[1..]),
                 "doctor"   => await DoctorAsync(args[1..]),
+                "settings" => await SettingsAsync(args[1..]),
+                "net"      => await NetAsync(args[1..]),
                 _          => Unknown(args[0]),
             };
         }
@@ -56,7 +59,8 @@ internal static class Program
 
         using var http = HttpFileDownloader.CreateClient();
         var downloader = new HttpFileDownloader(http);
-        var router = CreateRouter(args);
+        var launcherSettings = await LoadSettingsAsync(paths);
+        var router = CreateRouter(args, launcherSettings);
         var source = CreateSource(router, downloader);
 
         var version = await LoadVersionAsync(source, downloader, paths, versionId, router);
@@ -64,7 +68,7 @@ internal static class Program
         var context = LaunchContext.OfflineProbe();
         var os = OsInfo.Windows64();
         var plan = LaunchPlanFactory.Create(paths, versionId, version, context, os,
-            memoryMb: OptInt(args, "--memory", 4096),
+            memoryMb: OptInt(args, "--memory", launcherSettings.DefaultMemoryMb),
             hasCustomResolution: true,
             logConfigFile: version.Logging?.Client?.File is { } f ? paths.LogConfigFile(f.Id) : null);
 
@@ -111,7 +115,8 @@ internal static class Program
 
         using var http = HttpFileDownloader.CreateClient();
         var downloader = new HttpFileDownloader(http);
-        var router = CreateRouter(args);
+        var launcherSettings = await LoadSettingsAsync(paths);
+        var router = CreateRouter(args, launcherSettings);
         var source = CreateSource(router, downloader);
 
         var version = await LoadVersionAsync(source, downloader, paths, versionId, router);
@@ -204,7 +209,7 @@ internal static class Program
                 });
 
                 var assetResult = await assetInstaller.InstallAsync(
-                    paths, index.Id, concurrency: 16, progress: assetProgress);
+                    paths, index.Id, concurrency: launcherSettings.DownloadConcurrency, progress: assetProgress);
 
                 Info($"对象       {assetResult.Total} 个");
                 Info($"新下载     {assetResult.Downloaded} 个 / {assetResult.BytesDownloaded / 1024d / 1024d:N1} MB");
@@ -332,7 +337,8 @@ internal static class Program
 
         using var http = HttpFileDownloader.CreateClient();
         var downloader = new HttpFileDownloader(http);
-        var router = CreateRouter(args);
+        var launcherSettings = await LoadSettingsAsync(paths);
+        var router = CreateRouter(args, launcherSettings);
         var source = CreateSource(router, downloader);
 
         var version = await LoadVersionAsync(source, downloader, paths, versionId, router);
@@ -347,7 +353,7 @@ internal static class Program
         };
 
         var plan = LaunchPlanFactory.Create(paths, versionId, version, context, os,
-            memoryMb: OptInt(args, "--memory", settings.MemoryMb),
+            memoryMb: OptInt(args, "--memory", instance?.Settings.MemoryMb ?? launcherSettings.DefaultMemoryMb),
             hasCustomResolution: true,
             logConfigFile: logConfig,
             gameDirectory: layout?.GameDirectory);
@@ -944,15 +950,249 @@ internal static class Program
         }
     }
 
+    // --------------------------------------------------------------- net
+
+    /// <summary>
+    /// 实测官方源与镜像源当前谁更快，并把结论写进 settings.json。
+    ///
+    /// 为什么不写死"国内用镜像"：实测同一台机器在 TUN 开关、不同代理规则下，
+    /// 两个源的相对快慢会翻转。让程序自己测一次，比在代码里猜地区可靠。
+    /// </summary>
+    private static async Task<int> NetAsync(string[] args)
+    {
+        if (args.Length == 0 || args[0] != "selftest")
+        {
+            Error("用法: npmc net selftest [--version 1.20.1] [--samples 3] [--dry-run]");
+            return 1;
+        }
+
+        var rest = args[1..];
+        var versionId = Opt(rest, "--version") ?? "1.20.1";
+        var samples = Math.Clamp(OptInt(rest, "--samples", 3), 1, 10);
+        var dryRun = Has(rest, "--dry-run");
+
+        var paths = new LauncherPaths(ResolveRoot(rest));
+        var settings = await LoadSettingsAsync(paths);
+
+        using var http = HttpFileDownloader.CreateClient();
+        var downloader = new HttpFileDownloader(http);
+        var probe = new MirrorProbe();
+
+        Section("下载源自测");
+
+        // 拿真实 URL 来测：清单（小文件、元数据）+ 一个库（批量下载的代表）
+        var resources = new List<(ResourceKind Kind, string Url, string Label)>
+        {
+            (ResourceKind.VersionManifest, VersionManifestSource.OfficialManifestUrl, "版本清单"),
+        };
+
+        try
+        {
+            var source = new VersionManifestSource(downloader.GetStringAsync);
+            var manifest = await source.GetManifestAsync();
+            if (manifest.Find(versionId) is { } entry)
+            {
+                var version = await source.GetVersionJsonAsync(entry);
+                var library = version.Libraries.FirstOrDefault(lib => !string.IsNullOrEmpty(lib.Downloads?.Artifact?.Url));
+                if (library is not null)
+                    resources.Add((ResourceKind.Library, library.Downloads!.Artifact!.Url, "库（样本）"));
+            }
+            else
+            {
+                Warn($"清单里没有 {versionId}，只测版本清单");
+            }
+        }
+        catch (Exception ex)
+        {
+            Warn($"取样本失败（{ex.Message}），只测版本清单");
+        }
+
+        var totals = new Dictionary<DownloadSource, double>();
+        var failures = new Dictionary<DownloadSource, int>();
+
+        foreach (var source in new[] { DownloadSource.Official, DownloadSource.Bmclapi })
+        {
+            // 自测要拿到"纯单源"数据，所以关掉回退
+            var router = new MirrorRouter(settings.ToMirrorSettings() with { Source = source, AllowFallback = false });
+            var total = 0d;
+            var failed = 0;
+
+            foreach (var resource in resources)
+            {
+                var target = router.Resolve(resource.Url, resource.Kind).FirstOrDefault();
+                if (target is null)
+                {
+                    failed++;
+                    continue;
+                }
+
+                var best = double.MaxValue;
+                for (var i = 0; i < samples; i++)
+                {
+                    var result = await probe.ProbeAsync(target.Url, 512);
+                    if (result.Success) best = Math.Min(best, result.Elapsed.TotalMilliseconds);
+                }
+
+                if (best == double.MaxValue)
+                {
+                    failed++;
+                    Info($"{DescribeSource(source),-8} {resource.Label,-12} 失败");
+                }
+                else
+                {
+                    total += best;
+                    Info($"{DescribeSource(source),-8} {resource.Label,-12} {best,6:N0}ms");
+                }
+            }
+
+            totals[source] = total;
+            failures[source] = failed;
+        }
+
+        var officialTotal = totals[DownloadSource.Official];
+        var mirrorTotal = totals[DownloadSource.Bmclapi];
+
+        Section("结论");
+        Info($"官方合计 {officialTotal,6:N0}ms（失败 {failures[DownloadSource.Official]}）");
+        Info($"镜像合计 {mirrorTotal,6:N0}ms（失败 {failures[DownloadSource.Bmclapi]}）");
+
+        DownloadSource winner;
+        if (officialTotal <= 0 && mirrorTotal <= 0)
+        {
+            Error("两个源都不可用，请检查网络与代理设置");
+            return 1;
+        }
+
+        if (officialTotal <= 0) winner = DownloadSource.Bmclapi;
+        else if (mirrorTotal <= 0) winner = DownloadSource.Official;
+        else winner = mirrorTotal < officialTotal ? DownloadSource.Bmclapi : DownloadSource.Official;
+
+        Ok($"建议首选源：{DescribeSource(winner)}");
+
+        if (dryRun)
+        {
+            Dim("--dry-run：未写入设置");
+            return 0;
+        }
+
+        var store = new JsonSettingsStore(paths);
+        await store.SaveAsync(settings with { PreferredSource = winner });
+        Ok($"已写入 {store.FilePath}");
+        Dim("可用 npmc settings set source official|bmclapi 手动改回");
+
+        return 0;
+    }
+
+    // ------------------------------------------------------------ settings
+
+    private static async Task<int> SettingsAsync(string[] args)
+    {
+        var paths = new LauncherPaths(ResolveRoot(args));
+        var store = new JsonSettingsStore(paths);
+
+        if (args.Length == 0 || args[0] == "show")
+        {
+            var current = await LoadSettingsAsync(paths);
+
+            Section("全局设置");
+            Info($"首选下载源   {DescribeSource(current.PreferredSource)}");
+            Info($"镜像基地址   {current.BmclapiBaseUrl}");
+            Info($"允许回退     {YesNo(current.AllowSourceFallback)}");
+            Info($"默认内存     {current.DefaultMemoryMb} MB");
+            Info($"并发下载     {current.DownloadConcurrency}");
+            Info($"语言         {current.Language}");
+            Dim(store.FilePath);
+            return 0;
+        }
+
+        if (args[0] != "set" || args.Length < 3)
+        {
+            Error("用法: npmc settings show  |  npmc settings set <键> <值>");
+            Dim("键: source(official|bmclapi) / memory / concurrency / mirror / fallback(true|false)");
+            return 1;
+        }
+
+        var key = args[1].ToLowerInvariant();
+        var value = args[2];
+        var settings = await LoadSettingsAsync(paths);
+
+        switch (key)
+        {
+            case "source":
+                settings = settings with
+                {
+                    PreferredSource = string.Equals(value, "bmclapi", StringComparison.OrdinalIgnoreCase)
+                        ? DownloadSource.Bmclapi
+                        : DownloadSource.Official,
+                };
+                break;
+
+            case "memory":
+                if (!int.TryParse(value, out var memory) || memory < 512)
+                {
+                    Error("内存必须是 >= 512 的整数（MB）");
+                    return 1;
+                }
+                settings = settings with { DefaultMemoryMb = memory };
+                break;
+
+            case "concurrency":
+                if (!int.TryParse(value, out var concurrency) || concurrency is < 1 or > 64)
+                {
+                    Error("并发数必须在 1~64 之间");
+                    return 1;
+                }
+                settings = settings with { DownloadConcurrency = concurrency };
+                break;
+
+            case "mirror":
+                settings = settings with { BmclapiBaseUrl = value.TrimEnd('/') };
+                break;
+
+            case "fallback":
+                settings = settings with
+                {
+                    AllowSourceFallback = string.Equals(value, "true", StringComparison.OrdinalIgnoreCase),
+                };
+                break;
+
+            default:
+                Error($"未知的键：{key}");
+                return 1;
+        }
+
+        await store.SaveAsync(settings);
+        Ok($"已写入 {store.FilePath}");
+        return 0;
+    }
+
     // -------------------------------------------------------------- helpers
 
-    /// <summary>由 --source 参数构造镜像路由器（默认官方优先，镜像作为回退）。</summary>
-    private static MirrorRouter CreateRouter(string[] args) => new(new MirrorSettings
+    /// <summary>由 --source 参数或全局设置构造镜像路由器（默认官方优先，镜像作为回退）。</summary>
+    private static MirrorRouter CreateRouter(string[] args, LauncherSettings settings)
     {
-        Source = string.Equals(Opt(args, "--source"), "bmclapi", StringComparison.OrdinalIgnoreCase)
-            ? DownloadSource.Bmclapi
-            : DownloadSource.Official,
-    });
+        var sourceOption = Opt(args, "--source");
+        var source = sourceOption is null
+            ? settings.PreferredSource
+            : string.Equals(sourceOption, "bmclapi", StringComparison.OrdinalIgnoreCase)
+                ? DownloadSource.Bmclapi
+                : DownloadSource.Official;
+
+        return new MirrorRouter(settings.ToMirrorSettings() with { Source = source });
+    }
+
+    /// <summary>读全局设置；配置文件损坏时退回默认值，而不是让整个命令失败。</summary>
+    private static async Task<LauncherSettings> LoadSettingsAsync(LauncherPaths paths)
+    {
+        try
+        {
+            return await new JsonSettingsStore(paths).LoadAsync();
+        }
+        catch
+        {
+            return new LauncherSettings();
+        }
+    }
 
     /// <summary>按资源类别自动选源的文本抓取器：逐个候选尝试，全部失败才抛。</summary>
     private static VersionManifestSource CreateSource(MirrorRouter router, HttpFileDownloader downloader)
@@ -1112,6 +1352,17 @@ internal static class Program
               npmc doctor [--root <目录>]
                                                       检查进程权限、Java 运行时、代理/TUN、
                                                       下载源连通性、目录与实例状态，并列出自检建议
+
+            设置:
+              npmc settings show
+                                                      显示全局设置（settings.json）
+              npmc settings set <键> <值>
+                                                      键：source(official|bmclapi) / memory / concurrency /
+                                                      mirror / fallback(true|false)
+
+            网络:
+              npmc net selftest [--version 1.20.1] [--samples 3] [--dry-run]
+                                                      实测官方与镜像当前谁更快，结论写入 settings.json
 
             示例:
               npmc probe   1.20.1 --root .\data

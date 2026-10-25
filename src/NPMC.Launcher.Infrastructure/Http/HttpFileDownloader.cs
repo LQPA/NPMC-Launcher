@@ -70,29 +70,31 @@ public sealed class HttpFileDownloader
 
         foreach (var url in candidateUrls)
         {
-            try
+            for (var attempt = 1; attempt <= MaxAttemptsPerCandidate; attempt++)
             {
-                await using (var source = await _http.GetStreamAsync(url, ct).ConfigureAwait(false))
-                await using (var target = File.Create(tempPath))
+                try
                 {
-                    await source.CopyToAsync(target, ct).ConfigureAwait(false);
+                    await DownloadOnceAsync(url, destPath, tempPath, sha1, ct).ConfigureAwait(false);
+                    return new DownloadOutcome(true, url, attempts);
                 }
+                catch (OperationCanceledException)
+                {
+                    TryDelete(tempPath);
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    TryDelete(tempPath);
 
-                if (!string.IsNullOrEmpty(sha1) && !await MatchesSha1Async(tempPath, sha1, ct).ConfigureAwait(false))
-                    throw new InvalidDataException("SHA1 校验失败");
+                    if (attempt >= MaxAttemptsPerCandidate || IsPermanentFailure(ex))
+                    {
+                        var label = attempt > 1 ? $"{ex.Message}（同一地址试了 {attempt} 次）" : ex.Message;
+                        attempts.Add(new DownloadAttempt(url, label));
+                        break;
+                    }
 
-                File.Move(tempPath, destPath, overwrite: true);
-                return new DownloadOutcome(true, url, attempts);
-            }
-            catch (OperationCanceledException)
-            {
-                TryDelete(tempPath);
-                throw;
-            }
-            catch (Exception ex)
-            {
-                attempts.Add(new DownloadAttempt(url, ex.Message));
-                TryDelete(tempPath);
+                    await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt), ct).ConfigureAwait(false);
+                }
             }
         }
 
@@ -102,6 +104,37 @@ public sealed class HttpFileDownloader
 
     public async Task<string> GetStringAsync(string url, CancellationToken ct = default) =>
         await _http.GetStringAsync(url, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// 每个候选地址最多尝试的次数。
+    /// 实测 BMCLAPI 的每次请求会随机分配分发节点，其中一部分节点 TLS 握手会失败，
+    /// 因此"同一个地址再试一次"往往就能成功 —— 这是把镜像成功率从约 90% 提到接近 100% 的关键。
+    /// </summary>
+    private const int MaxAttemptsPerCandidate = 2;
+
+    private async Task DownloadOnceAsync(
+        string url, string destPath, string tempPath, string? sha1, CancellationToken ct)
+    {
+        await using (var source = await _http.GetStreamAsync(url, ct).ConfigureAwait(false))
+        await using (var target = File.Create(tempPath))
+        {
+            await source.CopyToAsync(target, ct).ConfigureAwait(false);
+        }
+
+        if (!string.IsNullOrEmpty(sha1) && !await MatchesSha1Async(tempPath, sha1, ct).ConfigureAwait(false))
+            throw new InvalidDataException("SHA1 校验失败");
+
+        File.Move(tempPath, destPath, overwrite: true);
+    }
+
+    /// <summary>404 / 403 / 410 表示"这个地址就是没有"，重试无意义，直接换下一个候选。</summary>
+    private static bool IsPermanentFailure(Exception exception) =>
+        exception is HttpRequestException
+        {
+            StatusCode: HttpStatusCode.NotFound
+                or HttpStatusCode.Forbidden
+                or HttpStatusCode.Gone,
+        };
 
     private static async Task<bool> MatchesSha1Async(string path, string expected, CancellationToken ct)
     {
