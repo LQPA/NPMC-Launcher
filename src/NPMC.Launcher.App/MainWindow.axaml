@@ -197,12 +197,18 @@
                   IsVisible="{Binding IsModsTab}">
             <StackPanel Spacing="8">
 
-              <Grid ColumnDefinitions="*,Auto">
+              <Grid ColumnDefinitions="*,Auto,Auto">
                 <TextBox Grid.Column="0" Text="{Binding SearchQuery}"
                          Watermark="搜索 Modrinth 上的模组（按回车或点搜索）" FontSize="12" />
                 <Button Grid.Column="1" Content="{Binding SearchButtonText}"
                         Command="{Binding SearchCommand}" Margin="8,0,0,0" FontSize="12" />
+                <Button Grid.Column="2" Content="{Binding SearchPanelToggleText}"
+                        Command="{Binding ToggleSearchPanelCommand}"
+                        Margin="6,0,0,0" FontSize="12" Padding="8,4" />
               </Grid>
+
+              <!-- 收起后只留搜索框，把高度还给下面的内容列表 -->
+              <StackPanel Spacing="8" IsVisible="{Binding IsSearchPanelExpanded}">
 
               <TextBlock Text="{Binding SearchSummaryText}" FontSize="11" Foreground="#949CA9"
                          IsVisible="{Binding HasSearchSummary}" TextWrapping="Wrap" />
@@ -253,6 +259,8 @@
                   </StackPanel>
                 </StackPanel>
               </Border>
+
+              </StackPanel>
             </StackPanel>
           </Border>
 

@@ -80,6 +80,7 @@ public sealed class MainWindowViewModel : ObservableObject
         SearchCommand = new AsyncRelayCommand(SearchModsAsync, () => CanSearch);
         ConfirmInstallCommand = new AsyncRelayCommand(ConfirmInstallAsync, () => CanConfirmInstall);
         CancelPlanCommand = new RelayCommand(CancelPlan);
+        ToggleSearchPanelCommand = new RelayCommand(() => IsSearchPanelExpanded = !IsSearchPanelExpanded);
 
         RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
 
@@ -221,6 +222,9 @@ public sealed class MainWindowViewModel : ObservableObject
             RaiseFolderVisibilityChanged();
             RaiseCommandStates();
             UpdateLogTimer();
+
+            // 搜索结果绑定在"实例的游戏版本/加载器"上，换实例后它们已不成立
+            ResetSearchState();
 
             if (IsLogTab) _ = RefreshLogAsync();
             else _ = RefreshContentAsync();
@@ -969,6 +973,21 @@ public sealed class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref _isPlanVisible, value);
     }
 
+    private bool _isSearchPanelExpanded = true;
+
+    /// <summary>搜索面板是否展开。收起后只留搜索框，把高度还给内容列表。</summary>
+    public bool IsSearchPanelExpanded
+    {
+        get => _isSearchPanelExpanded;
+        private set
+        {
+            if (!SetProperty(ref _isSearchPanelExpanded, value)) return;
+            OnPropertyChanged(nameof(SearchPanelToggleText));
+        }
+    }
+
+    public string SearchPanelToggleText => _isSearchPanelExpanded ? "收起" : "展开";
+
     public bool IsInstalling
     {
         get => _isInstalling;
@@ -985,6 +1004,27 @@ public sealed class MainWindowViewModel : ObservableObject
     public ICommand SearchCommand { get; }
     public ICommand ConfirmInstallCommand { get; }
     public ICommand CancelPlanCommand { get; }
+    public ICommand ToggleSearchPanelCommand { get; }
+
+    /// <summary>
+    /// 清空搜索结果与待确认的安装计划。
+    ///
+    /// 只在**切换实例**时调用。同一个实例内切页签（模组 → 资源包 → 模组）不清，
+    /// 否则每次来回都要重搜一遍，很烦。
+    /// 查询词保留，方便直接再搜一次。
+    /// </summary>
+    private void ResetSearchState()
+    {
+        SearchResults.Clear();
+        OnPropertyChanged(nameof(HasSearchResults));
+
+        SearchSummaryText = "";
+
+        _pendingPlan = null;
+        PlanLines.Clear();
+        IsPlanVisible = false;
+        (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+    }
 
     private bool CanSearch => !IsSearching && SelectedInstance is not null && _searchQuery.Trim().Length > 0;
 
@@ -1011,6 +1051,9 @@ public sealed class MainWindowViewModel : ObservableObject
                 SearchResults.Add(new ModSearchResultItem(hit, BeginInstallAsync));
 
             OnPropertyChanged(nameof(HasSearchResults));
+
+            // 搜出结果就展开 —— 收起状态下搜完看不到东西会让人以为没搜到
+            IsSearchPanelExpanded = true;
 
             SearchSummaryText = hits.Count == 0
                 ? $"没有找到适用于 {instance.VersionId} 的模组"
@@ -1050,6 +1093,7 @@ public sealed class MainWindowViewModel : ObservableObject
             foreach (var target in plan.Dependencies) PlanLines.Add(new InstallPlanLineItem(target));
 
             IsPlanVisible = true;
+            IsSearchPanelExpanded = true;
             (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
             Status = $"待确认：{item.Title} 共 {plan.Targets.Count} 个文件";
