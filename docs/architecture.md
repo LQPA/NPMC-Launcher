@@ -444,3 +444,40 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 3. Modrinth 搜索与依赖解析
 4. 运行时文件（JRE）镜像化 —— 实测该路径一律 302 回官方 `piston-data`，收益为零，暂不接
 5. 大文件分片并发下载（client.jar 22 MB 目前是单连接）
+
+## 启动链路：已确认的问题与结论（2026-10-25）
+
+### 已修复
+
+| 问题 | 症状 | 结论 |
+|---|---|---|
+| classpath 只收 `downloads` 的库 | `找不到主类 …KnotClient` | Fabric/Quilt 的库只有 `name`（Maven 坐标）+ `url`，必须按坐标推路径；名字不是坐标时跳过，不能抛异常 |
+| client jar 放在 classpath 最前 | 同上（顺序影响 Fabric 定位游戏 jar） | 与官方启动器一致，放**最后** |
+| 子进程 stdout/stderr 被丢弃 | 只看得到"退出码 1" | 早期 JVM 失败不写 `latest.log`；现在落盘 `logs/nmpc-stdout.log` / `nmpc-stderr.log`，失败时显示尾部 |
+| 同一实例可被启动两次 | 第二个进程拿不到 `session.lock`，退出码 1 | 实例目录下 `.nmpc-running` 记录启动器 PID，启动前检查、退出时释放，残留锁按 PID 判活 |
+| Fabric 重映射留下半成品 `*.tmp` | 后续启动全部在同一处失败 | 启动前发现 `*.tmp` 就删掉整个 `.fabric/remappedJars`（可重建） |
+
+### 未解决：Fabric 重映射写不出缓存
+
+```
+java.lang.RuntimeException: error remapping game jars [versions\1.21.6\1.21.6.jar]
+Caused by: java.io.IOException: the jar file
+  instances\<实例>\.fabric\remappedJars\minecraft-<版本>-<loader>\client-intermediary.jar.tmp can't be written
+```
+
+落点固定是一个 **22 字节**的 tmp（空 zip 的结尾记录）。已排除：
+
+- 客户端 jar 损坏（28 MB，正常）与 intermediary / sponge-mixin 缺失（都在 `libraries/`）
+- classpath 缺库（已修）与顺序（两种顺序都试过）
+- `CreateNoWindow`、进程完整性级别（`.exe` 与 `dotnet …dll` 都失败）
+- 磁盘空间（498 GB）、目录可写性（同目录手动写 28 MB 成功）
+- 残留 tmp（每次启动前已清理）
+
+**可用的对照**：原版实例启动正常（进主菜单、stderr 空、日志正常写入）。
+
+**下一步建议**（按有效性排序）：
+
+1. 换一个游戏目录（例如把 `.data` 移到别的盘或新建实例）再试，确认是否与该目录相关。
+2. 检查 Windows Defender「受控文件夹访问」或第三方安全软件对 `.jar` 写入的拦截。
+3. 换 Fabric loader 版本（`0.20.1` → 其他）或游戏版本（`1.21.6` → `1.20.1`）验证是否与特定组合有关。
+4. 用 Procmon 观察 java 对该 tmp 的 `CreateFile` 返回值（最直接）。
