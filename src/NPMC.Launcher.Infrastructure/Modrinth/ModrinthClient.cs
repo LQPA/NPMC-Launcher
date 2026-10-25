@@ -191,6 +191,40 @@ public sealed class ModrinthClient
         return ParseVersion(document.RootElement);
     }
 
+    /// <summary>取项目详情（含正文）。搜索结果只有一行摘要，不够用来分辨同名模组。</summary>
+    public async Task<ModrinthProjectDetail?> GetProjectAsync(
+        string idOrSlug,
+        CancellationToken cancellationToken = default)
+    {
+        var json = await _http
+            .GetStringAsync($"{ApiBase}/project/{Uri.EscapeDataString(idOrSlug)}", cancellationToken)
+            .ConfigureAwait(false);
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+
+        if (root.ValueKind != JsonValueKind.Object) return null;
+
+        var id = GetString(root, "id");
+        if (string.IsNullOrWhiteSpace(id)) return null;
+
+        return new ModrinthProjectDetail(
+            id,
+            GetString(root, "slug") ?? "",
+            GetString(root, "title") ?? "",
+            GetString(root, "description") ?? "",
+            GetString(root, "body") ?? "",
+            GetString(root, "icon_url") ?? "",
+            GetLong(root, "downloads"),
+            GetString(root, "project_type") ?? "mod",
+            GetStringArray(root, "categories"),
+            GetStringArray(root, "game_versions"),
+            GetStringArray(root, "loaders"),
+            GetString(root, "source_url") ?? "",
+            GetString(root, "issues_url") ?? "",
+            ParseDate(GetString(root, "updated")));
+    }
+
     private static ModrinthVersion? ParseVersion(JsonElement element)
     {
         if (element.ValueKind != JsonValueKind.Object) return null;

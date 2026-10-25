@@ -4,7 +4,7 @@
         x:Class="NPMC.Launcher.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="NPMC Launcher"
-        Width="1080" Height="680"
+        Width="1280" Height="720"
         MinWidth="880" MinHeight="520"
         WindowStartupLocation="CenterScreen"
         Background="#1B1D23">
@@ -238,34 +238,55 @@
               <TextBlock Text="{Binding SearchSummaryText}" FontSize="11" Foreground="#949CA9"
                          IsVisible="{Binding HasSearchSummary}" TextWrapping="Wrap" />
 
-              <ScrollViewer MaxHeight="150" IsVisible="{Binding HasSearchResults}">
-                <ItemsControl ItemsSource="{Binding SearchResults}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:ModSearchResultItem">
-                      <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,3">
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="10" IsVisible="{Binding HasSearchResults}">
+                <ScrollViewer Grid.Column="0" MaxHeight="190">
+                  <ListBox ItemsSource="{Binding SearchResults}"
+                           SelectedItem="{Binding SelectedSearchResult, Mode=TwoWay}"
+                           Background="Transparent" BorderThickness="0" Padding="0">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ModSearchResultItem">
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,3">
 
-                        <!-- 来源徽标：与列表里的 M/C 配色一致 -->
-                        <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4"
-                                Background="{Binding SourceColor}" VerticalAlignment="Center"
-                                Margin="0,0,8,0" ToolTip.Tip="{Binding SourceLabel}">
-                          <TextBlock Text="{Binding SourceBadge}" FontSize="10" FontWeight="Bold"
-                                     Foreground="#FFFFFF" HorizontalAlignment="Center"
-                                     VerticalAlignment="Center" />
-                        </Border>
+                          <!-- 来源徽标：与列表里的 M/C 配色一致 -->
+                          <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4"
+                                  Background="{Binding SourceColor}" VerticalAlignment="Center"
+                                  Margin="0,0,8,0" ToolTip.Tip="{Binding SourceLabel}">
+                            <TextBlock Text="{Binding SourceBadge}" FontSize="10" FontWeight="Bold"
+                                       Foreground="#FFFFFF" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                          </Border>
 
-                        <StackPanel Grid.Column="1" Spacing="1">
-                          <TextBlock Text="{Binding Title}" FontSize="12" Foreground="#E8EAED" />
-                          <TextBlock Text="{Binding MetaText}" FontSize="10" Foreground="#6E7684"
-                                     TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <Button Grid.Column="2" Content="安装" Command="{Binding InstallCommand}"
-                                FontSize="11" Padding="10,3" VerticalAlignment="Center"
-                                Margin="8,0,0,0" />
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
+                          <StackPanel Grid.Column="1" Spacing="1">
+                            <TextBlock Text="{Binding Title}" FontSize="12" Foreground="#E8EAED" />
+                            <TextBlock Text="{Binding MetaText}" FontSize="10" Foreground="#6E7684"
+                                       TextTrimming="CharacterEllipsis" />
+                          </StackPanel>
+                          <Button Grid.Column="2" Content="安装" Command="{Binding InstallCommand}"
+                                  FontSize="11" Padding="10,3" VerticalAlignment="Center"
+                                  Margin="8,0,0,0" />
+                        </Grid>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </ScrollViewer>
+
+                <!-- 选中某条结果后显示详情：同系列模组名字太像，只有详情能分辨 -->
+                <Border Grid.Column="1" Background="#1B1D23" CornerRadius="6" Padding="10"
+                        IsVisible="{Binding IsDetailVisible}">
+                  <ScrollViewer MaxHeight="190">
+                    <StackPanel Spacing="6">
+                      <TextBlock Text="{Binding DetailTitle}" FontSize="12" FontWeight="SemiBold"
+                                 Foreground="#E8EAED" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding DetailSubtitle}" FontSize="10" Foreground="#6E7684"
+                                 TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding DetailBody}" FontSize="11" Foreground="#B4BCC8"
+                                 TextWrapping="Wrap" LineHeight="16" />
+                      <Button Content="在浏览器中打开" Command="{Binding OpenDetailInBrowserCommand}"
+                              FontSize="11" Padding="10,3" HorizontalAlignment="Left" />
+                    </StackPanel>
+                  </ScrollViewer>
+                </Border>
+              </Grid>
 
               <!-- 依赖计划确认 -->
               <Border Background="#1B1D23" CornerRadius="6" Padding="8"

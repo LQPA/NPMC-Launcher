@@ -1,3 +1,5 @@
+using NPMC.Launcher.Core.Models;
+
 namespace NPMC.Launcher.Core.Mods;
 
 /// <summary>Modrinth 上的一个版本文件。</summary>
@@ -36,6 +38,50 @@ public sealed record ModrinthProject(
 {
     /// <summary>界面上优先显示标题，标题为空时退回 slug。</summary>
     public string DisplayName => string.IsNullOrWhiteSpace(Title) ? Slug : Title;
+}
+
+/// <summary>
+/// 项目详情。比搜索结果多出**正文**（Markdown）与分类/链接，
+/// 用于"这到底是不是我要的那个模组"——同类模组名字常常极像，光看标题分不出来。
+/// </summary>
+public sealed record ModrinthProjectDetail(
+    string Id,
+    string Slug,
+    string Title,
+    string Description,
+    string Body,
+    string IconUrl,
+    long Downloads,
+    string ProjectType,
+    IReadOnlyList<string> Categories,
+    IReadOnlyList<string> GameVersions,
+    IReadOnlyList<string> Loaders,
+    string SourceUrl,
+    string IssuesUrl,
+    DateTimeOffset UpdatedAt)
+{
+    public string DisplayName => string.IsNullOrWhiteSpace(Title) ? Slug : Title;
+
+    /// <summary>正文压平后的摘要（Markdown 原样显示不可读）。</summary>
+    public string BodySummary => MarkdownSummary.PlainText(Body, 700);
+
+    /// <summary>平台页面地址；类型决定路径段（mod / resourcepack / shader）。</summary>
+    public string PageUrl
+    {
+        get
+        {
+            var segment = ProjectType switch
+            {
+                "resourcepack" => "resourcepack",
+                "shader" => "shader",
+                "modpack" => "modpack",
+                "datapack" => "datapack",
+                _ => "mod",
+            };
+
+            return $"https://modrinth.com/{segment}/{Slug}";
+        }
+    }
 }
 
 /// <summary>搜索结果里的一条。</summary>

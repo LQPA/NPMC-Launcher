@@ -39,6 +39,9 @@ public sealed class ModSearchResultItem
 
     public long Downloads { get; }
 
+    /// <summary>该项目的平台页面地址（"在浏览器中打开"用）。</summary>
+    public string PageUrl { get; init; } = "";
+
     /// <summary>副标题：来源与下载量。</summary>
     public string MetaText => $"{SourceLabel} · {FormatDownloads(Downloads)} 次下载";
 

@@ -187,6 +187,17 @@ internal static class InstanceDump
 
             if (viewModel.SearchResults.FirstOrDefault() is { } topHit)
             {
+                // 选中第一条 → 触发详情加载（异步 fire-and-forget，这里轮询等它完成）
+                viewModel.SelectedSearchResult = topHit;
+
+                for (var i = 0; i < 150 && viewModel.DetailBody.StartsWith("正在加载", StringComparison.Ordinal); i++)
+                    Thread.Sleep(100);
+
+                lines.Add($"[详情] {viewModel.DetailTitle}");
+                lines.Add($"    {viewModel.DetailSubtitle}");
+                lines.Add($"    url  = {viewModel.DetailUrl}");
+                lines.Add($"    body = {viewModel.DetailBody}");
+
                 viewModel.PrepareInstallForDiagnosticsAsync(topHit).GetAwaiter().GetResult();
 
                 lines.Add($"[计划] 可见={viewModel.IsPlanVisible} 共 {viewModel.PlanLines.Count} 行");

@@ -96,6 +96,7 @@ public sealed class MainWindowViewModel : ObservableObject
         ShowInstancesCommand = new RelayCommand(() => Navigate(NavPage.Instances));
         ShowDownloadsCommand = new RelayCommand(() => Navigate(NavPage.Downloads));
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
+        OpenDetailInBrowserCommand = new RelayCommand(OpenDetailInBrowser);
 
         RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
 
@@ -1180,6 +1181,133 @@ public sealed class MainWindowViewModel : ObservableObject
         ? $"搜索{kind.DisplayName()}…"
         : "搜索…";
 
+    // ---- 搜索结果详情 ----
+
+    private ModSearchResultItem? _selectedSearchResult;
+    private bool _isDetailVisible;
+    private string _detailTitle = "";
+    private string _detailSubtitle = "";
+    private string _detailBody = "";
+    private string _detailUrl = "";
+
+    /// <summary>正文摘要缓存：同一项目反复点开不重复请求。</summary>
+    private readonly Dictionary<string, string> _detailBodyCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 选中一条搜索结果 → 拉取并显示详情。
+    ///
+    /// 为什么要有这个：同类模组的名字经常只差一两个字（Sodium / Sodium Extra /
+    /// Sodium Options API…），只有一行摘要根本分不清该装哪个。
+    /// </summary>
+    public ModSearchResultItem? SelectedSearchResult
+    {
+        get => _selectedSearchResult;
+        set
+        {
+            if (!SetProperty(ref _selectedSearchResult, value)) return;
+            if (value is not null) _ = LoadSearchDetailAsync(value);
+        }
+    }
+
+    public bool IsDetailVisible
+    {
+        get => _isDetailVisible;
+        private set => SetProperty(ref _isDetailVisible, value);
+    }
+
+    public string DetailTitle
+    {
+        get => _detailTitle;
+        private set => SetProperty(ref _detailTitle, value);
+    }
+
+    public string DetailSubtitle
+    {
+        get => _detailSubtitle;
+        private set => SetProperty(ref _detailSubtitle, value);
+    }
+
+    public string DetailBody
+    {
+        get => _detailBody;
+        private set => SetProperty(ref _detailBody, value);
+    }
+
+    public string DetailUrl
+    {
+        get => _detailUrl;
+        private set => SetProperty(ref _detailUrl, value);
+    }
+
+    public ICommand OpenDetailInBrowserCommand { get; }
+
+    private async Task LoadSearchDetailAsync(ModSearchResultItem item)
+    {
+        IsDetailVisible = true;
+
+        DetailTitle = item.Title;
+        DetailSubtitle = $"{item.SourceLabel} · {item.MetaText}";
+        DetailUrl = item.PageUrl;
+
+        // CurseForge 的详情页在网页上；我们只拿到摘要，就不假装有正文
+        if (item.Source == UpdateSource.CurseForge)
+        {
+            DetailBody = "点「在浏览器中打开」查看完整详情（CurseForge 的正文不通过 API 提供）。";
+            return;
+        }
+
+        if (_detailBodyCache.TryGetValue(item.ProjectRef, out var cached))
+        {
+            DetailBody = cached;
+            return;
+        }
+
+        try
+        {
+            DetailBody = "正在加载详情…";
+
+            var detail = await _modrinth.GetProjectAsync(item.ProjectRef);
+            if (detail is null)
+            {
+                DetailBody = "无法获取该项目详情";
+                return;
+            }
+
+            var body = detail.BodySummary;
+            if (string.IsNullOrWhiteSpace(body)) body = detail.Description;
+
+            DetailTitle = detail.DisplayName;
+            DetailSubtitle = $"Modrinth · {detail.Downloads:N0} 次下载"
+                             + (detail.UpdatedAt == default ? "" : $" · 更新于 {detail.UpdatedAt.ToLocalTime():yyyy-MM-dd}")
+                             + (detail.Categories.Count > 0 ? $" · {string.Join(", ", detail.Categories)}" : "");
+            DetailUrl = detail.PageUrl;
+            DetailBody = string.IsNullOrWhiteSpace(body) ? "(该项目没有提供描述)" : body;
+
+            _detailBodyCache[item.ProjectRef] = DetailBody;
+        }
+        catch (Exception ex)
+        {
+            DetailBody = $"获取详情失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    private void OpenDetailInBrowser()
+    {
+        if (string.IsNullOrWhiteSpace(_detailUrl)) return;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_detailUrl)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            Status = $"无法打开浏览器：{ex.GetBaseException().Message}";
+        }
+    }
+
     public bool IsInstalling
     {
         get => _isInstalling;
@@ -1214,6 +1342,13 @@ public sealed class MainWindowViewModel : ObservableObject
         // 连搜索词一起清掉：切换内容类型后旧关键词已经没有意义，
         // 留着会让人以为"这个搜索在新页签里也生效"。
         SearchQuery = "";
+
+        SelectedSearchResult = null;
+        IsDetailVisible = false;
+        DetailTitle = "";
+        DetailSubtitle = "";
+        DetailBody = "";
+        DetailUrl = "";
 
         SearchSummaryText = "";
 
@@ -1272,11 +1407,15 @@ public sealed class MainWindowViewModel : ObservableObject
             Status = $"正在 {source} 搜索「{query}」…";
 
             SearchResults.Clear();
+            SelectedSearchResult = null;
+            IsDetailVisible = false;
 
             if (source == UpdateSource.CurseForge)
             {
                 var hits = await _curseForge!.SearchAsync(
                     query, gameVersion, loaders, 8, kind.CurseForgeClassId()!.Value);
+
+                var pageSegment = kind == ContentKind.ResourcePack ? "texture-packs" : "mc-mods";
 
                 foreach (var hit in hits)
                 {
@@ -1286,7 +1425,10 @@ public sealed class MainWindowViewModel : ObservableObject
                         hit.DisplayName,
                         hit.Slug,
                         hit.DownloadCount,
-                        BeginInstallAsync));
+                        BeginInstallAsync)
+                    {
+                        PageUrl = $"https://www.curseforge.com/minecraft/{pageSegment}/{hit.Slug}",
+                    });
                 }
             }
             else
@@ -1302,7 +1444,10 @@ public sealed class MainWindowViewModel : ObservableObject
                         hit.DisplayName,
                         hit.Slug,
                         hit.Downloads,
-                        BeginInstallAsync));
+                        BeginInstallAsync)
+                    {
+                        PageUrl = $"https://modrinth.com/{kind.ModrinthProjectType()}/{hit.Slug}",
+                    });
                 }
             }
 
@@ -1569,8 +1714,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool _isDownloading;
     private bool _installFabric = true;
     private bool _versionsLoaded;
-    private string _downloadStatus = "尚未加载版本清单";
-    private string _downloadProgressText = "";
+    private string _downloadStatus = "尚未加载版本清单";    private string _downloadProgressText = "";
     private string _downloadInstanceName = "";
     private DownloadVersionItem? _selectedDownloadVersion;
 
