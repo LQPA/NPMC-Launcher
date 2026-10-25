@@ -21,6 +21,8 @@ public sealed class ContentEntryItem : ObservableObject
 {
     private ContentEntry _entry;
     private ModUpdate? _pendingUpdate;
+    private UpdateSource? _matchedSource;
+    private bool _identified;
 
     public ContentEntryItem(
         ContentEntry entry,
@@ -45,12 +47,39 @@ public sealed class ContentEntryItem : ObservableObject
 
     public string StatusText => _entry.IsEnabled ? "已启用" : "已禁用";
 
-    public string MetaText =>
-        $"{_entry.FileName} · {FormatSize(_entry.SizeBytes)} · {_entry.ModifiedAt.ToLocalTime():yyyy-MM-dd HH:mm}";
+    /// <summary>
+    /// 副标题。**刻意不含修改时间**：模组文件的写入时间对用户没有意义，
+    /// 真正有用的是"文件名 + 体积"，日期只会挤占横向空间、增加噪音。
+    /// </summary>
+    public string MetaText => $"{_entry.FileName} · {FormatSize(_entry.SizeBytes)}";
 
     public ICommand ToggleCommand { get; }
     public ICommand DeleteCommand { get; }
     public ICommand UpgradeCommand { get; }
+
+    // ---- 识别状态（检查更新后才会有结论）----
+
+    /// <summary>是否已经做过识别。用于区分"还没检查"与"检查了但认不出"。</summary>
+    public bool IsIdentified => _identified;
+
+    /// <summary>检查过、但两个平台都认不出。</summary>
+    public bool IsUnidentified => _identified && _matchedSource is null;
+
+    public bool IsFromModrinth => _matchedSource == UpdateSource.Modrinth;
+
+    public bool IsFromCurseForge => _matchedSource == UpdateSource.CurseForge;
+
+    /// <summary>记录识别来源；传 null 表示已检查但没认出来。只发通知，不动集合。</summary>
+    public void SetIdentification(UpdateSource? source)
+    {
+        _matchedSource = source;
+        _identified = true;
+
+        OnPropertyChanged(nameof(IsIdentified));
+        OnPropertyChanged(nameof(IsUnidentified));
+        OnPropertyChanged(nameof(IsFromModrinth));
+        OnPropertyChanged(nameof(IsFromCurseForge));
+    }
 
     // ---- 升级提示 ----
 

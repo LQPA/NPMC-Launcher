@@ -127,7 +127,14 @@ internal static class InstanceDump
             lines.Add($"    status = {viewModel.Status}");
 
             foreach (var item in viewModel.Content)
-                lines.Add($"    {(item.HasUpdate ? "可升级" : "已最新")}  {item.Name,-28} {item.UpdateText}");
+            {
+                var badge = item.IsFromModrinth ? "[M]"
+                    : item.IsFromCurseForge ? "[C]"
+                    : item.IsUnidentified ? "[?]"
+                    : "[-]";
+
+                lines.Add($"    {badge} {(item.HasUpdate ? "可升级" : "  -  ")}  {item.Name,-30} {item.UpdateText}");
+            }
         }
 
         File.WriteAllLines(outputPath, lines);

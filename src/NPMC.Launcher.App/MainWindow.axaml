@@ -198,32 +198,51 @@
               <ItemsControl ItemsSource="{Binding Content}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ContentEntryItem">
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
-                      <StackPanel Spacing="2">
+                    <Grid ColumnDefinitions="24,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
+
+                      <!--
+                        识别状态徽标。检查更新之前一律不显示 ——
+                        没查过就说"认不出"是错的，所以用 IsUnidentified 而不是"没有来源"。
+                      -->
+                      <TextBlock Grid.Column="0" Text="?" FontSize="12" FontWeight="SemiBold"
+                                 Foreground="#8A929E" VerticalAlignment="Center"
+                                 IsVisible="{Binding IsUnidentified}"
+                                 ToolTip.Tip="两个平台都无法识别（自制或未上传）" />
+
+                      <TextBlock Grid.Column="0" Text="M" FontSize="12" FontWeight="SemiBold"
+                                 Foreground="#7BC47F" VerticalAlignment="Center"
+                                 IsVisible="{Binding IsFromModrinth}"
+                                 ToolTip.Tip="已在 Modrinth 识别" />
+
+                      <TextBlock Grid.Column="0" Text="C" FontSize="12" FontWeight="SemiBold"
+                                 Foreground="#E0A458" VerticalAlignment="Center"
+                                 IsVisible="{Binding IsFromCurseForge}"
+                                 ToolTip.Tip="已在 CurseForge 识别" />
+
+                      <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Text="{Binding Name}" FontSize="13" Foreground="#E8EAED"
                                    TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding MetaText}" FontSize="11" Foreground="#949CA9"
                                    TextTrimming="CharacterEllipsis" />
                       </StackPanel>
 
-                      <!-- 可升级标记 -->
-                      <TextBlock Grid.Column="1" Text="{Binding UpdateText}" FontSize="11"
+                      <TextBlock Grid.Column="2" Text="{Binding UpdateText}" FontSize="11"
                                  Foreground="#7BC47F" VerticalAlignment="Center" Margin="10,0"
                                  IsVisible="{Binding HasUpdate}" />
 
-                      <Button Grid.Column="2" Content="升级"
+                      <Button Grid.Column="3" Content="升级"
                               Command="{Binding UpgradeCommand}"
                               FontSize="11" Padding="10,3" Margin="0,0,6,0"
                               IsVisible="{Binding HasUpdate}" />
 
-                      <TextBlock Grid.Column="3" Text="{Binding StatusText}" FontSize="11"
+                      <TextBlock Grid.Column="4" Text="{Binding StatusText}" FontSize="11"
                                  Foreground="#B4BCC8" VerticalAlignment="Center" Margin="6,0" />
 
-                      <Button Grid.Column="4" Content="{Binding ToggleText}"
+                      <Button Grid.Column="5" Content="{Binding ToggleText}"
                               Command="{Binding ToggleCommand}"
                               FontSize="11" Padding="10,3" Margin="0,0,6,0" />
 
-                      <Button Grid.Column="5" Content="删除"
+                      <Button Grid.Column="6" Content="删除"
                               Command="{Binding DeleteCommand}"
                               FontSize="11" Padding="10,3" />
                     </Grid>

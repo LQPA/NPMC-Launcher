@@ -809,9 +809,15 @@ public sealed class MainWindowViewModel : ObservableObject
                 instance.VersionId,
                 loaders);
 
-            // 就地贴到行上，不重建列表
+            // 就地贴到行上，不重建列表（升级提示 + 识别来源）
+            var byPath = report.LocalMods.ToDictionary(local => local.Path, StringComparer.OrdinalIgnoreCase);
+
             foreach (var item in items)
+            {
                 item.SetUpdate(report.Updates.FirstOrDefault(update => update.LocalPath == item.Entry.Path));
+                item.SetIdentification(
+                    byPath.TryGetValue(item.Entry.Path, out var local) ? local.Matched?.Source : null);
+            }
 
             UpdateCount = report.Updates.Count;
             Status = DescribeReport(items.Count, report);
