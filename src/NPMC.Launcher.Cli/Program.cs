@@ -1108,12 +1108,18 @@ internal static class Program
     {
         if (args.Length == 0 || args[0] != "check")
         {
-            Error("用法: npmc mods check [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease]");
+            Error("用法: npmc mods check [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease] [--curseforge-only]");
+            Dim("--curseforge-only 会跳过 Modrinth，用于验证 CurseForge 指纹是否一致（需要 CURSEFORGE_API_KEY）");
             return 1;
         }
 
         var rest = args[1..];
         var withPrerelease = Has(rest, "--prerelease");
+
+        // --curseforge-only：跳过 Modrinth，全部交给 CurseForge。
+        // 用来验证指纹是否与服务器一致 —— 否则只有 Modrinth 认领不到的文件才会走 CF。
+        var curseForgeOnly = Has(rest, "--curseforge-only");
+
         var launcher = new LauncherPaths(ResolveRoot(rest));
 
         LauncherInstance? instance = null;
@@ -1191,35 +1197,43 @@ internal static class Program
         using var http = HttpFileDownloader.CreateClient();
         var client = new ModrinthClient(http);
 
-        Dim("查询 Modrinth（按哈希）…");
-        var matched = await client.GetVersionsByHashesAsync(hashByPath.Values.ToList());
-
         // 统一成与平台无关的候选版本（接 CurseForge 后共用同一套判定）
         var matchedCandidates = new Dictionary<string, UpdateCandidate>(StringComparer.OrdinalIgnoreCase);
-        foreach (var pair in matched)
-        {
-            if (pair.Value.ToCandidate() is { } candidate) matchedCandidates[pair.Key] = candidate;
-        }
-
-        // 3) 每个命中的项目单独取版本列表（按游戏版本 + 加载器过滤）
         var projectVersions = new Dictionary<UpdateProjectKey, IReadOnlyList<UpdateCandidate>>();
-        var projectKeys = matchedCandidates.Values.Select(candidate => candidate.Key).Distinct().ToList();
-        Dim($"命中 {matchedCandidates.Count} 个，需要查询 {projectKeys.Count} 个项目…");
 
-        foreach (var key in projectKeys)
+        if (curseForgeOnly)
         {
-            try
+            Dim("--curseforge-only：跳过 Modrinth");
+        }
+        else
+        {
+            Dim("查询 Modrinth（按哈希）…");
+            var matched = await client.GetVersionsByHashesAsync(hashByPath.Values.ToList());
+
+            foreach (var pair in matched)
             {
-                var versions = await client.GetProjectVersionsAsync(key.ProjectId, versionId, loaders);
-                projectVersions[key] = versions
-                    .Select(version => version.ToCandidate())
-                    .Where(candidate => candidate is not null)
-                    .Select(candidate => candidate!)
-                    .ToList();
+                if (pair.Value.ToCandidate() is { } candidate) matchedCandidates[pair.Key] = candidate;
             }
-            catch (Exception ex)
+
+            // 3) 每个命中的项目单独取版本列表（按游戏版本 + 加载器过滤）
+            var projectKeys = matchedCandidates.Values.Select(candidate => candidate.Key).Distinct().ToList();
+            Dim($"命中 {matchedCandidates.Count} 个，需要查询 {projectKeys.Count} 个项目…");
+
+            foreach (var key in projectKeys)
             {
-                Warn($"项目 {key.ProjectId} 查询失败：{ex.GetBaseException().Message}");
+                try
+                {
+                    var versions = await client.GetProjectVersionsAsync(key.ProjectId, versionId, loaders);
+                    projectVersions[key] = versions
+                        .Select(version => version.ToCandidate())
+                        .Where(candidate => candidate is not null)
+                        .Select(candidate => candidate!)
+                        .ToList();
+                }
+                catch (Exception ex)
+                {
+                    Warn($"项目 {key.ProjectId} 查询失败：{ex.GetBaseException().Message}");
+                }
             }
         }
 
@@ -1231,9 +1245,9 @@ internal static class Program
         }
         else
         {
-            var unmatched = hashByPath
-                .Where(pair => !matchedCandidates.ContainsKey(pair.Value))
-                .ToList();
+            var unmatched = curseForgeOnly
+                ? hashByPath.ToList()
+                : hashByPath.Where(pair => !matchedCandidates.ContainsKey(pair.Value)).ToList();
 
             if (unmatched.Count == 0)
             {
@@ -1241,7 +1255,7 @@ internal static class Program
             }
             else
             {
-                Dim($"Modrinth 未认领 {unmatched.Count} 个，转查 CurseForge（按指纹）…");
+                Dim($"待查 {unmatched.Count} 个，交给 CurseForge（按指纹）…");
                 try
                 {
                     var curseForge = new CurseForgeClient(http, curseForgeKey);
