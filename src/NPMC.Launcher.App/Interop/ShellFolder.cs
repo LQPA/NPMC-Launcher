@@ -16,11 +16,13 @@ namespace NPMC.Launcher.App.Interop;
 /// </summary>
 internal static class ShellFolder
 {
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    // 这两个都是 Unicode-only 且导出名不带 A/W 后缀，因此显式 ExactSpelling，
+    // 避免 CLR 先去找 ...W 再回退带来的不确定性。
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern int SHParseDisplayName(
         string pszName, IntPtr pbc, out IntPtr ppidl, uint sfgaoIn, out uint psfgaoOut);
 
-    [DllImport("shell32.dll")]
+    [DllImport("shell32.dll", ExactSpelling = true)]
     private static extern int SHOpenFolderAndSelectItems(
         IntPtr pidlFolder, uint cidl, IntPtr apidl, uint dwFlags);
 

@@ -125,6 +125,7 @@ public sealed class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             Status = $"启动失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"启动失败 {instance.Id} → {ex.GetBaseException().Message}");
         }
         finally
         {
@@ -482,6 +483,9 @@ public sealed class MainWindowViewModel : ObservableObject
 
         // 依次尝试 shell32（交给已有外壳）、shell、explorer.exe，详见 FolderLauncher
         var attempts = await Interop.FolderLauncher.OpenAsync(target);
+
+        var report = string.Join(" | ", attempts.Select(a => $"{a.Strategy}={(a.Success ? "OK" : a.Error)}"));
+        LauncherLog.Write(_launcher.Root, $"打开目录 {target} → {report}");
 
         if (attempts[^1].Success)
         {
