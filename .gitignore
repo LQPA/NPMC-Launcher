@@ -1,9 +1,8 @@
-# ---- dotnet CLI 重定向缓存（本机沙箱用，勿提交）----
+# ---- dotnet CLI 缓存重定向 ----
 .dotnet-home/
 .nuget/
 
-# ---- 运行时数据目录：完整忽略 ----
-# .data 里有约 820MB：assets / runtime / libraries / saves / .lwjgl
+# ---- 运行时数据目录：完整忽略（约 820MB）----
 .data/
 
 # 单独列出，防止误提交
@@ -25,6 +24,11 @@ obj/
 # ---- IDE ----
 .idea/
 .vs/
+
+# ---- 本机专用脚本，不入库 ----
+# 含本机环境相关 workaround：DOTNET_CLI_HOME 重定向、-m:1 规避 SDK 缺陷
+build.ps1
+push.ps1
 
 # ---- 其它 ----
 *.log
