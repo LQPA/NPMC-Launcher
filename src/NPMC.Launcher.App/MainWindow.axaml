@@ -33,24 +33,30 @@
       <!-- ================= 左侧导航 ================= -->
       <Border Background="#1F2229" BorderBrush="#31353F" BorderThickness="0,0,1,0" Padding="12,18">
         <StackPanel Spacing="4">
-          <Border Background="#2B3A55" CornerRadius="6" Padding="12,9">
-            <TextBlock Text="实例" FontSize="13" Foreground="#DCE4F5" />
-          </Border>
-          <Border CornerRadius="6" Padding="12,9" IsEnabled="False">
-            <TextBlock Text="下载" FontSize="13" Foreground="#949CA9" />
-          </Border>
+          <Button Command="{Binding ShowInstancesCommand}"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                  Background="{Binding InstancesNavBackground}" BorderThickness="0" Padding="12,9">
+            <TextBlock Text="实例" FontSize="13" Foreground="{Binding InstancesNavForeground}" />
+          </Button>
+
+          <Button Command="{Binding ShowDownloadsCommand}"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                  Background="{Binding DownloadsNavBackground}" BorderThickness="0" Padding="12,9">
+            <TextBlock Text="下载" FontSize="13" Foreground="{Binding DownloadsNavForeground}" />
+          </Button>
+
           <Border CornerRadius="6" Padding="12,9" IsEnabled="False">
             <TextBlock Text="设置" FontSize="13" Foreground="#949CA9" />
           </Border>
 
           <TextBlock Margin="12,20,12,0" FontSize="11" Foreground="#6E7684"
                      TextWrapping="Wrap" LineHeight="17"
-                     Text="下载与设置页在后续阶段接入。模组/资源包/光影管理在右侧页签里。" />
+                     Text="设置页在后续阶段接入。模组/资源包/光影管理在实例右侧页签里。" />
         </StackPanel>
       </Border>
 
       <!-- ================= 实例列表 ================= -->
-      <Grid Grid.Column="1" Background="#1B1D23">
+      <Grid Grid.Column="1" Background="#1B1D23" IsVisible="{Binding IsInstancesPage}">
 
         <ListBox ItemsSource="{Binding Instances}"
                  SelectedItem="{Binding SelectedInstance, Mode=TwoWay}"
@@ -79,7 +85,8 @@
       </Grid>
 
       <!-- ================= 右侧：标题 / 页签 / 主体 / 操作 ================= -->
-      <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="24,20">
+      <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="24,20"
+            IsVisible="{Binding IsInstancesPage}">
 
         <StackPanel Grid.Row="0" Spacing="3" IsVisible="{Binding HasSelection}">
           <TextBlock Text="{Binding SelectedInstance.Name}" FontSize="24" FontWeight="SemiBold"
@@ -458,6 +465,84 @@
 
           <TextBlock Text="{Binding UpdateSummaryText}" IsVisible="{Binding HasUpdates}"
                      Foreground="#7BC47F" FontSize="12" VerticalAlignment="Center" Margin="4,0,0,0" />
+        </StackPanel>
+      </Grid>
+
+      <!-- ================= 下载页：左边版本列表 ================= -->
+      <Grid Grid.Column="1" Background="#1B1D23" IsVisible="{Binding IsDownloadsPage}">
+        <Grid RowDefinitions="Auto,*">
+          <StackPanel Grid.Row="0" Spacing="8" Margin="12,14,12,6">
+            <TextBlock Text="可下载版本" FontSize="13" Foreground="#B4BCC8" />
+            <CheckBox Content="包含快照" IsChecked="{Binding IncludeSnapshots}" FontSize="12" />
+          </StackPanel>
+
+          <ListBox Grid.Row="1" ItemsSource="{Binding DownloadVersions}"
+                   SelectedItem="{Binding SelectedDownloadVersion, Mode=TwoWay}"
+                   Background="Transparent" BorderThickness="0" Padding="8">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:DownloadVersionItem">
+                <StackPanel Spacing="3" Margin="2,4">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Border Width="18" Height="18" CornerRadius="4" Background="{Binding TypeColor}"
+                            VerticalAlignment="Center" ToolTip.Tip="{Binding TypeLabel}">
+                      <TextBlock Text="{Binding TypeBadge}" FontSize="10" FontWeight="Bold"
+                                 Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="{Binding Id}" FontSize="14" FontWeight="SemiBold" Foreground="#E8EAED" />
+                  </StackPanel>
+                  <TextBlock Text="{Binding ReleasedText}" FontSize="11" Foreground="#949CA9" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </Grid>
+
+      <!-- ================= 下载页：右边详情与操作 ================= -->
+      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
+            IsVisible="{Binding IsDownloadsPage}">
+        <StackPanel Grid.Row="0" Spacing="4">
+          <TextBlock Text="{Binding SelectedDownloadVersion.Id}" FontSize="22" FontWeight="SemiBold"
+                     Foreground="#E8EAED" />
+          <TextBlock Text="{Binding DownloadVersionSubtitle}" FontSize="12" Foreground="#949CA9" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
+          <StackPanel Spacing="14">
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="12">
+                <TextBlock Text="安装内容" FontSize="12" Foreground="#B4BCC8" />
+
+                <CheckBox Content="同时安装 Fabric 加载器（装完才能加载模组）"
+                          IsChecked="{Binding InstallFabric}" FontSize="12" />
+
+                <Grid ColumnDefinitions="64,*">
+                  <TextBlock Text="实例名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding DownloadInstanceName}"
+                           Watermark="留空则用版本号" FontSize="12" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="6">
+                <TextBlock Text="将下载" FontSize="12" Foreground="#B4BCC8" />
+                <TextBlock Text="client.jar · 库 · log4j 配置 · assetIndex · 资源对象（约 620 MB）"
+                           FontSize="11" Foreground="#949CA9" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding DownloadStatus}" FontSize="11" Foreground="#B4BCC8"
+                           TextWrapping="Wrap" Margin="0,6,0,0" />
+                <TextBlock Text="{Binding DownloadProgressText}" FontSize="11" Foreground="#7BC47F"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">
+          <Button Content="下载并创建实例" Command="{Binding DownloadCommand}"
+                  IsEnabled="{Binding !IsDownloading}" />
         </StackPanel>
       </Grid>
     </Grid>

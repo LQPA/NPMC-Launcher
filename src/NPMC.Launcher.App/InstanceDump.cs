@@ -197,6 +197,26 @@ internal static class InstanceDump
             }
         }
 
+        // 验证下载页：切过去 → 等版本清单拉回来 → 打印前几个
+        if (args.Any(arg => string.Equals(arg, "--exercise-downloads", StringComparison.OrdinalIgnoreCase)))
+        {
+            viewModel.ShowDownloadsCommand.Execute(null);
+
+            // Navigate 里的加载是 fire-and-forget，这里轮询等它完成（诊断代码，不用 await 改结构）
+            for (var i = 0; i < 300 && viewModel.DownloadVersions.Count == 0; i++)
+                Thread.Sleep(100);
+
+            lines.Add("");
+            lines.Add($"[下载页] 版本 {viewModel.DownloadVersions.Count} 个 —— {viewModel.DownloadStatus}");
+            lines.Add($"    isDownloadsPage = {viewModel.IsDownloadsPage}");
+
+            foreach (var version in viewModel.DownloadVersions.Take(5))
+                lines.Add($"    [{version.TypeBadge}] {version.Id,-14} {version.ReleasedText}   {version.TypeLabel}");
+
+            lines.Add($"    选中 = {viewModel.SelectedDownloadVersion?.Id ?? "(无)"}"
+                      + $"   副标题 = {viewModel.DownloadVersionSubtitle}");
+        }
+
         File.WriteAllLines(outputPath, lines);
         return true;
     }

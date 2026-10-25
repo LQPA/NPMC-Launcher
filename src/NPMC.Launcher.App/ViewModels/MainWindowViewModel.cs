@@ -4,6 +4,7 @@ using System.Windows.Input;
 using Avalonia.Threading;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
+using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
@@ -11,6 +12,7 @@ using NPMC.Launcher.Infrastructure.Diagnostics;
 using NPMC.Launcher.Infrastructure.Hashing;
 using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Launch;
+using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Modrinth;
 using NPMC.Launcher.Infrastructure.Mods;
 using NPMC.Launcher.Infrastructure.CurseForge;
@@ -90,6 +92,10 @@ public sealed class MainWindowViewModel : ObservableObject
         ConfirmInstallCommand = new AsyncRelayCommand(ConfirmInstallAsync, () => CanConfirmInstall);
         CancelPlanCommand = new RelayCommand(CancelPlan);
         ToggleSearchPanelCommand = new RelayCommand(() => IsSearchPanelExpanded = !IsSearchPanelExpanded);
+
+        ShowInstancesCommand = new RelayCommand(() => Navigate(NavPage.Instances));
+        ShowDownloadsCommand = new RelayCommand(() => Navigate(NavPage.Downloads));
+        DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
 
         RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
 
@@ -1526,6 +1532,255 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
         return version is null ? Array.Empty<string>() : LoaderDetector.Detect(version);
+    }
+
+    // ---- 导航与下载页 ----
+
+    private NavPage _navPage = NavPage.Instances;
+    private bool _includeSnapshots;
+    private bool _isDownloading;
+    private bool _installFabric = true;
+    private bool _versionsLoaded;
+    private string _downloadStatus = "尚未加载版本清单";
+    private string _downloadProgressText = "";
+    private string _downloadInstanceName = "";
+    private DownloadVersionItem? _selectedDownloadVersion;
+
+    public bool IsInstancesPage => _navPage == NavPage.Instances;
+
+    public bool IsDownloadsPage => _navPage == NavPage.Downloads;
+
+    public string InstancesNavBackground => IsInstancesPage ? "#2B3A55" : "Transparent";
+
+    public string DownloadsNavBackground => IsDownloadsPage ? "#2B3A55" : "Transparent";
+
+    public string InstancesNavForeground => IsInstancesPage ? "#DCE4F5" : "#949CA9";
+
+    public string DownloadsNavForeground => IsDownloadsPage ? "#DCE4F5" : "#949CA9";
+
+    public ObservableCollection<DownloadVersionItem> DownloadVersions { get; } = new();
+
+    public DownloadVersionItem? SelectedDownloadVersion
+    {
+        get => _selectedDownloadVersion;
+        set
+        {
+            if (!SetProperty(ref _selectedDownloadVersion, value)) return;
+
+            OnPropertyChanged(nameof(DownloadVersionSubtitle));
+
+            if (!string.IsNullOrWhiteSpace(value?.Id) && _downloadInstanceName.Length == 0)
+                DownloadInstanceName = value!.Id;
+        }
+    }
+
+    /// <summary>详情页标题下的一行说明。</summary>
+    public string DownloadVersionSubtitle => _selectedDownloadVersion is { } version
+        ? $"{version.TypeLabel} · 发布于 {version.ReleasedText}"
+        : "请选择一个版本";
+
+    /// <summary>新实例名。默认跟版本号一致，用户可以改。</summary>
+    public string DownloadInstanceName
+    {
+        get => _downloadInstanceName;
+        set => SetProperty(ref _downloadInstanceName, value);
+    }
+
+    public bool IncludeSnapshots
+    {
+        get => _includeSnapshots;
+        set
+        {
+            if (!SetProperty(ref _includeSnapshots, value)) return;
+            // 切换过滤条件要重新填列表
+            _versionsLoaded = false;
+            _ = LoadDownloadVersionsAsync();
+        }
+    }
+
+    /// <summary>是否同时安装 Fabric 加载器（装完才能用模组）。</summary>
+    public bool InstallFabric
+    {
+        get => _installFabric;
+        set => SetProperty(ref _installFabric, value);
+    }
+
+    public bool IsDownloading
+    {
+        get => _isDownloading;
+        private set
+        {
+            if (!SetProperty(ref _isDownloading, value)) return;
+            (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string DownloadStatus
+    {
+        get => _downloadStatus;
+        private set => SetProperty(ref _downloadStatus, value);
+    }
+
+    public string DownloadProgressText
+    {
+        get => _downloadProgressText;
+        private set => SetProperty(ref _downloadProgressText, value);
+    }
+
+    public ICommand ShowInstancesCommand { get; }
+    public ICommand ShowDownloadsCommand { get; }
+    public ICommand DownloadCommand { get; }
+
+    private bool CanDownload => !IsDownloading && _selectedDownloadVersion is not null;
+
+    private void Navigate(NavPage page)
+    {
+        if (_navPage == page) return;
+
+        _navPage = page;
+
+        OnPropertyChanged(nameof(IsInstancesPage));
+        OnPropertyChanged(nameof(IsDownloadsPage));
+        OnPropertyChanged(nameof(InstancesNavBackground));
+        OnPropertyChanged(nameof(DownloadsNavBackground));
+        OnPropertyChanged(nameof(InstancesNavForeground));
+        OnPropertyChanged(nameof(DownloadsNavForeground));
+
+        if (page == NavPage.Downloads) _ = LoadDownloadVersionsAsync();
+    }
+
+    /// <summary>拉取版本清单。只在下拉页可见时才做，避免启动时多一次网络请求。</summary>
+    private async Task LoadDownloadVersionsAsync()
+    {
+        if (_versionsLoaded || IsDownloading) return;
+
+        try
+        {
+            DownloadStatus = "正在获取版本清单…";
+            var installer = await CreateMinecraftInstallerAsync();
+
+            var versions = await installer.GetVersionsAsync();
+
+            DownloadVersions.Clear();
+
+            foreach (var entry in versions)
+            {
+                if (!_includeSnapshots && !string.Equals(entry.Type, "release", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                DownloadVersions.Add(new DownloadVersionItem(entry));
+            }
+
+            _versionsLoaded = DownloadVersions.Count > 0;
+
+            if (DownloadVersions.Count > 0)
+            {
+                SelectedDownloadVersion ??= DownloadVersions[0];
+                DownloadStatus = $"共 {DownloadVersions.Count} 个{(_includeSnapshots ? "版本（含快照）" : "正式版")}";
+            }
+            else
+            {
+                DownloadStatus = "清单里没有可用版本";
+            }
+        }
+        catch (Exception ex)
+        {
+            DownloadStatus = $"获取版本清单失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"获取版本清单失败 → {ex.GetBaseException().Message}");
+        }
+    }
+
+    /// <summary>
+    /// 下载版本 →（可选）装 Fabric → 建实例并选中。
+    ///
+    /// 三步是一体的：只下本体不建实例，用户还得再手动建一次；
+    /// 而装了 Fabric 却不建对应版本的实例，模组依然不会被加载。
+    /// </summary>
+    private async Task DownloadAsync()
+    {
+        if (_selectedDownloadVersion is not { } choice) return;
+
+        IsDownloading = true;
+        DownloadProgressText = "";
+
+        try
+        {
+            var installer = await CreateMinecraftInstallerAsync();
+
+            DownloadStatus = $"正在获取 {choice.Id} 的版本信息…";
+            var version = await installer.LoadVersionAsync(_launcher, choice.Id);
+
+            var progress = new Progress<MinecraftInstallProgress>(p =>
+            {
+                DownloadProgressText = p.Stage switch
+                {
+                    "assets" => $"资源对象 {p.Completed}/{p.Total}   已下载 {p.BytesDownloaded / 1024d / 1024d:N1} MB",
+                    "libraries" => $"库 {p.Completed}/{p.Total}",
+                    _ => p.Stage,
+                };
+            });
+
+            DownloadStatus = $"正在下载 {choice.Id}…";
+            var result = await installer.InstallAsync(_launcher, choice.Id, version, progress);
+
+            DownloadStatus = $"本体完成：库 {result.LibrariesDownloaded} 个，资源对象 {result.AssetObjects} 个"
+                             + $"（新下载 {result.AssetsDownloaded} 个 / {result.AssetBytes / 1024d / 1024d:N1} MB）"
+                             + (result.Failures.Count > 0 ? $"，失败 {result.Failures.Count} 个" : "");
+
+            // 可选：装 Fabric，并把实例指向 Fabric 的 profile 版本
+            var instanceVersionId = choice.Id;
+
+            if (_installFabric)
+            {
+                DownloadStatus = $"正在安装 Fabric 加载器（游戏 {choice.Id}）…";
+                DownloadProgressText = "";
+
+                var fabric = new FabricLoaderInstaller(_http);
+                var fabricResult = await fabric.InstallAsync(_launcher, choice.Id, null, _downloader);
+
+                instanceVersionId = fabricResult.ProfileId;
+                DownloadStatus = $"Fabric {fabricResult.LoaderVersion} 已安装（库 {fabricResult.LibrariesDownloaded} 个）";
+            }
+
+            // 建实例：版本指向 fabric profile（若有），这样页签能力检测能识别到加载器
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+
+            var name = string.IsNullOrWhiteSpace(_downloadInstanceName) ? choice.Id : _downloadInstanceName.Trim();
+            var instance = catalog.Add(name, instanceVersionId);
+
+            await store.SaveAsync(catalog.Instances);
+
+            DownloadStatus = $"完成：已创建实例「{instance.Name}」（版本 {instanceVersionId}）";
+            DownloadProgressText = "";
+
+            // 回到实例页并选中新建的那个
+            await LoadAsync();
+            Navigate(NavPage.Instances);
+
+            SelectedInstance = Instances.FirstOrDefault(item =>
+                string.Equals(item.Id, instance.Id, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            DownloadStatus = $"下载失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"下载 {choice.Id} 失败 → {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            IsDownloading = false;
+            (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>按全局设置构造安装器（镜像源、并发数都取自设置）。</summary>
+    private async Task<MinecraftInstaller> CreateMinecraftInstallerAsync()
+    {
+        var settings = await new JsonSettingsStore(_launcher).LoadAsync();
+        var router = new MirrorRouter(settings.ToMirrorSettings());
+        var source = VersionManifestSource.Create(router, _downloader);
+
+        return new MinecraftInstaller(_downloader, router, source, settings.DownloadConcurrency);
     }
 
     // ---- 打开目录 ----

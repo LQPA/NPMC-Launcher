@@ -47,6 +47,34 @@ public sealed class VersionManifestSource
     public VersionManifestSource(Func<string, ResourceKind, CancellationToken, Task<string>> fetch)
         => _fetch = fetch;
 
+    /// <summary>
+    /// 按镜像路由构建：逐个候选地址尝试，全部失败才抛出。
+    ///
+    /// 命令行与界面都要这样构造，所以逻辑放在这里而不是各自的调用点 ——
+    /// 否则"镜像失败要回退官方"这件事会出现两份实现，其中一份迟早忘记更新。
+    /// </summary>
+    public static VersionManifestSource Create(MirrorRouter router, Http.HttpFileDownloader downloader)
+    {
+        return new VersionManifestSource(async (url, kind, cancellationToken) =>
+        {
+            Exception? last = null;
+
+            foreach (var target in router.Resolve(url, kind))
+            {
+                try
+                {
+                    return await downloader.GetStringAsync(target.Url, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    last = ex;
+                }
+            }
+
+            throw last ?? new InvalidOperationException($"无法获取 {url}");
+        });
+    }
+
     public async Task<VersionManifest> GetManifestAsync(string? url = null, CancellationToken ct = default)
     {
         var json = await _fetch(url ?? OfficialManifestUrl, ResourceKind.VersionManifest, ct).ConfigureAwait(false);
