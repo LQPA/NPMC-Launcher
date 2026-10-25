@@ -7,19 +7,22 @@ internal sealed record FolderOpenAttempt(string Strategy, bool Success, string? 
 /// <summary>
 /// 打开目录的尝试链。依次尝试，成功即止，并把每次的结果都记下来。
 ///
-/// 顺序的由来（实测）：
-///   explorer.exe 在本机以 0xC0000142（STATUS_DLL_INIT_FAILED）失败，
-///   所以先走 shell32（交给已有外壳，不新起进程），再退化到 shell 与 explorer.exe。
-///
-/// 判定成功的两个坑（都踩过）：
-///   1. Process.Start 成功只代表进程被创建，不代表它没立刻死掉 → 要看退出码。
-///   2. explorer 失败时会**停在系统错误对话框上不退出**。
-///      若把"2 秒后仍在运行"当成成功，就会既误报"已打开"、又丢掉前面策略的真实错误，
-///      而屏幕上还留着那个错误对话框。因此必须识别这种对话框，并按失败处理（顺手关掉它）。
+/// 为什么**默认不启动 explorer.exe**：
+///   在这台机器上 explorer.exe 启动即失败（0xC0000142 STATUS_DLL_INIT_FAILED），
+///   而且它失败时会**弹出一个系统错误对话框**，用户必须手动关掉。
+///   一个"打开文件夹"按钮每次点都弹出这种对话框是不可接受的，
+///   所以正式流程只用不会打弹窗的两种方式：
+///     1. shell32 —— 交给已在运行的资源管理器，不新起进程（首选）
+///     2. shell   —— 让系统按默认关联打开目录
+///   两者都失败时由上层把路径复制到剪贴板。
+///   explorer.exe 只留给诊断命令显式开启（--all），便于以后排查。
 /// </summary>
 internal static class FolderLauncher
 {
-    public static async Task<IReadOnlyList<FolderOpenAttempt>> OpenAsync(string directory)
+    public static async Task<IReadOnlyList<FolderOpenAttempt>> OpenAsync(
+        string directory,
+        bool allowProcessLaunch = true,
+        bool allowExplorer = false)
     {
         var attempts = new List<FolderOpenAttempt>(3);
 
@@ -31,10 +34,14 @@ internal static class FolderLauncher
 
         attempts.Add(new FolderOpenAttempt("shell32", false, shell32Error));
 
-        // 把目录路径直接交给 shell 打开
+        if (!allowProcessLaunch) return attempts;
+
+        // 把目录路径直接交给 shell 打开（失败只会抛异常，不会弹窗）
         var shellError = await TryStartAsync(directory, null);
         attempts.Add(new FolderOpenAttempt("shell", shellError is null, shellError));
         if (shellError is null) return attempts;
+
+        if (!allowExplorer) return attempts;
 
         var explorerError = await TryStartAsync("explorer.exe", $"\"{directory}\"");
         attempts.Add(new FolderOpenAttempt("explorer", explorerError is null, explorerError));
@@ -98,7 +105,7 @@ internal static class FolderLauncher
             try { exitCode = process.ExitCode; }
             catch { return null; }
 
-            // explorer.exe 正常时会把请求转交给已有外壳后立刻退出（退出码 0 或 1）
+            // 正常时会把请求转交给已有外壳后立刻退出（退出码 0 或 1）
             return exitCode is 0 or 1 ? null : $"退出码 0x{exitCode:X8}";
         }
         finally
