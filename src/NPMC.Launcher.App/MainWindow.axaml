@@ -237,8 +237,14 @@
               <TextBlock Text="{Binding SearchSummaryText}" FontSize="11" Foreground="#949CA9"
                          IsVisible="{Binding HasSearchSummary}" TextWrapping="Wrap" />
 
-              <Grid ColumnDefinitions="*,*" ColumnSpacing="10" IsVisible="{Binding HasSearchResults}">
-                <ScrollViewer Grid.Column="0" MaxHeight="190">
+              <!--
+                固定高度（而不是让内容撑开）：详情正文从"正在加载…"变成多行时，
+                若高度随内容变化，整个搜索面板会伸缩，下面的列表就会上下跳。
+                固定后内容变化只影响内部滚动。
+              -->
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Height="200"
+                    IsVisible="{Binding HasSearchResults}">
+                <ScrollViewer Grid.Column="0">
                   <ListBox ItemsSource="{Binding SearchResults}"
                            SelectedItem="{Binding SelectedSearchResult, Mode=TwoWay}"
                            Background="Transparent" BorderThickness="0" Padding="0">
@@ -278,7 +284,7 @@
                 <!-- 选中某条结果后显示详情：同系列模组名字太像，只有详情能分辨 -->
                 <Border Grid.Column="1" Background="#1B1D23" CornerRadius="6" Padding="10"
                         IsVisible="{Binding IsDetailVisible}">
-                  <ScrollViewer MaxHeight="190">
+                  <ScrollViewer>
                     <StackPanel Spacing="6">
                       <Grid ColumnDefinitions="Auto,*">
                         <!-- 详情里的图标按 56px 显示 -->
