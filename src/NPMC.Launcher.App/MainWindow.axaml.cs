@@ -1,18 +1,24 @@
 using Avalonia.Controls;
+using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Paths;
 
 namespace NPMC.Launcher.App;
 
 public partial class MainWindow : Window
 {
-    public MainWindow()
+    /// <summary>供 XAML 设计器使用；真实启动走带 root 的构造函数。</summary>
+    public MainWindow() : this(AppContext.BaseDirectory)
+    {
+    }
+
+    public MainWindow(string root)
     {
         InitializeComponent();
 
-        var paths = new LauncherPaths(AppContext.BaseDirectory);
+        var viewModel = new MainWindowViewModel(new LauncherPaths(root));
+        DataContext = viewModel;
 
-        SubtitleBlock.Text = $"Avalonia 11.3.2 · .NET {Environment.Version}";
-        RootBlock.Text = $"启动器根目录  {paths.Root}";
-        RuntimeBlock.Text = $"共享资源目录  {paths.SharedRoot}";
+        // LoadAsync 内部已捕获全部异常并写进 Status，因此这里不需要额外的异常处理
+        _ = viewModel.LoadAsync();
     }
 }

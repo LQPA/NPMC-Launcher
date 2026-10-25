@@ -1,42 +1,175 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:NPMC.Launcher.App.ViewModels"
         x:Class="NPMC.Launcher.App.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
         Title="NPMC Launcher"
-        Width="920" Height="620"
-        MinWidth="720" MinHeight="480"
+        Width="1080" Height="680"
+        MinWidth="880" MinHeight="520"
         WindowStartupLocation="CenterScreen"
         Background="#1B1D23">
 
-  <Grid RowDefinitions="Auto,*,Auto" Margin="28">
+  <Grid RowDefinitions="Auto,*,Auto">
 
-    <StackPanel Grid.Row="0" Spacing="6">
-      <TextBlock Text="NPMC Launcher"
-                 FontSize="30" FontWeight="SemiBold" Foreground="#F2F3F5" />
-      <TextBlock x:Name="SubtitleBlock"
-                 FontSize="13" Foreground="#8A8F98" />
-    </StackPanel>
-
-    <Border Grid.Row="1" Margin="0,22,0,0"
-            Background="#23262E" CornerRadius="10"
-            BorderBrush="#31353F" BorderThickness="1"
-            Padding="24">
-      <StackPanel Spacing="10" VerticalAlignment="Center">
-        <TextBlock Text="界面骨架已接通"
-                   FontSize="18" FontWeight="SemiBold" Foreground="#E8EAED" />
-        <TextBlock TextWrapping="Wrap" Foreground="#9AA0A8" FontSize="13"
-                   Text="这是第二阶段之前的验证窗口：确认 Avalonia 能启动、主题与字体正常、程序集能读到启动器目录。下一步会把左侧导航、实例列表和右侧详情接上来。" />
-
-        <Border Background="#1B1D23" CornerRadius="8" Padding="16,12" Margin="0,8,0,0">
-          <StackPanel Spacing="6">
-            <TextBlock Text="当前环境" FontSize="12" Foreground="#6E747E" />
-            <TextBlock x:Name="RootBlock" FontSize="13" Foreground="#C9CDD3" TextWrapping="Wrap" />
-            <TextBlock x:Name="RuntimeBlock" FontSize="13" Foreground="#C9CDD3" />
-          </StackPanel>
-        </Border>
-      </StackPanel>
+    <!-- ================= 顶部 ================= -->
+    <Border Grid.Row="0" Background="#23262E"
+            BorderBrush="#31353F" BorderThickness="0,0,0,1" Padding="24,14">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="2">
+          <TextBlock Text="NPMC Launcher" FontSize="18" FontWeight="SemiBold" Foreground="#F2F3F5" />
+          <TextBlock Text="{Binding RootPath}" FontSize="11" Foreground="#6E747E"
+                     TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <Button Grid.Column="1" Content="刷新" VerticalAlignment="Center"
+                Command="{Binding RefreshCommand}" />
+      </Grid>
     </Border>
 
-    <TextBlock Grid.Row="2" Margin="0,16,0,0" FontSize="12" Foreground="#5C616B"
-               Text="命令行工具仍然可用：npmc doctor / mirror test / net selftest / install / launch" />
+    <Grid Grid.Row="1" ColumnDefinitions="180,340,*">
+
+      <!-- ================= 左侧导航 ================= -->
+      <Border Background="#1F2229" BorderBrush="#31353F" BorderThickness="0,0,1,0" Padding="12,18">
+        <StackPanel Spacing="4">
+          <Border Background="#2B3A55" CornerRadius="6" Padding="12,9">
+            <TextBlock Text="实例" FontSize="13" Foreground="#DCE4F5" />
+          </Border>
+          <Border CornerRadius="6" Padding="12,9" IsEnabled="False">
+            <TextBlock Text="下载" FontSize="13" Foreground="#6E747E" />
+          </Border>
+          <Border CornerRadius="6" Padding="12,9" IsEnabled="False">
+            <TextBlock Text="设置" FontSize="13" Foreground="#6E747E" />
+          </Border>
+
+          <TextBlock Margin="12,20,12,0" FontSize="11" Foreground="#4E535D"
+                     TextWrapping="Wrap" LineHeight="17"
+                     Text="下载与设置页在后续阶段接入。" />
+        </StackPanel>
+      </Border>
+
+      <!-- ================= 实例列表 ================= -->
+      <Grid Grid.Column="1" RowDefinitions="*,Auto" Background="#1B1D23">
+
+        <ListBox ItemsSource="{Binding Instances}"
+                 SelectedItem="{Binding SelectedInstance, Mode=TwoWay}"
+                 Background="Transparent" BorderThickness="0" Padding="8"
+                 IsVisible="{Binding !IsEmpty}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:InstanceListItem">
+              <StackPanel Spacing="3" Margin="2,5">
+                <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                           Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#8A8F98" />
+                <TextBlock Text="{Binding ContentText}" FontSize="11" Foreground="#5C616B" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <StackPanel Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Spacing="8" Margin="24" IsVisible="{Binding IsEmpty}">
+          <TextBlock Text="还没有实例" FontSize="14" Foreground="#8A8F98"
+                     HorizontalAlignment="Center" />
+          <TextBlock Text="npmc instance create 原版生存 --version 1.20.1"
+                     FontSize="11" Foreground="#5C616B" HorizontalAlignment="Center"
+                     TextWrapping="Wrap" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="1" Margin="20,10" FontSize="11" Foreground="#4E535D"
+                   Text="{Binding Status}" TextTrimming="CharacterEllipsis" />
+      </Grid>
+
+      <!-- ================= 右侧详情 ================= -->
+      <Grid Grid.Column="2" RowDefinitions="*,Auto" Margin="24,20">
+
+        <ContentControl Grid.Row="0" Content="{Binding SelectedInstance}"
+                        IsVisible="{Binding HasSelection}">
+          <ContentControl.ContentTemplate>
+            <DataTemplate x:DataType="vm:InstanceListItem">
+              <ScrollViewer>
+                <StackPanel Spacing="18">
+
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{Binding Name}" FontSize="24" FontWeight="SemiBold"
+                               Foreground="#F2F3F5" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#8A8F98" />
+                  </StackPanel>
+
+                  <Border Background="#23262E" CornerRadius="8"
+                          BorderBrush="#31353F" BorderThickness="1" Padding="16,14">
+                    <StackPanel Spacing="9">
+
+                      <Grid ColumnDefinitions="96,*">
+                        <TextBlock Grid.Column="0" Text="版本" FontSize="12" Foreground="#6E747E" />
+                        <TextBlock Grid.Column="1" Text="{Binding VersionId}" FontSize="12" Foreground="#C9CDD3" />
+                      </Grid>
+
+                      <Grid ColumnDefinitions="96,*">
+                        <TextBlock Grid.Column="0" Text="隔离级别" FontSize="12" Foreground="#6E747E" />
+                        <TextBlock Grid.Column="1" Text="{Binding IsolationText}" FontSize="12" Foreground="#C9CDD3" />
+                      </Grid>
+
+                      <Grid ColumnDefinitions="96,*">
+                        <TextBlock Grid.Column="0" Text="内存" FontSize="12" Foreground="#6E747E" />
+                        <TextBlock Grid.Column="1" Text="{Binding MemoryText}" FontSize="12" Foreground="#C9CDD3" />
+                      </Grid>
+
+                      <Grid ColumnDefinitions="96,*">
+                        <TextBlock Grid.Column="0" Text="窗口" FontSize="12" Foreground="#6E747E" />
+                        <TextBlock Grid.Column="1" Text="{Binding WindowText}" FontSize="12" Foreground="#C9CDD3" />
+                      </Grid>
+
+                      <Grid ColumnDefinitions="96,*">
+                        <TextBlock Grid.Column="0" Text="内容" FontSize="12" Foreground="#6E747E" />
+                        <TextBlock Grid.Column="1" Text="{Binding ContentText}" FontSize="12" Foreground="#C9CDD3" />
+                      </Grid>
+
+                      <Grid ColumnDefinitions="96,*">
+                        <TextBlock Grid.Column="0" Text="创建时间" FontSize="12" Foreground="#6E747E" />
+                        <TextBlock Grid.Column="1" Text="{Binding CreatedText}" FontSize="12" Foreground="#C9CDD3" />
+                      </Grid>
+
+                      <Grid ColumnDefinitions="96,*">
+                        <TextBlock Grid.Column="0" Text="游戏目录" FontSize="12" Foreground="#6E747E" />
+                        <TextBlock Grid.Column="1" Text="{Binding GameDirectory}" FontSize="11"
+                                   Foreground="#8A8F98" TextWrapping="Wrap" />
+                      </Grid>
+
+                    </StackPanel>
+                  </Border>
+
+                </StackPanel>
+              </ScrollViewer>
+            </DataTemplate>
+          </ContentControl.ContentTemplate>
+        </ContentControl>
+
+        <!-- 未选中时的提示 -->
+        <StackPanel Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Spacing="6" IsVisible="{Binding !HasSelection}">
+          <TextBlock Text="选择左侧的一个实例" FontSize="13" Foreground="#6E747E"
+                     HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <!-- 操作按钮：绑定在窗口 VM 上，所以放在 DataTemplate 外面 -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
+                    IsVisible="{Binding HasSelection}">
+          <Button Content="启动游戏" IsEnabled="False" ToolTip.Tip="第三阶段接入启动链路" />
+          <Button Content="打开游戏目录" Command="{Binding OpenGameFolderCommand}" />
+          <Button Content="打开 mods" Command="{Binding OpenModsFolderCommand}" />
+        </StackPanel>
+
+      </Grid>
+    </Grid>
+
+    <!-- ================= 状态栏 ================= -->
+    <Border Grid.Row="2" Background="#1F2229"
+            BorderBrush="#31353F" BorderThickness="0,1,0,0" Padding="24,9">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#6E747E"
+                   TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Column="1" Text="{Binding RootHint}" FontSize="11" Foreground="#41454E" />
+      </Grid>
+    </Border>
+
   </Grid>
 </Window>
