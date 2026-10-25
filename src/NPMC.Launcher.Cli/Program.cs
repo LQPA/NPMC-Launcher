@@ -6,6 +6,7 @@ using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
 using NPMC.Launcher.Core.Settings;
+using NPMC.Launcher.Infrastructure.Diagnostics;
 using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Minecraft;
@@ -788,6 +789,7 @@ internal static class Program
         Info($"操作系统    {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
         Info($"体系结构    {System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}（OS: {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}）");
         Info($"运行时      .NET {Environment.Version}");
+        Info($"进程完整性  {ProcessContext.Describe()}");
         Info($"启动器根    {launcher.Root}");
 
         var tempDirectory = Path.GetTempPath();
@@ -804,6 +806,10 @@ internal static class Program
 
         var inSandbox = tempDirectory.Contains("dsh-", StringComparison.OrdinalIgnoreCase);
         Info($"受限环境     {(inSandbox ? "是（TEMP 含 dsh- 前缀）" : "否")}");
+
+        if (ProcessContext.IsLowIntegrity)
+            warnings.Add("进程处于 Low 完整性：系统会拒绝 shell COM、ShellExecute 与 explorer.exe 启动，"
+                       + "也就是说无法从本进程打开资源管理器。请从开始菜单启动，而不是从受限的终端启动。");
 
         Section("Java");
         var installations = JavaLocator.Discover(launcher);

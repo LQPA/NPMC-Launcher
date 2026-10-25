@@ -4,6 +4,7 @@ using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
+using NPMC.Launcher.Infrastructure.Diagnostics;
 using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Storage;
 
@@ -158,7 +159,7 @@ public sealed class MainWindowViewModel : ObservableObject
     /// 有了这行，用户一眼就能确认"是环境受限"还是"功能坏了"，
     /// 也能区分窗口是从哪个终端启动的。
     /// </summary>
-    public string IntegrityText => $"权限 {Interop.ProcessContext.Describe()}";
+    public string IntegrityText => $"权限 {ProcessContext.Describe()}";
 
     // ---- 实例 ----
 
@@ -492,13 +493,13 @@ public sealed class MainWindowViewModel : ObservableObject
 
         // Low 完整性下这几种方式全都会被系统拒绝，直接给出可执行的建议，
         // 而不是把三条失败信息堆在状态栏里让用户猜。
-        if (Interop.ProcessContext.IsLowIntegrity)
+        if (ProcessContext.IsLowIntegrity)
         {
             var reason = "当前进程处于受限模式（Low 完整性），系统不允许它调起资源管理器。"
                        + "请从开始菜单正常启动 NPMC Launcher；路径已复制到剪贴板，可直接粘贴到资源管理器地址栏。";
 
             LauncherLog.Write(_launcher.Root,
-                $"打开目录被跳过（{Interop.ProcessContext.Describe()}）：{target}");
+                $"打开目录被跳过（{ProcessContext.Describe()}）：{target}");
 
             if (CopyToClipboard is not null)
             {
@@ -514,7 +515,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         var report = string.Join(" | ", attempts.Select(a => $"{a.Strategy}={(a.Success ? "OK" : a.Error)}"));
         LauncherLog.Write(_launcher.Root,
-            $"打开目录 {target} → {report}   [权限 {Interop.ProcessContext.Describe()}]");
+            $"打开目录 {target} → {report}   [权限 {ProcessContext.Describe()}]");
 
         if (attempts[^1].Success)
         {

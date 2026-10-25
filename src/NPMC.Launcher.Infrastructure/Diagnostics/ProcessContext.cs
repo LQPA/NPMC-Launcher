@@ -1,24 +1,29 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-namespace NPMC.Launcher.App.Interop;
+namespace NPMC.Launcher.Infrastructure.Diagnostics;
 
 /// <summary>
-/// 当前进程的执行上下文信息，用于排查"启动外部程序被拒"这类问题。
+/// 当前进程的执行上下文信息（完整性级别）。
 ///
-/// 完整性级别**直接读自己的进程令牌**（GetTokenInformation + TokenIntegrityLevel），
-/// 而不是解析 whoami.exe 的输出 —— 后者依赖子进程、依赖文本格式、还可能被重定向，
-/// 排查这种问题时不能再引入新的不确定性。
-/// whoami 的结果只保留在诊断里做交叉核对。
+/// 为什么需要它：完整性级别决定了一个进程**能不能**调起资源管理器。
+///   Low（0x1000）会让三种方式同时失效 —— 跨进程 shell COM 返回 0x80070005、
+///   ShellExecute 返回"拒绝访问"、explorer.exe 启动失败并报 0xC0000142。
+///   在排查"打开文件夹打不开"这类问题时，先看这一项就能立刻区分
+///   "环境受限" 与 "功能写坏了"，不必去猜。
+///
+/// 实现上**直接读自己的进程令牌**（GetTokenInformation + TokenIntegrityLevel），
+/// 而不是解析 whoami.exe 的输出：后者依赖子进程、依赖文本格式，会在最需要确定性的
+/// 地方引入新的不确定性。whoami 只作为交叉核对保留在诊断里。
 /// </summary>
-internal static class ProcessContext
+public static class ProcessContext
 {
     private const uint TokenQuery = 0x0008;
     private const int TokenIntegrityLevel = 25;
 
     private static readonly Lazy<int?> CachedRid = new(ReadIntegrityRidCore);
 
-    /// <summary>完整性级别的 RID（4096 = Low，8192 = Medium，12288 = High）。读取失败为 null。</summary>
+    /// <summary>完整性级别的 RID（0x1000 Low / 0x2000 Medium / 0x3000 High）。读取失败为 null。</summary>
     public static int? IntegrityRid => CachedRid.Value;
 
     public static string IntegrityName => IntegrityRid switch
@@ -32,19 +37,15 @@ internal static class ProcessContext
         var rid => $"0x{rid:X4}",
     };
 
-    /// <summary>
-    /// Low 完整性会同时导致：跨进程 shell COM 被拒（0x80070005）、
-    /// ShellExecute 被拒（"拒绝访问"）、explorer.exe 启动失败（0xC0000142）。
-    /// 也就是说这种进程里"打开文件夹"无论如何都做不到。
-    /// </summary>
+    /// <summary>低于 Medium 就做不了 shell 相关的任何事。</summary>
     public static bool IsLowIntegrity => IntegrityRid is { } rid && rid < 0x2000;
 
     /// <summary>形如 "Medium (0x2000)"，用于界面与日志。</summary>
     public static string Describe() =>
         IntegrityRid is { } rid ? $"{IntegrityName} (0x{rid:X4})" : "未知";
 
-    /// <summary>交叉核对用：直接返回 whoami 里那行强制标签原文。</summary>
-    public static string ReadWhoAmIOutOfCuriosity()
+    /// <summary>交叉核对：返回 whoami 里那行强制标签原文（含 SID）。</summary>
+    public static string ReadWhoAmILabel()
     {
         try
         {
