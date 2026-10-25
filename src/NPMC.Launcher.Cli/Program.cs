@@ -8,6 +8,7 @@ using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
 using NPMC.Launcher.Core.Settings;
+using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Diagnostics;
 using NPMC.Launcher.Infrastructure.Hashing;
 using NPMC.Launcher.Infrastructure.Http;
@@ -1219,6 +1220,74 @@ internal static class Program
             catch (Exception ex)
             {
                 Warn($"项目 {key.ProjectId} 查询失败：{ex.GetBaseException().Message}");
+            }
+        }
+
+        // 3.5) CurseForge 作为补充：只处理 Modrinth 认领不到的文件
+        var curseForgeKey = CurseForgeClient.ResolveApiKey();
+        if (curseForgeKey is null)
+        {
+            Dim($"未配置 {CurseForgeClient.ApiKeyEnvironmentVariable}，跳过 CurseForge（只查 Modrinth）");
+        }
+        else
+        {
+            var unmatched = hashByPath
+                .Where(pair => !matchedCandidates.ContainsKey(pair.Value))
+                .ToList();
+
+            if (unmatched.Count == 0)
+            {
+                Dim("Modrinth 已认领全部文件，无需查询 CurseForge");
+            }
+            else
+            {
+                Dim($"Modrinth 未认领 {unmatched.Count} 个，转查 CurseForge（按指纹）…");
+                try
+                {
+                    var curseForge = new CurseForgeClient(http, curseForgeKey);
+
+                    // CurseForge 靠指纹识别，先算出来
+                    var pathByFingerprint = new Dictionary<uint, string>();
+                    foreach (var pair in unmatched)
+                    {
+                        try
+                        {
+                            pathByFingerprint[await MurmurHash2.ComputeFileAsync(pair.Key)] = pair.Key;
+                        }
+                        catch (Exception ex)
+                        {
+                            Warn($"指纹计算失败 {Path.GetFileName(pair.Key)}：{ex.GetBaseException().Message}");
+                        }
+                    }
+
+                    var matches = await curseForge.GetMatchesAsync(pathByFingerprint.Keys.ToList());
+                    Dim($"CurseForge 认领 {matches.Count} 个");
+
+                    foreach (var match in matches)
+                    {
+                        if (!pathByFingerprint.TryGetValue(match.Fingerprint, out var localPath)) continue;
+
+                        var currentCandidate = match.File.ToCandidate();
+                        matchedCandidates[hashByPath[localPath]] = currentCandidate;
+
+                        // 取该项目在当前游戏版本/加载器下的最新文件
+                        var files = await curseForge.GetFilesAsync(match.File.ModId, versionId, loaders);
+                        var newest = files.FirstOrDefault();
+                        if (newest is null) continue;
+
+                        // 文件列表通常不带下载地址，需要单独申请；
+                        // 作者禁止第三方下载时这里会拿到 null，于是不会被建议升级
+                        var url = newest.DownloadUrl
+                                  ?? await curseForge.TryGetDownloadUrlAsync(newest.ModId, newest.FileId);
+
+                        projectVersions[currentCandidate.Key] =
+                            new[] { currentCandidate, (newest with { DownloadUrl = url }).ToCandidate() };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Warn($"CurseForge 查询失败：{ex.GetBaseException().Message}");
+                }
             }
         }
 
