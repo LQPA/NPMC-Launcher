@@ -4,10 +4,14 @@ using System.Windows.Input;
 using Avalonia.Threading;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
+using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
 using NPMC.Launcher.Infrastructure.Diagnostics;
+using NPMC.Launcher.Infrastructure.Hashing;
+using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Launch;
+using NPMC.Launcher.Infrastructure.Modrinth;
 using NPMC.Launcher.Infrastructure.Storage;
 
 namespace NPMC.Launcher.App.ViewModels;
@@ -17,6 +21,11 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly LauncherPaths _launcher;
     private readonly ContentManager _contentManager = new();
     private readonly DispatcherTimer _logTimer;
+
+    // Modrinth 查询与文件下载共用同一个 HttpClient（连接池复用，UA 统一）
+    private readonly HttpClient _http = HttpFileDownloader.CreateClient();
+    private readonly HttpFileDownloader _downloader;
+    private readonly ModrinthClient _modrinth;
 
     private InstanceListItem? _selectedInstance;
     private ContentTabItem _selectedTab;
@@ -42,6 +51,9 @@ public sealed class MainWindowViewModel : ObservableObject
         _logTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _logTimer.Tick += (_, _) => _ = RefreshLogAsync();
 
+        _downloader = new HttpFileDownloader(_http);
+        _modrinth = new ModrinthClient(_http);
+
         RefreshCommand = new AsyncRelayCommand(LoadAsync, onError: ex => Status = $"刷新失败：{ex.Message}");
 
         OpenGameFolderCommand = new AsyncRelayCommand(OpenGameDirectory,
@@ -57,6 +69,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
         DisableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: false), () => CanBulk);
         EnableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: true), () => CanBulk);
+
+        CheckUpdatesCommand = new AsyncRelayCommand(CheckModUpdatesAsync, () => CanCheckUpdates);
 
         RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
 
@@ -383,6 +397,7 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(IsOverview));
             OnPropertyChanged(nameof(IsContentList));
             OnPropertyChanged(nameof(IsLogTab));
+            OnPropertyChanged(nameof(IsModsTab));
             OnPropertyChanged(nameof(ShowOverview));
             OnPropertyChanged(nameof(ShowContentList));
             OnPropertyChanged(nameof(ShowLog));
@@ -400,6 +415,9 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool IsContentList => SelectedTab.Kind == DetailTabKind.Content;
 
     public bool IsLogTab => SelectedTab.Kind == DetailTabKind.Log;
+
+    /// <summary>当前是否在模组页签（"检查更新"只对模组有意义）。</summary>
+    public bool IsModsTab => SelectedTab.ContentKind == ContentKind.Mod;
 
     public bool ShowOverview => HasSelection && IsOverview;
 
@@ -523,8 +541,9 @@ public sealed class MainWindowViewModel : ObservableObject
         if (version != _contentScanVersion) return;
 
         Content.Clear();
+        UpdateCount = 0;   // 列表重建后旧的升级标记已失效
         foreach (var entry in entries)
-            Content.Add(new ContentEntryItem(entry, ToggleAsync, DeleteAsync));
+            Content.Add(new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync));
 
         OnPropertyChanged(nameof(IsContentEmpty));
         RaiseCommandStates();
@@ -564,7 +583,7 @@ public sealed class MainWindowViewModel : ObservableObject
             var updated = await Task.Run(() => _contentManager.Toggle(item.Entry, directory));
 
             // 就地更新这一行：绝不重建集合，否则 ListBox 会丢失选中项（高亮乱跳）
-            item.Update(updated);
+            item.ApplyEntry(updated);
             Status = wasEnabled ? $"已禁用 {updated.Name}" : $"已启用 {updated.Name}";
         }
         catch (Exception ex)
@@ -615,7 +634,7 @@ public sealed class MainWindowViewModel : ObservableObject
             foreach (var item in targets)
             {
                 var updated = await Task.Run(() => _contentManager.Toggle(item.Entry, directory));
-                item.Update(updated);
+                item.ApplyEntry(updated);
                 changed++;
             }
 
@@ -714,6 +733,190 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         if (IsLogTab && SelectedInstance is not null) _logTimer.Start();
         else _logTimer.Stop();
+    }
+
+    // ---- 模组升级 ----
+
+    private bool _isCheckingUpdates;
+    private int _updateCount;
+
+    public bool IsCheckingUpdates
+    {
+        get => _isCheckingUpdates;
+        private set
+        {
+            if (!SetProperty(ref _isCheckingUpdates, value)) return;
+            OnPropertyChanged(nameof(CheckUpdatesText));
+            RaiseCommandStates();
+        }
+    }
+
+    public int UpdateCount
+    {
+        get => _updateCount;
+        private set
+        {
+            if (!SetProperty(ref _updateCount, value)) return;
+            OnPropertyChanged(nameof(HasUpdates));
+            OnPropertyChanged(nameof(UpdateSummaryText));
+        }
+    }
+
+    public bool HasUpdates => UpdateCount > 0;
+
+    public string UpdateSummaryText => UpdateCount > 0 ? $"{UpdateCount} 个可升级" : "";
+
+    public string CheckUpdatesText => IsCheckingUpdates ? "检查中…" : "检查更新";
+
+    public ICommand CheckUpdatesCommand { get; }
+
+    private bool CanCheckUpdates =>
+        SelectedTab.ContentKind == ContentKind.Mod
+        && SelectedInstance is not null
+        && Content.Count > 0
+        && !IsCheckingUpdates;
+
+    /// <summary>
+    /// 检查 mods 目录里的模组是否有新版本。
+    ///
+    /// 流程：本地 SHA1 → 批量反查 Modrinth → 按实例的游戏版本与加载器取版本列表
+    /// → 判定 → 把结果就地贴到对应的行上（不重建列表）。
+    /// </summary>
+    private async Task CheckModUpdatesAsync()
+    {
+        if (SelectedInstance is not { } instance || SelectedTab.ContentKind != ContentKind.Mod) return;
+
+        IsCheckingUpdates = true;
+        try
+        {
+            var items = Content.ToList();
+            if (items.Count == 0)
+            {
+                Status = "mods 目录里没有文件";
+                return;
+            }
+
+            // 1) 本地哈希
+            Status = $"正在计算 {items.Count} 个文件的哈希…";
+            var hashByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in items)
+            {
+                try
+                {
+                    hashByPath[item.Entry.Path] = await FileHashing.Sha1Async(item.Entry.Path);
+                }
+                catch (Exception ex)
+                {
+                    LauncherLog.Write(_launcher.Root, $"哈希失败 {item.Entry.Path} → {ex.GetBaseException().Message}");
+                }
+            }
+
+            if (hashByPath.Count == 0)
+            {
+                Status = "没有可读取的模组文件";
+                return;
+            }
+
+            // 2) 批量反查
+            Status = "正在查询 Modrinth…";
+            var matched = await _modrinth.GetVersionsByHashesAsync(hashByPath.Values.ToList());
+
+            // 3) 加载器（不按加载器过滤会把 Fabric 版本推给 Forge 整合包）
+            IReadOnlyList<string> loaders = Array.Empty<string>();
+            var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
+            if (version is not null) loaders = LoaderDetector.Detect(version);
+
+            // 4) 逐项目取版本列表
+            var projectVersions = new Dictionary<string, IReadOnlyList<ModrinthVersion>>();
+            foreach (var projectId in matched.Values.Select(v => v.ProjectId).Distinct())
+            {
+                try
+                {
+                    projectVersions[projectId] = await _modrinth.GetProjectVersionsAsync(
+                        projectId, instance.VersionId, loaders);
+                }
+                catch (Exception ex)
+                {
+                    LauncherLog.Write(_launcher.Root, $"项目 {projectId} 查询失败 → {ex.GetBaseException().Message}");
+                }
+            }
+
+            // 5) 判定
+            var localMods = hashByPath
+                .Select(pair => new LocalModInfo(
+                    pair.Key,
+                    Path.GetFileName(pair.Key),
+                    pair.Value,
+                    matched.TryGetValue(pair.Value, out var found) ? found : null))
+                .ToList();
+
+            var updates = UpdatePlanner.Plan(localMods, projectVersions);
+
+            // 6) 就地贴到行上
+            foreach (var item in items)
+                item.SetUpdate(updates.FirstOrDefault(update => update.LocalPath == item.Entry.Path));
+
+            UpdateCount = updates.Count;
+            Status = updates.Count == 0
+                ? $"检查完成：{items.Count} 个模组都已是当前版本（{matched.Count} 个能在 Modrinth 上认领）"
+                : $"检查完成：{updates.Count} 个可升级（共 {items.Count} 个，认领 {matched.Count} 个）";
+
+            LauncherLog.Write(_launcher.Root,
+                $"检查更新 {instance.Id}：文件 {items.Count}，认领 {matched.Count}，可升级 {updates.Count}，加载器 [{(loaders.Count == 0 ? "原版" : string.Join(",", loaders))}]");
+        }
+        catch (Exception ex)
+        {
+            Status = $"检查更新失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"检查更新失败 {instance.Id} → {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            IsCheckingUpdates = false;
+        }
+    }
+
+    /// <summary>供诊断用：直接触发一次更新检查并等待完成。</summary>
+    public Task CheckUpdatesAsync() => CheckModUpdatesAsync();
+
+    /// <summary>
+    /// 升级单个模组：下载新版 → 旧版移入 .trash → 刷新列表。
+    /// 注意新版文件名通常与旧版不同（版本号在文件名里），所以是"新增 + 移除旧"，
+    /// 不是覆盖。下载失败时不会动任何现有文件。
+    /// </summary>
+    private async Task UpgradeModAsync(ContentEntryItem item)
+    {
+        if (SelectedInstance is not { } instance || item.PendingUpdate is not { } update) return;
+        if (update.Latest.PrimaryFile is not { } file) return;
+
+        var modsDirectory = instance.ModsDirectory;
+        var destination = Path.Combine(modsDirectory, file.FileName);
+
+        try
+        {
+            Status = $"正在下载 {file.FileName}…";
+
+            var sha1 = string.IsNullOrWhiteSpace(file.Sha1) ? null : file.Sha1;
+            await _downloader.EnsureFromAsync(new[] { file.Url }, destination, sha1);
+
+            // 下载成功之后才动旧文件
+            var movedTo = _contentManager.Delete(item.Entry, modsDirectory);
+
+            Status = $"已升级 {item.Name}：{update.Current.VersionNumber} → {update.Latest.VersionNumber}"
+                   + $"（旧版在 {ContentScanner.TrashDirectoryName}\\{Path.GetFileName(movedTo)}）";
+
+            LauncherLog.Write(_launcher.Root,
+                $"升级 {item.Entry.FileName} → {file.FileName}（{update.Current.VersionNumber} → {update.Latest.VersionNumber}）");
+        }
+        catch (Exception ex)
+        {
+            Status = $"升级失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"升级失败 {item.Entry.FileName} → {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            // 文件集合变了（新增一个新版本、移走一个旧版本），整表刷新
+            await RefreshContentAsync();
+        }
     }
 
     // ---- 打开目录 ----
@@ -819,6 +1022,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private void RaiseCommandStates()
     {
         (LaunchGameCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (CheckUpdatesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (RefreshLogCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenGameFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenModsFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();

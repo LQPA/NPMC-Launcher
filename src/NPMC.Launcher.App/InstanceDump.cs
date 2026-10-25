@@ -116,6 +116,20 @@ internal static class InstanceDump
             }
         }
 
+        // 验证升级检查链路（会联网访问 Modrinth）
+        if (args.Any(arg => string.Equals(arg, "--exercise-updates", StringComparison.OrdinalIgnoreCase)))
+        {
+            viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
+            viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
+
+            lines.Add("");
+            lines.Add($"[升级检查] 可升级={viewModel.UpdateCount}");
+            lines.Add($"    status = {viewModel.Status}");
+
+            foreach (var item in viewModel.Content)
+                lines.Add($"    {(item.HasUpdate ? "可升级" : "已最新")}  {item.Name,-28} {item.UpdateText}");
+        }
+
         File.WriteAllLines(outputPath, lines);
         return true;
     }

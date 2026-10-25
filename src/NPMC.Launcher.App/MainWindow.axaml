@@ -198,7 +198,7 @@
               <ItemsControl ItemsSource="{Binding Content}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ContentEntryItem">
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="4,5">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
                       <StackPanel Spacing="2">
                         <TextBlock Text="{Binding Name}" FontSize="13" Foreground="#E8EAED"
                                    TextTrimming="CharacterEllipsis" />
@@ -206,14 +206,24 @@
                                    TextTrimming="CharacterEllipsis" />
                       </StackPanel>
 
-                      <TextBlock Grid.Column="1" Text="{Binding StatusText}" FontSize="11"
-                                 Foreground="#B4BCC8" VerticalAlignment="Center" Margin="10,0" />
+                      <!-- 可升级标记 -->
+                      <TextBlock Grid.Column="1" Text="{Binding UpdateText}" FontSize="11"
+                                 Foreground="#7BC47F" VerticalAlignment="Center" Margin="10,0"
+                                 IsVisible="{Binding HasUpdate}" />
 
-                      <Button Grid.Column="2" Content="{Binding ToggleText}"
+                      <Button Grid.Column="2" Content="升级"
+                              Command="{Binding UpgradeCommand}"
+                              FontSize="11" Padding="10,3" Margin="0,0,6,0"
+                              IsVisible="{Binding HasUpdate}" />
+
+                      <TextBlock Grid.Column="3" Text="{Binding StatusText}" FontSize="11"
+                                 Foreground="#B4BCC8" VerticalAlignment="Center" Margin="6,0" />
+
+                      <Button Grid.Column="4" Content="{Binding ToggleText}"
                               Command="{Binding ToggleCommand}"
                               FontSize="11" Padding="10,3" Margin="0,0,6,0" />
 
-                      <Button Grid.Column="3" Content="删除"
+                      <Button Grid.Column="5" Content="删除"
                               Command="{Binding DeleteCommand}"
                               FontSize="11" Padding="10,3" />
                     </Grid>
@@ -268,6 +278,13 @@
           <Button Content="打开当前文件夹" Command="{Binding OpenContentFolderCommand}" />
           <Button Content="全部禁用" Command="{Binding DisableAllCommand}" />
           <Button Content="全部启用" Command="{Binding EnableAllCommand}" />
+
+          <!-- 检查更新只对模组有意义 -->
+          <Button Content="{Binding CheckUpdatesText}" Command="{Binding CheckUpdatesCommand}"
+                  IsVisible="{Binding IsModsTab}" />
+
+          <TextBlock Text="{Binding UpdateSummaryText}" IsVisible="{Binding HasUpdates}"
+                     Foreground="#7BC47F" FontSize="12" VerticalAlignment="Center" Margin="4,0,0,0" />
         </StackPanel>
       </Grid>
     </Grid>

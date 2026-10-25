@@ -1,14 +1,17 @@
 using System.Windows.Input;
 using NPMC.Launcher.Core.Content;
+using NPMC.Launcher.Core.Mods;
 
 namespace NPMC.Launcher.App.ViewModels;
 
 /// <summary>
 /// 内容列表里的一行。
 ///
-/// 关键约束：启用/禁用之后**必须就地更新这一行**，不能重建集合。
-/// 曾经的做法是 Content.Clear() 再全量重填，结果 ListBox 的选中项被清空，
-/// 表现为"点禁用后高亮跳到别的行再跳回来"。
+/// 两条关键约束：
+///   1. 启用/禁用之后**必须就地更新这一行**，不能重建集合 ——
+///      重建会让列表丢失选中项，表现为"点禁用后高亮跳到别的行再跳回来"。
+///   2. 升级提示（<see cref="PendingUpdate"/>）也是就地贴上去的，
+///      检查更新不该引起列表重建。
 ///
 /// 命令挂在条目自己身上而不是窗口 VM 上：
 ///   XAML 里不需要写 <c>$parent[Window].DataContext...</c> 这类跨层绑定，
@@ -17,15 +20,19 @@ namespace NPMC.Launcher.App.ViewModels;
 public sealed class ContentEntryItem : ObservableObject
 {
     private ContentEntry _entry;
+    private ModUpdate? _pendingUpdate;
 
     public ContentEntryItem(
         ContentEntry entry,
         Func<ContentEntryItem, Task> toggle,
-        Func<ContentEntryItem, Task> delete)
+        Func<ContentEntryItem, Task> delete,
+        Func<ContentEntryItem, Task>? upgrade = null)
     {
         _entry = entry;
+
         ToggleCommand = new AsyncRelayCommand(() => toggle(this));
         DeleteCommand = new AsyncRelayCommand(() => delete(this));
+        UpgradeCommand = new AsyncRelayCommand(() => upgrade?.Invoke(this) ?? Task.CompletedTask);
     }
 
     public ContentEntry Entry => _entry;
@@ -43,9 +50,30 @@ public sealed class ContentEntryItem : ObservableObject
 
     public ICommand ToggleCommand { get; }
     public ICommand DeleteCommand { get; }
+    public ICommand UpgradeCommand { get; }
 
-    /// <summary>用切换后的条目替换自身数据，只发属性通知，不动所在的集合。</summary>
-    public void Update(ContentEntry entry)
+    // ---- 升级提示 ----
+
+    /// <summary>检查更新后贴上的升级信息；为 null 表示没有可用更新。</summary>
+    public ModUpdate? PendingUpdate => _pendingUpdate;
+
+    public bool HasUpdate => _pendingUpdate is not null;
+
+    public string UpdateText => _pendingUpdate is null
+        ? ""
+        : $"{_pendingUpdate.Current.VersionNumber} → {_pendingUpdate.Latest.VersionNumber}";
+
+    public void SetUpdate(ModUpdate? update)
+    {
+        _pendingUpdate = update;
+
+        OnPropertyChanged(nameof(PendingUpdate));
+        OnPropertyChanged(nameof(HasUpdate));
+        OnPropertyChanged(nameof(UpdateText));
+    }
+
+    /// <summary>用切换/改名后的条目替换自身数据，只发属性通知，不动所在的集合。</summary>
+    public void ApplyEntry(ContentEntry entry)
     {
         _entry = entry;
 
