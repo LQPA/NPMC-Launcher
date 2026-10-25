@@ -18,6 +18,7 @@ using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Modrinth;
 using NPMC.Launcher.Infrastructure.Mods;
 using NPMC.Launcher.Infrastructure.Modpacks;
+using NPMC.Launcher.Infrastructure.Runtime;
 using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Storage;
 using NPMC.Launcher.Infrastructure.Translation;
@@ -2066,6 +2067,9 @@ public sealed class MainWindowViewModel : ObservableObject
             // 名称默认跟随版本；用户手改过就不再覆盖
             SyncInstanceNameFromSelection();
 
+            // 该版本需要哪个 Java、本机有没有，选中就去查
+            _ = RefreshJavaStateAsync();
+
             // 换了游戏版本，旧加载器列表不再适用
             FabricLoaderVersions.Clear();
             SelectedFabricLoader = null;
@@ -2080,6 +2084,109 @@ public sealed class MainWindowViewModel : ObservableObject
     public string DownloadVersionSubtitle => _selectedDownloadVersion is { } version
         ? $"{version.TypeLabel} · 发布于 {version.ReleasedText}"
         : "请选择一个版本";
+
+    // ---- Java 运行时 ----
+
+    private bool _installJava = true;
+    private bool _javaInstalled;
+    private string _javaStatusText = "";
+    private string _requiredJavaComponent = "java-runtime-gamma";
+    private int _requiredJavaMajor = 21;
+
+    /// <summary>是否顺带下载该版本所需的 Java 运行时。</summary>
+    public bool InstallJava
+    {
+        get => _installJava;
+        set => SetProperty(ref _installJava, value);
+    }
+
+    public bool IsJavaInstalled => _javaInstalled;
+
+    /// <summary>Java 状况的一行说明（缺不缺、装在哪）。</summary>
+    public string JavaStatusText
+    {
+        get => _javaStatusText;
+        private set => SetProperty(ref _javaStatusText, value);
+    }
+
+    /// <summary>
+    /// 读版本 JSON 得知所需的 Java 组件与主版本，再看本机是否已有。
+    ///
+    /// 不能一律用 java-runtime-gamma：新版需要更新的运行时（1.20.5+ 是 Java 21），
+    /// 而 1.16 及更早需要 Java 8。具体用哪个只能问版本元数据。
+    /// </summary>
+    private int _javaToken;
+
+    private async Task RefreshJavaStateAsync()
+    {
+        if (_selectedDownloadVersion is not { } selected) return;
+
+        // 快速切换版本时，先发出的查询可能后返回，把新版本的结果冲掉。
+        // 用序号只让"最后一次"写回。
+        var token = ++_javaToken;
+
+        try
+        {
+            var installer = await CreateMinecraftInstallerAsync();
+            var version = await installer.LoadVersionAsync(_launcher, selected.Id);
+
+            if (token != _javaToken) return;
+
+            _requiredJavaComponent = version.JavaVersion?.Component is { Length: > 0 } component
+                ? component
+                : "java-runtime-gamma";
+
+            _requiredJavaMajor = version.JavaVersion?.MajorVersion ?? 21;
+
+            var exe = _launcher.JavaExe(_requiredJavaComponent);
+            _javaInstalled = File.Exists(exe);
+
+            OnPropertyChanged(nameof(IsJavaInstalled));
+
+            JavaStatusText = _javaInstalled
+                ? $"已安装 Java {_requiredJavaMajor}（{_requiredJavaComponent}）"
+                : $"缺少 Java {_requiredJavaMajor}，安装时会自动下载 {_requiredJavaComponent}";
+
+            // 已经装了就不必再勾着
+            InstallJava = !_javaInstalled;
+        }
+        catch (Exception ex)
+        {
+            JavaStatusText = $"无法确认 Java 需求：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"查询 Java 需求失败 → {ex.GetBaseException().Message}");
+        }
+    }
+
+    /// <summary>按需安装该版本所需的 Java 运行时。</summary>
+    private async Task InstallJavaIfNeededAsync(IProgress<string>? progress)
+    {
+        if (!InstallJava) return;
+
+        if (File.Exists(_launcher.JavaExe(_requiredJavaComponent)))
+        {
+            _javaInstalled = true;
+            OnPropertyChanged(nameof(IsJavaInstalled));
+            return;
+        }
+
+        progress?.Report($"正在下载 Java 运行时 {_requiredJavaComponent}…");
+
+        var settings = await new JsonSettingsStore(_launcher).LoadAsync();
+        var runtime = new MojangRuntimeInstaller(_downloader, _downloader.GetStringAsync);
+
+        var result = await runtime.InstallAsync(
+            "windows-x64",
+            _requiredJavaComponent,
+            _launcher,
+            settings.DownloadConcurrency);
+
+        _javaInstalled = true;
+        OnPropertyChanged(nameof(IsJavaInstalled));
+
+        JavaStatusText = $"已安装 Java {_requiredJavaMajor}（{result.TotalFiles} 个文件）";
+        LauncherLog.Write(_launcher.Root,
+            $"Java 运行时 {_requiredJavaComponent} 安装完成：{result.TotalFiles} 个文件，失败 {result.Failures.Count} 个");
+    }
 
     // ---- Fabric 加载器版本 ----
 
@@ -2359,6 +2466,10 @@ public sealed class MainWindowViewModel : ObservableObject
                              + $"（新下载 {result.AssetsDownloaded} 个 / {result.AssetBytes / 1024d / 1024d:N1} MB）"
                              + (result.Failures.Count > 0 ? $"，失败 {result.Failures.Count} 个" : "");
 
+            // Java 运行时：版本元数据要求哪个组件就装哪个（缺了才下）
+            await InstallJavaIfNeededAsync(new Progress<string>(message => DownloadProgressText = message));
+
+
             // 可选：装 Fabric，并把实例指向 Fabric 的 profile 版本
             var instanceVersionId = choice.Id;
 
@@ -2381,7 +2492,10 @@ public sealed class MainWindowViewModel : ObservableObject
             var catalog = new InstanceCatalog(await store.LoadAsync());
 
             var name = EffectiveInstanceName;
-            var instance = catalog.Add(name, instanceVersionId);
+            // 记下 Java 组件，启动时就不必再猜
+            var instance = catalog.Add(name, instanceVersionId, settings: _javaInstalled
+                ? new InstanceSettings { JavaComponent = _requiredJavaComponent }
+                : null);
 
             await store.SaveAsync(catalog.Instances);
 

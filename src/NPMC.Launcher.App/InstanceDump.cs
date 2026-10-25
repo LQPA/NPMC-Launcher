@@ -328,6 +328,22 @@ internal static class InstanceDump
             // 按钮是否可点，取决于命令的 CanExecute —— 这里直接问它，而不是看界面
             lines.Add($"    下载按钮可用 = {viewModel.DownloadCommand.CanExecute(null)}");
 
+            // Java 运行时状态：已装与缺少两种情况都要能看到
+            lines.Add("");
+            lines.Add("[Java 运行时]");
+
+            foreach (var probeId in new[] { "1.20.1", viewModel.DownloadVersions.FirstOrDefault()?.Id })
+            {
+                if (string.IsNullOrWhiteSpace(probeId)) continue;
+
+                var probe = viewModel.DownloadVersions.FirstOrDefault(item => item.Id == probeId);
+                if (probe is null) continue;
+
+                viewModel.SelectedDownloadVersion = probe;
+                Thread.Sleep(2500);
+
+                lines.Add($"    {probeId,-14} {viewModel.JavaStatusText}   勾选={viewModel.InstallJava}");
+            }
             // 名称跟随、加载器选择、重名拦截
             if (viewModel.DownloadVersions.Count >= 3)
             {

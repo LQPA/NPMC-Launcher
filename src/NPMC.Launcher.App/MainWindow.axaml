@@ -602,6 +602,12 @@
                   </ComboBox>
                 </Grid>
 
+                <!-- Java 运行时：换机器也不用自己去装 JDK -->
+                <CheckBox Content="同时安装所需的 Java 运行时"
+                          IsChecked="{Binding InstallJava}" FontSize="12" />
+                <TextBlock Text="{Binding JavaStatusText}" FontSize="10" Foreground="#7BC47F"
+                           TextWrapping="Wrap" Margin="0,-6,0,0" />
+
                 <Grid ColumnDefinitions="64,*">
                   <TextBlock Text="实例名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                   <TextBox Grid.Column="1" Text="{Binding DownloadInstanceName}"
