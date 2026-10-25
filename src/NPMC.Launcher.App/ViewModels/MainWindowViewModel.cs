@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using Avalonia.Media.Imaging;
 using System.Text;
 using System.Windows.Input;
@@ -35,7 +35,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly ModrinthClient _modrinth;
     private readonly ModInstaller _installer;
     private readonly IconLoader _icons;
-    private readonly ContentIconCache _contentIcons;
+    private readonly ContentMetadataCache _contentMetadata;
     private readonly HashSet<string> _autoIdentifiedInstances = new(StringComparer.OrdinalIgnoreCase);
     private readonly TranslationClient _translation;
     private string? _descriptionLanguage;
@@ -75,7 +75,7 @@ public sealed class MainWindowViewModel : ObservableObject
             Path.Combine(_launcher.Root, "cache", "icons"),
             message => LauncherLog.Write(_launcher.Root, message));
 
-        _contentIcons = new ContentIconCache(Path.Combine(_launcher.Root, "cache"));
+        _contentMetadata = new ContentMetadataCache(Path.Combine(_launcher.Root, "cache"));
         _translation = new TranslationClient(_http, Path.Combine(_launcher.Root, "cache", "translations"));
 
         if (CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out _) && curseForgeKey is not null)
@@ -713,10 +713,10 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsContentEmpty));
         RaiseCommandStates();
 
-        // 图标不依赖"检查更新"：先用记住的地址（磁盘缓存，无网络），再后台识别一次。
+        // 徽标/R·B·A/图标都不依赖"检查更新"：先用缓存，再后台识别一次。
         // 资源包与光影同样适用 —— 它们也能按哈希被认领，只是不按加载器过滤。
         if (Content.Count > 0)
-            _ = LoadContentIconsAsync(instance, contentKind, Content.ToList());
+            _ = LoadContentMetadataAsync(instance, contentKind, Content.ToList());
     }
 
     /// <summary>刷新左侧实例行的数量、三个页签的数量，以及概览处目录入口的可见性。</summary>
@@ -996,7 +996,7 @@ public sealed class MainWindowViewModel : ObservableObject
             Status = DescribeReport(items.Count, report);
 
             // 图标后补：不影响列表出现
-            _ = LoadContentIconsAsync(items, report);
+            _ = SaveMetadataAsync(items, report);
 
             LauncherLog.Write(_launcher.Root,
                 $"检查更新 {instance.Id}：文件 {items.Count}，Modrinth {report.ModrinthMatches}，"
@@ -1358,20 +1358,26 @@ public sealed class MainWindowViewModel : ObservableObject
     /// 模组、资源包、光影用的是同一套逻辑：哈希认领与图标都与内容类型无关，
     /// 唯一的差别是**只有模组按加载器过滤**。
     /// </summary>
-    private async Task LoadContentIconsAsync(
+    private async Task LoadContentMetadataAsync(
         InstanceListItem instance,
         ContentKind kind,
         IReadOnlyList<ContentEntryItem> items)
     {
+        // 1) 先用记住的结果：徽标、R/B/A、图标全部离线可用
         foreach (var item in items)
         {
-            if (!_contentIcons.TryGetIconUrl(item.Entry.FileName, out var rememberedUrl)) continue;
+            if (!_contentMetadata.TryGet(item.Entry.FileName, out var remembered)) continue;
 
-            var remembered = await _icons.GetAsync(rememberedUrl);
-            if (remembered is not null) item.Icon = remembered;
+            if (remembered.Identified)
+                item.SetIdentification(remembered.Source, remembered.Channel);
+
+            if (string.IsNullOrWhiteSpace(remembered.IconUrl)) continue;
+
+            var icon = await _icons.GetAsync(remembered.IconUrl);
+            if (icon is not null) item.Icon = icon;
         }
 
-        // 同实例同类型只自动识别一次（换成按"实例 + 类型"记，否则第二个页签会被跳过）
+        // 2) 该实例的该页签首次打开时，后台识别一次（只认领，不查版本）
         if (!_autoIdentifiedInstances.Add($"{instance.Id}:{kind}")) return;
 
         try
@@ -1408,25 +1414,36 @@ public sealed class MainWindowViewModel : ObservableObject
                 if (!item.IsIdentified)
                     item.SetIdentification(local.Matched?.Source, local.Matched?.Channel);
 
-                if (local.Matched is not { Source: UpdateSource.Modrinth } matched) continue;
-                if (!projects.TryGetValue(matched.ProjectId, out var project)) continue;
+                var iconUrl = "";
 
-                _contentIcons.Set(item.Entry.FileName, project.IconUrl);
+                if (local.Matched is { Source: UpdateSource.Modrinth } matched
+                    && projects.TryGetValue(matched.ProjectId, out var project))
+                {
+                    iconUrl = project.IconUrl;
 
-                var icon = await _icons.GetAsync(project.IconUrl);
-                if (icon is not null) item.Icon = icon;
+                    var icon = await _icons.GetAsync(iconUrl);
+                    if (icon is not null) item.Icon = icon;
+                }
+
+                // 落盘：来源与版本通道也要记住，否则重启后徽标又得重新联网识别
+                _contentMetadata.Set(item.Entry.FileName, new ContentMetadata(
+                    Identified: true,
+                    local.Matched?.Source,
+                    local.Matched?.Channel,
+                    iconUrl));
             }
 
-            _contentIcons.Save();
+            _contentMetadata.Save();
         }
         catch (Exception ex)
         {
-            LauncherLog.Write(_launcher.Root, $"自动识别内容图标失败 → {ex.GetBaseException().Message}");
+            LauncherLog.Write(_launcher.Root, $"自动识别内容失败 → {ex.GetBaseException().Message}");
         }
     }
 
     /// <summary>逐个补齐搜索结果图标；取不到的留空，不阻塞列表。</summary>
-    private async Task LoadSearchIconsAsync(IReadOnlyList<ModSearchResultItem> items)    {
+    private async Task LoadSearchIconsAsync(IReadOnlyList<ModSearchResultItem> items)
+    {
         foreach (var item in items)
         {
             var icon = await _icons.GetAsync(item.IconUrl);
@@ -1435,47 +1452,57 @@ public sealed class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 给内容列表里已识别的模组补图标。
-    /// 项目信息用**一次批量请求**拿（`/v2/projects?ids=[...]`），不是逐个查。
+    /// 完整检查之后，把认领结果（来源 / R·B·A / 图标）写进持久缓存。
+    /// 这样下次启动不用再联网，徽标与通道立即可见。
     /// </summary>
-    private async Task LoadContentIconsAsync(
+    private async Task SaveMetadataAsync(
         IReadOnlyList<ContentEntryItem> items,
         ModUpdateReport report)
     {
-        var projectIds = report.LocalMods
-            .Where(local => local.Matched?.Source == UpdateSource.Modrinth)
-            .Select(local => local.Matched!.ProjectId)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        if (projectIds.Count == 0) return;
-
         try
         {
-            var projects = await _modrinth.GetProjectsAsync(projectIds);
-            var byPath = report.LocalMods.ToDictionary(local => local.Path, StringComparer.OrdinalIgnoreCase);
+            var projectIds = report.LocalMods
+                .Where(local => local.Matched?.Source == UpdateSource.Modrinth)
+                .Select(local => local.Matched!.ProjectId)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
 
-            var loaded = 0;
+            var projects = projectIds.Count == 0
+                ? new Dictionary<string, ModrinthProject>()
+                : (IReadOnlyDictionary<string, ModrinthProject>)await _modrinth.GetProjectsAsync(projectIds);
+
+            var byPath = report.LocalMods.ToDictionary(local => local.Path, StringComparer.OrdinalIgnoreCase);
 
             foreach (var item in items)
             {
                 if (!byPath.TryGetValue(item.Entry.Path, out var local)) continue;
-                if (local.Matched is not { Source: UpdateSource.Modrinth } matched) continue;
-                if (!projects.TryGetValue(matched.ProjectId, out var project)) continue;
 
-                var icon = await _icons.GetAsync(project.IconUrl);
-                if (icon is null) continue;
+                var iconUrl = "";
 
-                item.Icon = icon;
-                loaded++;
+                if (local.Matched is { Source: UpdateSource.Modrinth } matched
+                    && projects.TryGetValue(matched.ProjectId, out var project))
+                {
+                    iconUrl = project.IconUrl;
+
+                    var icon = await _icons.GetAsync(iconUrl);
+                    if (icon is not null) item.Icon = icon;
+                }
+
+                _contentMetadata.Set(item.Entry.FileName, new ContentMetadata(
+                    Identified: true,
+                    local.Matched?.Source,
+                    local.Matched?.Channel,
+                    iconUrl));
             }
 
+            _contentMetadata.Save();
+
             LauncherLog.Write(_launcher.Root,
-                $"内容图标：项目 {projectIds.Count} 个，载入 {loaded}/{items.Count} 个");
+                $"内容识别已缓存：{items.Count} 个文件，Modrinth 项目 {projectIds.Count} 个");
         }
         catch (Exception ex)
         {
-            LauncherLog.Write(_launcher.Root, $"内容图标失败 → {ex.GetBaseException().Message}");
+            LauncherLog.Write(_launcher.Root, $"缓存内容识别失败 → {ex.GetBaseException().Message}");
         }
     }
 
