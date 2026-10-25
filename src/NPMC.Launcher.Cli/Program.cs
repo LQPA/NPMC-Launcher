@@ -9,6 +9,7 @@ using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Mirrors;
+using NPMC.Launcher.Infrastructure.Network;
 using NPMC.Launcher.Infrastructure.Runtime;
 using NPMC.Launcher.Infrastructure.Storage;
 
@@ -706,7 +707,7 @@ internal static class Program
                 var isFakeIp = bytes.Length == 4 && bytes[0] == 198 && (bytes[1] == 18 || bytes[1] == 19);
 
                 description = isFakeIp
-                    ? $"  [{first} → 经 TUN/代理]"
+                    ? $"  [{first} fake-IP]"
                     : $"  [{first}]";
             }
         }
@@ -773,16 +774,21 @@ internal static class Program
                 warnings.Add("没有 17+ 的 Java：1.20.1 及以上需要 Java 17。");
         }
 
-        Section("网络路径");
+        Section("网络路径（fake-IP 只说明 TUN 接管了 DNS，不代表走代理）");
         foreach (var host in new[] { "launchermeta.mojang.com", "piston-meta.mojang.com", "bmclapi2.bangbang93.com" })
         {
-            var url = $"https://{host}/";
-            Info($"{host,-32}{TrimPath(DescribeNetworkPath(url))}");
+            var systemAddresses = NetworkDiagnostics.ResolveSystem(host);
+            var publicAddresses = await NetworkDiagnostics.ResolvePublicAsync(host, http);
+            var fakeIp = systemAddresses.Any(NetworkDiagnostics.IsFakeIp);
+
+            Info(host);
+            Dim($"  系统解析  {(systemAddresses.Count > 0 ? string.Join(", ", systemAddresses) : "(失败)")}{(fakeIp ? "   ← fake-IP" : "")}");
+            Dim($"  公共解析  {(publicAddresses.Count > 0 ? string.Join(", ", publicAddresses) : "(查询失败)")}");
         }
 
-        var mirrorEntry = "https://bmclapi2.bangbang93.com/";
-        if (DescribeNetworkPath(mirrorEntry).Contains("TUN", StringComparison.Ordinal))
-            warnings.Add("BMCLAPI 流量经过本机代理（fake-IP）：测速会失真且可能更慢。建议把 bangbang93.com / sakura.sld.tw / openbmclapi.* 在代理规则里设为 DIRECT。");
+        var mirrorAddresses = NetworkDiagnostics.ResolveSystem("bmclapi2.bangbang93.com");
+        if (mirrorAddresses.Any(NetworkDiagnostics.IsFakeIp))
+            warnings.Add("本机 TUN 接管了 DNS（fake-IP）：域名被解析成 198.18.x 假地址。这不代表流量走代理 —— 走向由代理规则决定，DIRECT 规则下 DNS 依然返回假地址。要判断规则是否生效，请看下面下载源的实测耗时，或到代理软件的「连接」页查该连接命中的规则。");
 
         Section("下载源连通性（各取前 512 字节）");
         foreach (var target in router.Resolve(VersionManifestSource.OfficialManifestUrl, ResourceKind.VersionManifest))
@@ -848,9 +854,6 @@ internal static class Program
     }
 
     private static string YesNo(bool value) => value ? "是" : "否";
-
-    /// <summary>去掉 DescribeNetworkPath 前面的两个空格，便于对齐输出。</summary>
-    private static string TrimPath(string description) => description.TrimStart();
 
     private static bool TryWriteProbe(string directory)
     {
