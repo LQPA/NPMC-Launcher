@@ -88,31 +88,91 @@ public sealed class CurseForgeClient
         _apiKey = apiKey;
     }
 
-    /// <summary>读取 API key；未配置时返回 null。</summary>
-    public static string? ResolveApiKey()
+    /// <summary>读取 API key；未配置或格式不合法时返回 null。</summary>
+    public static string? ResolveApiKey() => TryResolveApiKey(out var apiKey, out _) ? apiKey : null;
+
+    /// <summary>
+    /// 读取并校验 API key。失败时通过 <paramref name="problem"/> 给出可操作的原因。
+    ///
+    /// 为什么需要校验：CurseForge 的 key 形如 <c>$2a$10$...</c>（bcrypt 格式）。
+    /// 在 PowerShell 里用**双引号**设置时，<c>$</c> 后面的部分会被当成变量展开，
+    /// key 于是被悄悄改坏；.NET 发请求时才抛
+    /// "Request headers must contain only ASCII characters"，很难看出根因。
+    /// 这里提前检查并给出"请用单引号"的提示。
+    /// </summary>
+    public static bool TryResolveApiKey(out string? apiKey, out string? problem)
     {
-        var fromEnvironment = Environment.GetEnvironmentVariable(ApiKeyEnvironmentVariable);
-        if (!string.IsNullOrWhiteSpace(fromEnvironment)) return fromEnvironment.Trim();
+        apiKey = null;
+        problem = null;
 
-        try
+        var raw = Environment.GetEnvironmentVariable(ApiKeyEnvironmentVariable);
+
+        if (string.IsNullOrWhiteSpace(raw))
         {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "NPMC-Launcher",
-                "curseforge.key");
-
-            if (File.Exists(path))
+            try
             {
-                var text = File.ReadAllText(path).Trim();
-                if (text.Length > 0) return text;
+                var path = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "NPMC-Launcher",
+                    "curseforge.key");
+
+                if (File.Exists(path)) raw = File.ReadAllText(path);
+            }
+            catch
+            {
+                // 读不到就当未配置
             }
         }
-        catch
+
+        if (string.IsNullOrWhiteSpace(raw))
         {
-            // 读不到就当未配置
+            problem = $"未配置 {ApiKeyEnvironmentVariable}";
+            return false;
         }
 
-        return null;
+        var cleaned = Sanitize(raw);
+
+        if (cleaned.Length == 0)
+        {
+            problem = "API key 为空";
+            return false;
+        }
+
+        foreach (var character in cleaned)
+        {
+            if (character is >= (char)0x20 and <= (char)0x7E) continue;
+
+            problem = $"API key 含有非 ASCII 字符（U+{(int)character:X4}）。"
+                    + "多半是 PowerShell 双引号把 $ 开头的部分当成变量展开了 —— 请用单引号重新设置："
+                    + " setx CURSEFORGE_API_KEY '$2a$10$...'";
+            return false;
+        }
+
+        apiKey = cleaned;
+        return true;
+    }
+
+    /// <summary>去掉 BOM、零宽字符与首尾空白/换行 —— 复制粘贴常带这些。</summary>
+    private static string Sanitize(string value)
+    {
+        var buffer = new System.Text.StringBuilder(value.Length);
+
+        foreach (var character in value)
+        {
+            switch (character)
+            {
+                case '\uFEFF':   // BOM
+                case '\u200B':   // 零宽空格
+                case '\u200E':
+                case '\u200F':
+                    continue;
+                default:
+                    buffer.Append(character);
+                    break;
+            }
+        }
+
+        return buffer.ToString().Trim();
     }
 
     /// <summary>按指纹批量识别文件。查不到的指纹不会出现在结果里。</summary>

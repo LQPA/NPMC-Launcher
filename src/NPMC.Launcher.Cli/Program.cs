@@ -1238,10 +1238,10 @@ internal static class Program
         }
 
         // 3.5) CurseForge 作为补充：只处理 Modrinth 认领不到的文件
-        var curseForgeKey = CurseForgeClient.ResolveApiKey();
-        if (curseForgeKey is null)
+        if (!CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out var curseForgeProblem)
+            || curseForgeKey is null)
         {
-            Dim($"未配置 {CurseForgeClient.ApiKeyEnvironmentVariable}，跳过 CurseForge（只查 Modrinth）");
+            Warn($"跳过 CurseForge：{curseForgeProblem ?? "未配置"}");
         }
         else
         {
