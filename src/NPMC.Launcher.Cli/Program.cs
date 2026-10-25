@@ -1119,8 +1119,190 @@ internal static class Program
         {
             "check" => await ModsCheckAsync(args[1..]),
             "cf-probe" => await CurseForgeProbeAsync(args[1..]),
+            "search" => await ModsSearchAsync(args[1..]),
+            "install" => await ModsInstallAsync(args[1..]),
             _ => Unknown($"mods {args[0]}"),
         };
+    }
+
+    /// <summary>命令行里"要往哪个 mods 目录装/查"的公共解析：实例优先，其次裸版本号。</summary>
+    private sealed record ModTarget(
+        LauncherPaths Paths,
+        string VersionId,
+        string ModsDirectory,
+        IReadOnlyList<string> Loaders,
+        LauncherInstance? Instance);
+
+    private static async Task<ModTarget> ResolveModTargetAsync(string[] args)
+    {
+        var launcher = new LauncherPaths(ResolveRoot(args));
+        var instanceId = Opt(args, "--instance");
+
+        LauncherInstance? instance = null;
+        InstanceLayout? layout = null;
+        string versionId;
+
+        if (!string.IsNullOrWhiteSpace(instanceId))
+        {
+            var catalog = new InstanceCatalog(await new JsonInstanceStore(launcher).LoadAsync());
+            instance = catalog.Find(instanceId!)
+                       ?? throw new InvalidOperationException($"找不到实例 '{instanceId}'。用 npmc instance list 查看。");
+
+            layout = new InstanceLayout(launcher, instance);
+            versionId = instance.VersionId;
+        }
+        else
+        {
+            versionId = Opt(args, "--version") ?? Required(args);
+        }
+
+        var paths = layout?.Paths ?? launcher;
+        var gameDirectory = layout?.GameDirectory ?? launcher.Root;
+        var modsDirectory = Path.Combine(gameDirectory, "mods");
+
+        var version = await GameLauncher.TryLoadInstalledVersionAsync(paths, versionId);
+        IReadOnlyList<string> loaders = version is null
+            ? Array.Empty<string>()
+            : LoaderDetector.Detect(version);
+
+        return new ModTarget(paths, versionId, modsDirectory, loaders, instance);
+    }
+
+    /// <summary>
+    /// 取出位置参数（跳过 --flag 以及它所带的值）。
+    ///
+    /// 不能简单用"所有不以 -- 开头的参数"：那样会把 <c>--version 1.20.1</c> 的值、
+    /// <c>--root</c> 的路径都拼进搜索关键词里，导致搜索必然无结果。
+    /// </summary>
+    private static List<string> Positionals(string[] args, params string[] valueFlags)
+    {
+        var result = new List<string>();
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var argument = args[i];
+
+            if (argument.StartsWith("--", StringComparison.Ordinal))
+            {
+                if (valueFlags.Any(flag => string.Equals(flag, argument, StringComparison.OrdinalIgnoreCase)))
+                    i++;   // 跳过它的值
+
+                continue;
+            }
+
+            result.Add(argument);
+        }
+
+        return result;
+    }
+
+    private static async Task<int> ModsSearchAsync(string[] args)
+    {
+        var query = string.Join(" ", Positionals(args, "--instance", "--version", "--root", "--limit"));
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            Error("用法: npmc mods search <关键词> [--instance <Id> | --version <版本>] [--root <目录>] [--limit N]");
+            return 1;
+        }
+
+        var limit = int.TryParse(Opt(args, "--limit"), out var parsed) && parsed > 0 ? parsed : 10;
+        var target = await ResolveModTargetAsync(args);
+
+        Section($"搜索 “{query}”");
+        Info($"版本     {target.VersionId}");
+        Info($"加载器   {(target.Loaders.Count > 0 ? string.Join(", ", target.Loaders) : "原版 / 未知")}");
+
+        using var http = HttpFileDownloader.CreateClient();
+        var client = new ModrinthClient(http);
+
+        var hits = await client.SearchAsync(query, target.VersionId, target.Loaders, limit);
+
+        if (hits.Count == 0)
+        {
+            Warn("没有结果 —— 该游戏版本/加载器下可能没有匹配项目");
+            return 0;
+        }
+
+        Section("结果");
+        foreach (var hit in hits)
+        {
+            var description = hit.Description.Length <= 56 ? hit.Description : hit.Description[..56] + "…";
+            Console.WriteLine($"  {hit.DisplayName}");
+            Dim($"    {hit.Slug}   下载 {hit.Downloads:N0}   {description}");
+        }
+
+        Dim("\n用 npmc mods install <slug> 安装（会自动解析必需依赖）");
+        return 0;
+    }
+
+    private static async Task<int> ModsInstallAsync(string[] args)
+    {
+        var project = Positionals(args, "--instance", "--version", "--root").FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(project))
+        {
+            Error("用法: npmc mods install <slug|项目Id> [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease] [--latest-deps] [--yes]");
+            Dim("  --latest-deps  忽略作者钉死的依赖版本，改用该项目当前最新正式版");
+            return 1;
+        }
+
+        var target = await ResolveModTargetAsync(args);
+
+        using var http = HttpFileDownloader.CreateClient();
+        var installer = ModInstaller.Create(http);
+
+        Section($"安装 {project}");
+        Info($"版本     {target.VersionId}");
+        Info($"加载器   {(target.Loaders.Count > 0 ? string.Join(", ", target.Loaders) : "原版 / 未知")}");
+        Info($"mods     {target.ModsDirectory}");
+
+        InstallPlan plan;
+        try
+        {
+            plan = await installer.ResolveAsync(
+                project!,
+                target.VersionId,
+                target.Loaders,
+                Has(args, "--prerelease"),
+                Has(args, "--latest-deps"));
+        }
+        catch (Exception ex)
+        {
+            Error($"解析失败：{ex.GetBaseException().Message}");
+            return 1;
+        }
+
+        Section($"计划（{plan.Targets.Count} 个文件）");
+        foreach (var item in plan.Main)
+            Console.WriteLine($"  主体   {item.DisplayName}   {item.VersionLabel}   {item.FileName}");
+
+        foreach (var item in plan.Dependencies)
+            Console.WriteLine($"  依赖   {item.DisplayName}   {item.VersionLabel}   {item.FileName}"
+                              + (item.Pinned ? "   (作者指定)" : ""));
+
+        if (plan.Dependencies.Any())
+            Dim("  （只自动安装必需依赖；可选依赖请自行决定。标「作者指定」的是作者钉死的版本，可用 --latest-deps 忽略）");
+
+        if (!Has(args, "--yes"))
+        {
+            Console.Write("确认安装？[y/N] ");
+            var answer = Console.ReadLine();
+            if (!string.Equals(answer?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
+            {
+                Warn("已取消");
+                return 0;
+            }
+        }
+
+        var outcome = await installer.InstallAsync(plan, target.ModsDirectory);
+
+        Section("结果");
+        Ok($"已安装 {outcome.Installed.Count} 个 / 跳过 {outcome.Skipped.Count} 个（同名已存在）/ 失败 {outcome.Failed.Count} 个");
+
+        foreach (var item in outcome.Installed) Console.WriteLine($"  + {item.FileName}");
+        foreach (var item in outcome.Skipped) Dim($"  = {item.FileName}（已存在，未覆盖）");
+        foreach (var (item, error) in outcome.Failed) Warn($"  ✗ {item.FileName}：{error}");
+
+        return outcome.Failed.Count == 0 ? 0 : 1;
     }
 
     /// <summary>
@@ -1617,6 +1799,10 @@ internal static class Program
               npmc mods check [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease] [--curseforge-only]
                                                       按哈希/指纹反查 Modrinth 与 CurseForge，
                                                       按游戏版本与加载器判断哪些模组有新版本
+              npmc mods search <关键词> [--instance <Id> | --version <版本>] [--limit N]
+                                                      在 Modrinth 搜索模组（按游戏版本与加载器过滤）
+              npmc mods install <slug|项目Id> [--instance <Id> | --version <版本>] [--prerelease] [--yes]
+                                                      安装模组，递归解析必需的依赖
               npmc mods cf-probe <文件> [更多文件…]
                                                       探测 CurseForge 指纹算法：把几种候选变体
                                                       一次发给服务端，看哪个被命中（需 API key）

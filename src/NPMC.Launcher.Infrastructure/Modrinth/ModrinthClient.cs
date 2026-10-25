@@ -226,7 +226,34 @@ public sealed class ModrinthClient
             ParseDate(GetString(element, "date_published")),
             GetStringArray(element, "game_versions"),
             GetStringArray(element, "loaders"),
-            files);
+            files)
+        {
+            Dependencies = ParseDependencies(element),
+        };
+    }
+
+    /// <summary>解析 dependencies 数组（required / optional / incompatible / embedded）。</summary>
+    private static IReadOnlyList<ModrinthDependency> ParseDependencies(JsonElement element)
+    {
+        if (!element.TryGetProperty("dependencies", out var array) || array.ValueKind != JsonValueKind.Array)
+            return Array.Empty<ModrinthDependency>();
+
+        var dependencies = new List<ModrinthDependency>();
+
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+
+            var type = GetString(item, "dependency_type");
+            if (string.IsNullOrWhiteSpace(type)) continue;
+
+            dependencies.Add(new ModrinthDependency(
+                GetString(item, "version_id"),
+                GetString(item, "project_id"),
+                type));
+        }
+
+        return dependencies;
     }
 
     private static string? GetString(JsonElement element, string property) =>
