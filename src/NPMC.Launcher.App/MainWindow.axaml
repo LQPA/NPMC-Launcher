@@ -198,7 +198,7 @@
               <ItemsControl ItemsSource="{Binding Content}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ContentEntryItem">
-                    <Grid ColumnDefinitions="24,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
+                    <Grid ColumnDefinitions="32,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
 
                       <!--
                         识别徽标：填充色块 + 字母。
@@ -206,27 +206,27 @@
                         （含任何变体，即便改色也不行），统一改用字母以示来源。
                         检查更新之前一律不显示：没查过就说"认不出"是错的。
                       -->
-                      <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4"
+                      <Border Grid.Column="0" Width="26" Height="26" CornerRadius="6"
                               Background="#2E7D46" VerticalAlignment="Center"
                               IsVisible="{Binding IsFromModrinth}"
                               ToolTip.Tip="已在 Modrinth 识别">
-                        <TextBlock Text="M" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF"
+                        <TextBlock Text="M" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                       </Border>
 
-                      <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4"
+                      <Border Grid.Column="0" Width="26" Height="26" CornerRadius="6"
                               Background="#A93226" VerticalAlignment="Center"
                               IsVisible="{Binding IsFromCurseForge}"
                               ToolTip.Tip="已在 CurseForge 识别">
-                        <TextBlock Text="C" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF"
+                        <TextBlock Text="C" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                       </Border>
 
-                      <Border Grid.Column="0" Width="18" Height="18" CornerRadius="4"
+                      <Border Grid.Column="0" Width="26" Height="26" CornerRadius="6"
                               Background="#4D5560" VerticalAlignment="Center"
                               IsVisible="{Binding IsUnidentified}"
                               ToolTip.Tip="两个平台都无法识别（自制或未上传）">
-                        <TextBlock Text="?" FontSize="10" FontWeight="Bold" Foreground="#FFFFFF"
+                        <TextBlock Text="?" FontSize="13" FontWeight="Bold" Foreground="#FFFFFF"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                       </Border>
 
