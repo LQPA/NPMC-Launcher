@@ -6,6 +6,7 @@ using Avalonia.Threading;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Mirrors;
+using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
@@ -2287,7 +2288,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             foreach (var entry in versions)
             {
-                if (!AcceptVersionType(entry.Type)) continue;
+                if (!AcceptVersion(entry)) continue;
 
                 DownloadVersions.Add(new DownloadVersionItem(entry));
             }
@@ -2400,20 +2401,35 @@ public sealed class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>当前过滤条件是否接受该版本类型。</summary>
-    private bool AcceptVersionType(string type) => _versionFilterIndex switch
+    /// <summary>
+    /// 当前过滤条件是否接受该版本。
+    ///
+    /// "正式版 + 快照"**排除**愚人节版本，否则专门的"仅愚人节"就没有意义。
+    /// 愚人节版本只能靠版本号与日期识别 —— 清单里的 type 与普通快照完全相同。
+    /// </summary>
+    private bool AcceptVersion(VersionManifestEntry entry)
     {
-        0 => string.Equals(type, "release", StringComparison.OrdinalIgnoreCase),
-        1 => string.Equals(type, "release", StringComparison.OrdinalIgnoreCase)
-             || string.Equals(type, "snapshot", StringComparison.OrdinalIgnoreCase),
-        _ => true,
-    };
+        var isRelease = string.Equals(entry.Type, "release", StringComparison.OrdinalIgnoreCase);
+        var isSnapshot = string.Equals(entry.Type, "snapshot", StringComparison.OrdinalIgnoreCase);
+        var isAprilFools = AprilFoolsVersions.IsAprilFools(entry.Id, entry.ReleaseTime, entry.Type);
+
+        return _versionFilterIndex switch
+        {
+            0 => isRelease,
+            1 => (isRelease || isSnapshot) && !isAprilFools,
+            2 => true,
+            3 => isAprilFools,
+            _ => true,
+        };
+    }
 
     /// <summary>过滤条件的中文描述（用于状态行）。</summary>
     public string VersionFilterText => _versionFilterIndex switch
     {
         0 => "仅正式版",
-        1 => "正式版 + 快照",
-        _ => "全部，含早期 alpha/beta",
+        1 => "正式版 + 快照（不含愚人节）",
+        2 => "全部，含早期 alpha/beta",
+        _ => "仅愚人节版本",
     };
 
     /// <summary>按全局设置构造安装器（镜像源、并发数都取自设置）。</summary>

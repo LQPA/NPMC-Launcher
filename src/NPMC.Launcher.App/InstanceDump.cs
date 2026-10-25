@@ -383,15 +383,22 @@ internal static class InstanceDump
             lines.Add("");
             lines.Add("[版本过滤]");
 
-            for (var filter = 0; filter <= 2; filter++)
+            for (var filter = 0; filter <= 3; filter++)
             {
                 viewModel.VersionFilterIndex = filter;
 
                 // 列表重建是 fire-and-forget，等状态行更新
                 Thread.Sleep(3500);
 
-                lines.Add($"    {viewModel.VersionFilterText,-22} {viewModel.DownloadVersions.Count,4} 个"
+                lines.Add($"    {viewModel.VersionFilterText,-26} {viewModel.DownloadVersions.Count,4} 个"
                           + $"   首个 {viewModel.DownloadVersions.FirstOrDefault()?.Id}");
+
+                // 愚人节这一档把每个都列出来，确认年份与主题都在
+                if (filter == 3)
+                {
+                    foreach (var item in viewModel.DownloadVersions)
+                        lines.Add($"        · {item.DisplayText}");
+                }
             }
         }
         // 验证"实例页/下载页"两个区块的可见性互斥（曾经在实例页也显示下载区块）

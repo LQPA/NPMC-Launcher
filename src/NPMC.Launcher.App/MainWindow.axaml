@@ -571,6 +571,7 @@
               <ComboBoxItem Content="仅正式版" />
               <ComboBoxItem Content="正式版 + 快照" />
               <ComboBoxItem Content="全部（含早期）" />
+              <ComboBoxItem Content="仅愚人节版本" />
             </ComboBox>
           </Grid>
 

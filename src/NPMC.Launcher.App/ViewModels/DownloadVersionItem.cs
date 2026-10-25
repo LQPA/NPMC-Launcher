@@ -1,3 +1,4 @@
+﻿using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Infrastructure.Minecraft;
 
 namespace NPMC.Launcher.App.ViewModels;
@@ -24,6 +25,9 @@ public sealed class DownloadVersionItem
         Id = entry.Id;
         Type = entry.Type;
         ReleasedAt = entry.ReleaseTime;
+
+        // 愚人节版本在清单里与普通快照完全一样，年份与主题只能从已知清单补
+        ThemeText = AprilFoolsVersions.Find(entry.Id)?.ThemeText ?? "";
     }
 
     public string Id { get; }
@@ -61,5 +65,12 @@ public sealed class DownloadVersionItem
         ? ""
         : ReleasedAt.ToLocalTime().ToString("yyyy-MM-dd");
 
-    public string DisplayText => $"{Id}   {ReleasedText}";
+    /// <summary>愚人节版本的"年份 · 主题"，例如 "2024 · 毒马铃薯"；其他版本为空。</summary>
+    public string ThemeText { get; }
+
+    public bool IsAprilFools => ThemeText.Length > 0;
+
+    public string DisplayText => IsAprilFools
+        ? $"{Id}（{ThemeText}）   {ReleasedText}"
+        : $"{Id}   {ReleasedText}";
 }
