@@ -15,7 +15,17 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        var viewModel = new MainWindowViewModel(new LauncherPaths(root));
+        var viewModel = new MainWindowViewModel(new LauncherPaths(root))
+        {
+            // 打开目录的三条路都失败时，把路径写进剪贴板作为兜底。
+            // 剪贴板必须由窗口（TopLevel）提供，所以在这里注入而不是在 ViewModel 里直接取。
+            CopyToClipboard = async text =>
+            {
+                var clipboard = Clipboard;
+                if (clipboard is not null) await clipboard.SetTextAsync(text);
+            },
+        };
+
         DataContext = viewModel;
 
         // LoadAsync 内部已捕获全部异常并写进 Status，因此这里不需要额外的异常处理

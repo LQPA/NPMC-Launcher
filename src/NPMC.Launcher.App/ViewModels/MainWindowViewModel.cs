@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Windows.Input;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
@@ -32,9 +33,18 @@ public sealed class MainWindowViewModel : ObservableObject
         _selectedTab = ContentTabs[0];
 
         RefreshCommand = new AsyncRelayCommand(LoadAsync, onError: ex => Status = $"刷新失败：{ex.Message}");
-        OpenGameFolderCommand = new RelayCommand(OpenGameDirectory, () => SelectedInstance is not null);
-        OpenModsFolderCommand = new RelayCommand(OpenModsFolder, () => SelectedInstance is not null);
-        OpenContentFolderCommand = new RelayCommand(OpenContentFolder, () => CanBulk);
+
+        OpenGameFolderCommand = new AsyncRelayCommand(OpenGameDirectory,
+            () => SelectedInstance is not null, OnOpenError);
+        OpenModsFolderCommand = new AsyncRelayCommand(OpenModsFolder,
+            () => HasModsDirectory, OnOpenError);
+        OpenResourcePacksFolderCommand = new AsyncRelayCommand(OpenResourcePacksFolder,
+            () => HasResourcePacksDirectory, OnOpenError);
+        OpenShaderPacksFolderCommand = new AsyncRelayCommand(OpenShaderPacksFolder,
+            () => HasShaderPacksDirectory, OnOpenError);
+        OpenContentFolderCommand = new AsyncRelayCommand(OpenContentFolder,
+            () => IsContentList && SelectedInstance is not null, OnOpenError);
+
         DisableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: false), () => CanBulk);
         EnableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: true), () => CanBulk);
     }
@@ -59,6 +69,7 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(ShowOverview));
             OnPropertyChanged(nameof(ShowContentList));
+            RaiseFolderVisibilityChanged();
             RaiseCommandStates();
             _ = RefreshContentAsync();
         }
@@ -67,6 +78,18 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool HasSelection => SelectedInstance is not null;
 
     public bool IsEmpty => Instances.Count == 0;
+
+    // ---- 概览处的「打开目录」入口 ----
+    // 只有目录真实存在才显示入口：用户没装光影就不该看到一个点了也只会新建空文件夹的按钮。
+
+    public bool HasModsDirectory =>
+        SelectedInstance is not null && Directory.Exists(SelectedInstance.ModsDirectory);
+
+    public bool HasResourcePacksDirectory =>
+        SelectedInstance is not null && Directory.Exists(SelectedInstance.ResourcePacksDirectory);
+
+    public bool HasShaderPacksDirectory =>
+        SelectedInstance is not null && Directory.Exists(SelectedInstance.ShaderPacksDirectory);
 
     // ---- 页签与内容 ----
 
@@ -93,10 +116,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsContentList => SelectedTab.Kind is not null;
 
-    /// <summary>右侧主体是否显示概览（同时要求已选中实例）。</summary>
     public bool ShowOverview => HasSelection && IsOverview;
 
-    /// <summary>右侧主体是否显示内容列表（同时要求已选中实例）。</summary>
     public bool ShowContentList => HasSelection && IsContentList;
 
     public ObservableCollection<ContentEntryItem> Content { get; } = new();
@@ -130,6 +151,8 @@ public sealed class MainWindowViewModel : ObservableObject
     public ICommand RefreshCommand { get; }
     public ICommand OpenGameFolderCommand { get; }
     public ICommand OpenModsFolderCommand { get; }
+    public ICommand OpenResourcePacksFolderCommand { get; }
+    public ICommand OpenShaderPacksFolderCommand { get; }
     public ICommand OpenContentFolderCommand { get; }
     public ICommand DisableAllCommand { get; }
     public ICommand EnableAllCommand { get; }
@@ -220,21 +243,15 @@ public sealed class MainWindowViewModel : ObservableObject
         RaiseCommandStates();
     }
 
-    /// <summary>把三个页签的数量都刷新一遍，这样页签上的数字始终准确。</summary>
+    /// <summary>刷新左侧实例行的数量、三个页签的数量，以及概览处目录入口的可见性。</summary>
     private async Task RefreshCountsAsync(InstanceListItem? instance)
     {
-        // 左侧列表里的那一行也显示数量，一起刷新，避免和页签数字对不上
         instance?.RefreshContentCounts();
+        RaiseFolderVisibilityChanged();
 
         foreach (var tab in ContentTabs)
         {
-            if (tab.Kind is not { } kind)
-            {
-                tab.Count = 0;
-                continue;
-            }
-
-            if (instance is null)
+            if (tab.Kind is not { } kind || instance is null)
             {
                 tab.Count = 0;
                 continue;
@@ -283,7 +300,6 @@ public sealed class MainWindowViewModel : ObservableObject
             var directory = instance.DirectoryFor(kind);
             var movedTo = await Task.Run(() => _contentManager.Delete(item.Entry, directory));
 
-            // 删除是这一项真的消失了，从集合移除即可（只影响这一行）
             Content.Remove(item);
             OnPropertyChanged(nameof(IsContentEmpty));
 
@@ -331,23 +347,29 @@ public sealed class MainWindowViewModel : ObservableObject
 
     // ---- 打开目录 ----
 
-    private void OpenGameDirectory()
-    {
-        if (SelectedInstance is not null) OpenDirectory(SelectedInstance.GameDirectory);
-    }
+    /// <summary>由窗口注入的剪贴板写入器。全部打开方式都失败时，把路径复制给用户兜底。</summary>
+    public Func<string, Task>? CopyToClipboard { get; set; }
 
-    private void OpenModsFolder()
-    {
-        if (SelectedInstance is not null) OpenDirectory(SelectedInstance.ModsDirectory);
-    }
+    private void OnOpenError(Exception ex) => Status = $"打开目录失败：{ex.GetBaseException().Message}";
 
-    private void OpenContentFolder()
-    {
-        if (SelectedInstance is null || SelectedTab.Kind is not { } kind) return;
-        OpenDirectory(SelectedInstance.DirectoryFor(kind));
-    }
+    private Task OpenGameDirectory()
+        => SelectedInstance is null ? Task.CompletedTask : OpenDirectoryAsync(SelectedInstance.GameDirectory);
 
-    private void OpenDirectory(string directory)
+    private Task OpenModsFolder()
+        => SelectedInstance is null ? Task.CompletedTask : OpenDirectoryAsync(SelectedInstance.ModsDirectory);
+
+    private Task OpenResourcePacksFolder()
+        => SelectedInstance is null ? Task.CompletedTask : OpenDirectoryAsync(SelectedInstance.ResourcePacksDirectory);
+
+    private Task OpenShaderPacksFolder()
+        => SelectedInstance is null ? Task.CompletedTask : OpenDirectoryAsync(SelectedInstance.ShaderPacksDirectory);
+
+    private Task OpenContentFolder()
+        => SelectedInstance is null || SelectedTab.Kind is not { } kind
+            ? Task.CompletedTask
+            : OpenDirectoryAsync(SelectedInstance.DirectoryFor(kind));
+
+    private async Task OpenDirectoryAsync(string directory)
     {
         string target;
         try
@@ -363,44 +385,49 @@ public sealed class MainWindowViewModel : ObservableObject
             return;
         }
 
-        // 首选 explorer.exe：把目录路径直接当 FileName 交给 ShellExecute，
-        // 依赖 shell 去猜"这是个文件夹"，在部分环境下会失败或静默什么都不做。
-        if (TryStartProcess("explorer.exe", $"\"{target}\"", out var explorerError)) return;
+        // 依次尝试 shell32（交给已有外壳）、shell、explorer.exe，详见 FolderLauncher
+        var attempts = await Interop.FolderLauncher.OpenAsync(target);
 
-        // 兜底：仍旧让 shell 处理目录本身
-        if (TryStartProcess(target, null, out var shellError)) return;
+        if (attempts[^1].Success)
+        {
+            Status = $"已打开 {target}";
+            return;
+        }
 
-        Status = $"打开目录失败：explorer=({explorerError}) / shell=({shellError})  {target}";
+        var detail = string.Join("；", attempts.Select(attempt => $"{attempt.Strategy}=({attempt.Error})"));
+
+        // 全部失败时至少把路径交给用户：粘到资源管理器地址栏就能打开
+        if (CopyToClipboard is not null)
+        {
+            try
+            {
+                await CopyToClipboard(target);
+                Status = $"无法调起资源管理器（{detail}）。路径已复制到剪贴板，粘贴到地址栏即可打开：{target}";
+                return;
+            }
+            catch
+            {
+                // 剪贴板也不可用就走下面的纯报告
+            }
+        }
+
+        Status = $"打开目录失败：{detail}；路径 {target}";
     }
 
-    private static bool TryStartProcess(string fileName, string? arguments, out string error)
+    private void RaiseFolderVisibilityChanged()
     {
-        try
-        {
-            var startInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = fileName,
-                UseShellExecute = true,
-            };
-
-            if (arguments is not null) startInfo.Arguments = arguments;
-
-            System.Diagnostics.Process.Start(startInfo);
-            error = "";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = ex.GetBaseException().Message;
-            return false;
-        }
+        OnPropertyChanged(nameof(HasModsDirectory));
+        OnPropertyChanged(nameof(HasResourcePacksDirectory));
+        OnPropertyChanged(nameof(HasShaderPacksDirectory));
     }
 
     private void RaiseCommandStates()
     {
-        (OpenGameFolderCommand as RelayCommand)?.RaiseCanExecuteChanged();
-        (OpenModsFolderCommand as RelayCommand)?.RaiseCanExecuteChanged();
-        (OpenContentFolderCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (OpenGameFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (OpenModsFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (OpenResourcePacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (OpenShaderPacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (OpenContentFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DisableAllCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (EnableAllCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }

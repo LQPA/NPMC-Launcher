@@ -199,7 +199,14 @@
                     IsVisible="{Binding ShowOverview}">
           <Button Content="启动游戏" IsEnabled="False" ToolTip.Tip="第三阶段接入启动链路" />
           <Button Content="打开游戏目录" Command="{Binding OpenGameFolderCommand}" />
-          <Button Content="打开 mods" Command="{Binding OpenModsFolderCommand}" />
+
+          <!-- 目录入口按实际存在与否显示：没装光影就不该出现一个只会新建空文件夹的按钮 -->
+          <Button Content="打开 mods" Command="{Binding OpenModsFolderCommand}"
+                  IsVisible="{Binding HasModsDirectory}" />
+          <Button Content="打开资源包" Command="{Binding OpenResourcePacksFolderCommand}"
+                  IsVisible="{Binding HasResourcePacksDirectory}" />
+          <Button Content="打开光影" Command="{Binding OpenShaderPacksFolderCommand}"
+                  IsVisible="{Binding HasShaderPacksDirectory}" />
         </StackPanel>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"

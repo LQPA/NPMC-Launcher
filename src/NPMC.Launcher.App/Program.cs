@@ -11,6 +11,9 @@ internal static class Program
         // 诊断模式：不开窗口，把界面模型算出来的内容写成文本，方便在无图形环境下核对
         if (InstanceDump.TryRun(args)) return;
 
+        // 诊断模式：验证"打开目录"哪条路可用
+        if (FolderOpenTest.TryRun(args)) return;
+
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
