@@ -374,6 +374,19 @@ internal static class InstanceDump
             lines.Add($"    可安装 = {viewModel.InstallModpackCommand.CanExecute(null)}");
         }
 
+        // 验证"实例页/下载页"两个区块的可见性互斥（曾经在实例页也显示下载区块）
+        lines.Add("");
+        lines.Add($"[导航] 实例页     版本区块={viewModel.IsVersionsMode} "
+                  + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
+
+        viewModel.ShowDownloadsCommand.Execute(null);
+        lines.Add($"[导航] 下载/版本  版本区块={viewModel.IsVersionsMode} "
+                  + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
+
+        viewModel.ShowModpacksModeCommand.Execute(null);
+        lines.Add($"[导航] 下载/整合包 版本区块={viewModel.IsVersionsMode} "
+                  + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
+
         File.WriteAllLines(outputPath, lines);
         return true;
     }

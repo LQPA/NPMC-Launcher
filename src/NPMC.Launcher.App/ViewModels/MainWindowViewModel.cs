@@ -2258,6 +2258,8 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(InstancesNavForeground));
         OnPropertyChanged(nameof(DownloadsNavForeground));
         OnPropertyChanged(nameof(ShowVersionList));
+        OnPropertyChanged(nameof(IsVersionsMode));
+        OnPropertyChanged(nameof(IsModpacksMode));
 
         if (page == NavPage.Downloads) _ = LoadDownloadVersionsAsync();
     }
@@ -2407,12 +2409,15 @@ public sealed class MainWindowViewModel : ObservableObject
     private string _modpackStatus = "选择一个 .mrpack 文件，或直接把它拖到这里";
     private string _modpackProgress = "";
 
-    public bool IsVersionsMode => _downloadMode == DownloadMode.Versions;
+    // 必须同时判断"在下载页"与"选了哪个区块"：只判断区块的话，
+    // 这两个面板在实例页也会显示，直接压在实例详情上面。
 
-    public bool IsModpacksMode => _downloadMode == DownloadMode.Modpacks;
+    public bool IsVersionsMode => IsDownloadsPage && _downloadMode == DownloadMode.Versions;
+
+    public bool IsModpacksMode => IsDownloadsPage && _downloadMode == DownloadMode.Modpacks;
 
     /// <summary>下载页左侧版本列表只在"游戏版本"区域显示。</summary>
-    public bool ShowVersionList => IsDownloadsPage && IsVersionsMode;
+    public bool ShowVersionList => IsVersionsMode;
 
     public string VersionsModeBackground => IsVersionsMode ? "#2B3A55" : "Transparent";
 
