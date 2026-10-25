@@ -2141,13 +2141,21 @@ public sealed class MainWindowViewModel : ObservableObject
             foreach (var loader in versions) FabricLoaderVersions.Add(loader);
 
             OnPropertyChanged(nameof(HasFabricLoaderVersions));
-
             SelectedFabricLoader = FabricLoaderVersions.FirstOrDefault(loader => loader.Stable)
                                    ?? FabricLoaderVersions.FirstOrDefault();
 
-            DownloadStatus = versions.Count == 0
-                ? $"Fabric 没有适用于 {version.Id} 的加载器"
-                : $"共 {versions.Count} 个 Fabric 加载器版本";
+            if (versions.Count == 0)
+            {
+                // 不支持就别让用户勾着：取消勾选，并说明原因。
+                // 空列表有三种来源：早于 Fabric 的版本（400）、
+                // 以及没有 intermediary 映射、只返回 0.0.0 占位符的版本。
+                InstallFabric = false;
+                DownloadStatus = $"Fabric 不支持 {version.Id}（该版本没有对应的 intermediary 映射）";
+                LauncherLog.Write(_launcher.Root, $"Fabric 不支持 {version.Id}，已取消勾选");
+                return;
+            }
+
+            DownloadStatus = $"共 {versions.Count} 个 Fabric 加载器版本";
         }
         catch (Exception ex)
         {

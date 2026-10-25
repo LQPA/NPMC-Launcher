@@ -1,3 +1,4 @@
+﻿using System.Net;
 using System.Text.Json;
 using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Paths;
@@ -43,14 +44,36 @@ public sealed class FabricLoaderInstaller
     public FabricLoaderInstaller(HttpClient http) => _http = http;
 
     /// <summary>取该游戏版本可用的加载器版本（新→旧）。</summary>
+    /// <remarks>
+    /// 两个必须处理的边界：
+    ///   1. 早于 Fabric 的版本（1.0、c0.30_01c 等）直接返回 HTTP 400，视为"不支持"；
+    ///   2. 没有 intermediary 映射的版本仍会返回完整列表，但每条的中介层版本是 0.0.0。
+    ///      那是占位符而不是支持 —— 照这样列出来，用户会选中一个根本装不起来的组合。
+    /// </remarks>
     public async Task<IReadOnlyList<FabricLoaderVersion>> GetLoaderVersionsAsync(
         string gameVersion,
         CancellationToken cancellationToken = default)
     {
-        var json = await _http
-            .GetStringAsync($"{LoaderMetadata}/{Uri.EscapeDataString(gameVersion)}", cancellationToken)
-            .ConfigureAwait(false);
+        string json;
 
+        try
+        {
+            json = await _http
+                .GetStringAsync($"{LoaderMetadata}/{Uri.EscapeDataString(gameVersion)}", cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.BadRequest)
+        {
+            // 400：Fabric 不认识这个游戏版本
+            return Array.Empty<FabricLoaderVersion>();
+        }
+
+        return ParseLoaderVersions(json);
+    }
+
+    /// <summary>解析 loader 列表，只保留真正有 intermediary 映射的项。</summary>
+    public static IReadOnlyList<FabricLoaderVersion> ParseLoaderVersions(string json)
+    {
         using var document = JsonDocument.Parse(json);
         var versions = new List<FabricLoaderVersion>();
 
@@ -67,6 +90,9 @@ public sealed class FabricLoaderInstaller
 
             if (string.IsNullOrWhiteSpace(version)) continue;
 
+            // 没有中介层映射 = 这个游戏版本装不上 Fabric
+            if (!HasIntermediary(element, out _)) continue;
+
             var stable = loader.TryGetProperty("stable", out var stableElement)
                          && stableElement.ValueKind == JsonValueKind.True;
 
@@ -75,6 +101,23 @@ public sealed class FabricLoaderInstaller
 
         return versions;
     }
+
+    /// <summary>判断条目是否带真实的中介层映射（0.0.0 是占位符）。</summary>
+    private static bool HasIntermediary(JsonElement element, out string version)
+    {
+        version = "";
+
+        if (!element.TryGetProperty("intermediary", out var intermediary)) return false;
+        if (!intermediary.TryGetProperty("version", out var value)) return false;
+        if (value.ValueKind != JsonValueKind.String) return false;
+
+        var text = value.GetString();
+        if (string.IsNullOrWhiteSpace(text) || text == "0.0.0") return false;
+
+        version = text;
+        return true;
+    }
+
 
     /// <summary>
     /// 安装加载器：写入 profile JSON 并下载它声明的库。
