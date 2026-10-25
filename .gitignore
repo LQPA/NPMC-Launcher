@@ -40,3 +40,14 @@ obj/
 *.tmp
 Thumbs.db
 desktop.ini
+
+# ---- 代码签名产物：私钥绝不入库 ----
+# tools/sign-local.ps1 只用 Export-Certificate 导出公钥到临时目录，私钥留在证书存储里；
+# 但手动用 signtool 或 Export-PfxCertificate 很容易在仓库里生成带私钥的 .pfx，
+# 一旦提交就是不可撤销的泄露（历史里删不掉）。这里提前拦住。
+*.pfx
+*.p12
+*.cer
+*.crt
+*.snk
+*.sig

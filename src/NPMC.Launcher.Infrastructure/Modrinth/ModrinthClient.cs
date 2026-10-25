@@ -98,6 +98,98 @@ public sealed class ModrinthClient
         return versions;
     }
 
+    /// <summary>搜索项目（按相关性）。facets 会把项目类型、游戏版本与加载器都限死。</summary>
+    public async Task<IReadOnlyList<ModrinthSearchHit>> SearchAsync(
+        string query,
+        string? gameVersion,
+        IReadOnlyList<string> loaders,
+        int limit = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var facets = new List<string> { "[\"project_type:mod\"]" };
+
+        if (!string.IsNullOrWhiteSpace(gameVersion))
+            facets.Add($"[\"versions:{gameVersion}\"]");
+
+        if (loaders.Count > 0)
+            facets.Add($"[{string.Join(",", loaders.Select(loader => $"\"categories:{loader}\""))}]");
+
+        var url = $"{ApiBase}/search?query={Uri.EscapeDataString(query)}"
+                + $"&facets={Uri.EscapeDataString("[" + string.Join(",", facets) + "]")}"
+                + $"&limit={limit}"
+                + "&index=relevance";
+
+        var json = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+
+        var hits = new List<ModrinthSearchHit>();
+        using var document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("hits", out var hitsElement) ||
+            hitsElement.ValueKind != JsonValueKind.Array)
+            return hits;
+
+        foreach (var hit in hitsElement.EnumerateArray())
+        {
+            var projectId = GetString(hit, "project_id");
+            if (projectId is null) continue;
+
+            hits.Add(new ModrinthSearchHit(
+                projectId,
+                GetString(hit, "slug") ?? "",
+                GetString(hit, "title") ?? "",
+                GetString(hit, "description") ?? "",
+                GetString(hit, "icon_url") ?? "",
+                GetLong(hit, "downloads"),
+                GetStringArray(hit, "categories")));
+        }
+
+        return hits;
+    }
+
+    /// <summary>批量取项目信息（用于把 projectId 变成人看得懂的名字）。</summary>
+    public async Task<IReadOnlyDictionary<string, ModrinthProject>> GetProjectsAsync(
+        IReadOnlyCollection<string> projectIds,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<string, ModrinthProject>(StringComparer.Ordinal);
+        if (projectIds.Count == 0) return result;
+
+        foreach (var batch in projectIds.Distinct().Chunk(100))
+        {
+            var ids = "[" + string.Join(",", batch.Select(id => $"\"{Uri.EscapeDataString(id)}\"")) + "]";
+            var url = $"{ApiBase}/projects?ids={Uri.EscapeDataString(ids)}";
+
+            var json = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) continue;
+
+            foreach (var element in document.RootElement.EnumerateArray())
+            {
+                var id = GetString(element, "id");
+                if (id is null) continue;
+
+                result[id] = new ModrinthProject(
+                    id,
+                    GetString(element, "slug") ?? "",
+                    GetString(element, "title") ?? "",
+                    GetString(element, "description") ?? "");
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>取单个版本（依赖里钉死了 version_id 时用）。</summary>
+    public async Task<ModrinthVersion?> GetVersionAsync(string versionId, CancellationToken cancellationToken = default)
+    {
+        var json = await _http
+            .GetStringAsync($"{ApiBase}/version/{Uri.EscapeDataString(versionId)}", cancellationToken)
+            .ConfigureAwait(false);
+
+        using var document = JsonDocument.Parse(json);
+        return ParseVersion(document.RootElement);
+    }
+
     private static ModrinthVersion? ParseVersion(JsonElement element)
     {
         if (element.ValueKind != JsonValueKind.Object) return null;
