@@ -140,21 +140,25 @@
               <Grid ColumnDefinitions="96,*">
                 <TextBlock Grid.Column="0" Text="窗口" FontSize="12" Foreground="#949CA9"
                            VerticalAlignment="Center" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                  <!-- 预设下拉：选中即填入下面的宽高，也可以直接手改数字 -->
+                <!--
+                  用 WrapPanel：窗口拉窄时这组控件会换行，而不是把数字框挤成几像素。
+                  数字框宽度按"能完整显示 3840"来定 —— 微调按钮会占掉约 34px。
+                -->
+                <WrapPanel Grid.Column="1" Orientation="Horizontal">
                   <ComboBox ItemsSource="{Binding ResolutionPresets}"
                             SelectedItem="{Binding SelectedPreset, Mode=TwoWay}"
-                            PlaceholderText="预设" Width="120" FontSize="12" />
+                            PlaceholderText="预设" Width="112" FontSize="12" Margin="0,0,6,0" />
                   <NumericUpDown Value="{Binding WindowWidth, Mode=TwoWay}"
                                  Minimum="{Binding MinimalWindowSideValue}"
                                  Maximum="{Binding MaximalWindowSideValue}"
-                                 Increment="10" FormatString="0" Width="92" />
-                  <TextBlock Text="×" FontSize="12" Foreground="#B4BCC8" VerticalAlignment="Center" />
+                                 Increment="10" FormatString="0" Width="118" Margin="0,0,6,0" />
+                  <TextBlock Text="×" FontSize="12" Foreground="#B4BCC8"
+                             VerticalAlignment="Center" Margin="0,0,6,0" />
                   <NumericUpDown Value="{Binding WindowHeight, Mode=TwoWay}"
                                  Minimum="{Binding MinimalWindowSideValue}"
                                  Maximum="{Binding MaximalWindowSideValue}"
-                                 Increment="10" FormatString="0" Width="92" />
-                </StackPanel>
+                                 Increment="10" FormatString="0" Width="118" />
+                </WrapPanel>
               </Grid>
 
               <Grid ColumnDefinitions="96,*">

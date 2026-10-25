@@ -119,12 +119,31 @@ public static class GameLauncher
         {
             WorkingDirectory = prepared.Plan.WorkingDirectory,
             UseShellExecute = false,
-            CreateNoWindow = false,
+
+            // java 是控制台程序，默认会开一个黑色控制台窗口。
+            // CREATE_NO_WINDOW 让它在没有控制台的情况下运行。
+            CreateNoWindow = true,
+
+            // 但只设 CreateNoWindow 不读管道是危险的：
+            // 客户端 log4j 会往 stdout 写大量日志，一旦管道缓冲区写满，
+            // java 就会**阻塞在写操作上**，表现是游戏卡死。
+            // 所以必须重定向并把内容读空（下面用空处理器丢弃）。
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
 
         foreach (var argument in prepared.Plan.ToProcessArguments())
             startInfo.ArgumentList.Add(argument);
 
-        return Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动 java 进程");
+        var process = Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动 java 进程");
+
+        // 逐行丢弃：内存占用有界，且能持续把管道读空。
+        // 真正的可读日志在 <gameDir>\logs\latest.log，界面读那个。
+        process.OutputDataReceived += static (_, _) => { };
+        process.ErrorDataReceived += static (_, _) => { };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        return process;
     }
 }
