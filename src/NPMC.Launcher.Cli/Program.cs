@@ -1169,31 +1169,27 @@ internal static class Program
 
             Section(Path.GetFileName(file));
 
-            var computed = new List<(string Name, uint Value)>();
+            // 每个变体单独发一次请求。
+            // 一次性把 4 个指纹发过去时，响应只会告诉我们"匹配到了某个文件"，
+            // 其中的 id 字段并不是指纹（实测为空），因此无法判断是哪个变体命中。
+            // 分开发虽然多 3 次请求，但结论明确无歧义。
             foreach (var variant in variants)
             {
                 var value = await MurmurHash2.ComputeFileAsync(file, variant.Filter, variant.Seed);
-                computed.Add((variant.Name, value));
-                Dim($"  {variant.Name}  →  {value}");
-            }
+                var matches = await probe.GetMatchesAsync(new[] { value });
 
-            var lookup = await probe.LookupAsync(computed.Select(item => item.Value).ToList());
-            var matches = lookup.Matches;
-            Dim($"  服务端未匹配数：{lookup.Unmatched.Count}");
+                if (matches.Count == 0)
+                {
+                    Dim($"  {variant.Name}  →  {value}   未命中");
+                    continue;
+                }
 
-            if (matches.Count == 0)
-            {
-                Warn("  没有任何变体被命中（该文件可能不在 CurseForge 的指纹库里）");
-                continue;
-            }
-
-            foreach (var match in matches)
-            {
-                var hit = computed.FirstOrDefault(item => item.Value == match.Fingerprint);
+                var match = matches[0];
                 hitAny = true;
-                Ok($"  命中：{hit.Name}");
-                Info($"    modId={match.File.ModId}  fileId={match.File.FileId}");
-                Info($"    名称={match.File.DisplayName}  文件={match.File.FileName}");
+
+                Ok($"  ✓ {variant.Name}  →  {value}");
+                Info($"      modId={match.File.ModId}  fileId={match.File.FileId}");
+                Info($"      名称={match.File.DisplayName}  文件={match.File.FileName}");
             }
         }
 
