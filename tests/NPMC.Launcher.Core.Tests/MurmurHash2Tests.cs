@@ -47,6 +47,28 @@ public class MurmurHash2Tests
     }
 
     [Fact]
+    public void Standard_filter_keeps_vertical_tab_and_form_feed()
+    {
+        // 这是实测确定的：把 0x0B/0x0C 也当空白会让指纹与 CurseForge 不一致。
+        // 这两种字节在二进制 jar 里随机出现，所以一旦跳错，任何文件的指纹都会偏。
+        var baseline = MurmurHash2.Compute(new byte[] { (byte)'a', (byte)'b' });
+
+        Assert.NotEqual(baseline, MurmurHash2.Compute(new byte[] { (byte)'a', 0x0B, (byte)'b' }));
+        Assert.NotEqual(baseline, MurmurHash2.Compute(new byte[] { (byte)'a', 0x0C, (byte)'b' }));
+    }
+
+    [Fact]
+    public void Extended_filter_drops_the_extra_two()
+    {
+        const MurmurHash2.WhitespaceFilter extended = MurmurHash2.WhitespaceFilter.Extended;
+
+        var baseline = MurmurHash2.Compute(new byte[] { (byte)'a', (byte)'b' }, extended);
+        var withExtra = MurmurHash2.Compute(new byte[] { (byte)'a', 0x0B, 0x0C, (byte)'b' }, extended);
+
+        Assert.Equal(baseline, withExtra);
+    }
+
+    [Fact]
     public void Empty_input_is_stable_and_deterministic()
     {
         var first = MurmurHash2.Compute(ReadOnlySpan<byte>.Empty);

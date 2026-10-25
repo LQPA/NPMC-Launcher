@@ -21,11 +21,18 @@ public static class MurmurHash2
     {
         /// <summary>
         /// 只跳过 制表(0x09) / 换行(0x0A) / 回车(0x0D) / 空格(0x20)。
-        /// 这是多数第三方实现采用的定义，也是官方文档 "tabs, spaces, newlines" 的字面含义。
+        ///
+        /// **已用真实文件对照 CurseForge 服务端确认**：拿 Sodium 的 jar 打
+        /// /v1/fingerprints，Standard 变体命中、其余三种全不命中。
         /// </summary>
         Standard = 0,
 
-        /// <summary>在 Standard 基础上再跳过 垂直制表(0x0B) 与 换页(0x0C)。</summary>
+        /// <summary>
+        /// 在 Standard 基础上再跳过 垂直制表(0x0B) 与 换页(0x0C)。
+        ///
+        /// **实测是错的**：拿真实 Sodium jar 打 CurseForge 的 /v1/fingerprints，
+        /// 只有 Standard 变体命中。保留它仅为诊断命令对比用。
+        /// </summary>
         Extended = 1,
 
         /// <summary>完全不过滤（原样哈希）。</summary>
