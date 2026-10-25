@@ -251,57 +251,82 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         if (SelectedInstance is null || SelectedTab.Kind is not { } kind) return;
 
-        var wasEnabled = item.Entry.IsEnabled;
+        var wasEnabled = item.IsEnabled;
+        var instance = SelectedInstance;
+
         try
         {
-            var directory = SelectedInstance.DirectoryFor(kind);
-            await Task.Run(() => _contentManager.Toggle(item.Entry, directory));
-            Status = wasEnabled ? $"已禁用 {item.Entry.Name}" : $"已启用 {item.Entry.Name}";
+            var directory = instance.DirectoryFor(kind);
+            var updated = await Task.Run(() => _contentManager.Toggle(item.Entry, directory));
+
+            // 就地更新这一行：绝不重建集合，否则 ListBox 会丢失选中项（高亮乱跳）
+            item.Update(updated);
+            Status = wasEnabled ? $"已禁用 {updated.Name}" : $"已启用 {updated.Name}";
         }
         catch (Exception ex)
         {
-            Status = $"操作失败：{ex.Message}";
+            Status = $"操作失败：{ex.GetBaseException().Message}";
         }
 
-        await RefreshContentAsync();
+        await RefreshCountsAsync(instance);
+        RaiseCommandStates();
     }
 
     private async Task DeleteAsync(ContentEntryItem item)
     {
         if (SelectedInstance is null || SelectedTab.Kind is not { } kind) return;
 
+        var instance = SelectedInstance;
+
         try
         {
-            var directory = SelectedInstance.DirectoryFor(kind);
+            var directory = instance.DirectoryFor(kind);
             var movedTo = await Task.Run(() => _contentManager.Delete(item.Entry, directory));
+
+            // 删除是这一项真的消失了，从集合移除即可（只影响这一行）
+            Content.Remove(item);
+            OnPropertyChanged(nameof(IsContentEmpty));
+
             Status = $"已移入回收站：{Path.GetFileName(movedTo)}（可从 .trash 恢复）";
         }
         catch (Exception ex)
         {
-            Status = $"删除失败：{ex.Message}";
+            Status = $"删除失败：{ex.GetBaseException().Message}";
         }
 
-        await RefreshContentAsync();
+        await RefreshCountsAsync(instance);
+        RaiseCommandStates();
     }
 
     private async Task ToggleAllAsync(bool enable)
     {
         if (SelectedInstance is null || SelectedTab.Kind is not { } kind) return;
 
+        var instance = SelectedInstance;
+        var directory = instance.DirectoryFor(kind);
+        var targets = Content.Where(item => item.IsEnabled != enable).ToList();
+        var changed = 0;
+
         try
         {
-            var directory = SelectedInstance.DirectoryFor(kind);
-            var changed = await Task.Run(() => _contentManager.ToggleAll(directory, kind, enable));
+            foreach (var item in targets)
+            {
+                var updated = await Task.Run(() => _contentManager.Toggle(item.Entry, directory));
+                item.Update(updated);
+                changed++;
+            }
+
             Status = changed == 0
                 ? "没有需要变更的条目"
                 : $"{(enable ? "已启用" : "已禁用")} {changed} 个条目";
         }
         catch (Exception ex)
         {
-            Status = $"批量操作失败：{ex.Message}";
+            Status = $"批量操作失败（已完成 {changed} 个）：{ex.GetBaseException().Message}";
         }
 
-        await RefreshContentAsync();
+        await RefreshCountsAsync(instance);
+        RaiseCommandStates();
     }
 
     // ---- 打开目录 ----
@@ -324,17 +349,50 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private void OpenDirectory(string directory)
     {
+        string target;
         try
         {
             Directory.CreateDirectory(directory);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(directory)
-            {
-                UseShellExecute = true,
-            });
+            // 只去掉"根目录之外"的尾部反斜杠："C:\" 仍是 "C:\"，
+            // 否则会变成 "C:" 或被拼成 \" 导致命令行解析错误
+            target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
         }
         catch (Exception ex)
         {
-            Status = $"打开目录失败：{ex.Message}";
+            Status = $"创建目录失败：{ex.GetBaseException().Message}（{directory}）";
+            return;
+        }
+
+        // 首选 explorer.exe：把目录路径直接当 FileName 交给 ShellExecute，
+        // 依赖 shell 去猜"这是个文件夹"，在部分环境下会失败或静默什么都不做。
+        if (TryStartProcess("explorer.exe", $"\"{target}\"", out var explorerError)) return;
+
+        // 兜底：仍旧让 shell 处理目录本身
+        if (TryStartProcess(target, null, out var shellError)) return;
+
+        Status = $"打开目录失败：explorer=({explorerError}) / shell=({shellError})  {target}";
+    }
+
+    private static bool TryStartProcess(string fileName, string? arguments, out string error)
+    {
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = fileName,
+                UseShellExecute = true,
+            };
+
+            if (arguments is not null) startInfo.Arguments = arguments;
+
+            System.Diagnostics.Process.Start(startInfo);
+            error = "";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.GetBaseException().Message;
+            return false;
         }
     }
 
