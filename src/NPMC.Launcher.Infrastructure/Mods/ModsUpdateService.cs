@@ -64,12 +64,17 @@ public sealed class ModsUpdateService
     /// <param name="loaders">检测到的加载器（fabric / forge / neoforge / quilt）；空表示原版/未知，不按加载器过滤。</param>
     /// <param name="includePrerelease">是否接受 beta / alpha。</param>
     /// <param name="curseForgeOnly">跳过 Modrinth，全部交给 CurseForge（诊断指纹用）。</param>
+    /// <param name="includeProjectVersions">
+    /// 是否逐项目拉版本列表。**只为了识别项目（拿图标、徽标）时可以关掉** ——
+    /// 那一步是每个项目一次请求，占整个检查的大头，而识别只需要一次批量哈希查询。
+    /// </param>
     public async Task<ModUpdateReport> CheckAsync(
         IReadOnlyList<string> jarPaths,
         string gameVersion,
         IReadOnlyList<string> loaders,
         bool includePrerelease = false,
         bool curseForgeOnly = false,
+        bool includeProjectVersions = true,
         CancellationToken cancellationToken = default)
     {
         // 1) 本地 SHA1
@@ -106,6 +111,8 @@ public sealed class ModsUpdateService
 
             foreach (var key in matchedCandidates.Values.Select(candidate => candidate.Key).Distinct())
             {
+                if (!includeProjectVersions) break;
+
                 try
                 {
                     var versions = await _modrinth

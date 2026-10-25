@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Avalonia.Media.Imaging;
 
@@ -17,12 +17,14 @@ internal sealed class IconLoader
 {
     private readonly HttpClient _http;
     private readonly string _cacheDirectory;
+    private readonly Action<string>? _log;
     private readonly Dictionary<string, Bitmap?> _memory = new(StringComparer.OrdinalIgnoreCase);
 
-    public IconLoader(HttpClient http, string cacheDirectory)
+    public IconLoader(HttpClient http, string cacheDirectory, Action<string>? log = null)
     {
         _http = http;
         _cacheDirectory = cacheDirectory;
+        _log = log;
     }
 
     public async Task<Bitmap?> GetAsync(string? url)
@@ -37,13 +39,13 @@ internal sealed class IconLoader
             if (File.Exists(file))
             {
                 var bytes = await File.ReadAllBytesAsync(file).ConfigureAwait(true);
-                var cachedBitmap = Decode(bytes);
+                var cachedBitmap = Decode(bytes, $" (缓存 {file})");
                 _memory[url] = cachedBitmap;
                 if (cachedBitmap is not null) return cachedBitmap;
             }
 
             var downloaded = await _http.GetByteArrayAsync(url).ConfigureAwait(true);
-            var bitmap = Decode(downloaded);
+            var bitmap = Decode(downloaded, $" ({url})");
 
             if (bitmap is not null)
             {
@@ -70,17 +72,29 @@ internal sealed class IconLoader
         }
     }
 
-    private static Bitmap? Decode(byte[] bytes)
+    private Bitmap? Decode(byte[] bytes, string source)
     {
         try
         {
             using var stream = new MemoryStream(bytes);
             return new Bitmap(stream);
         }
-        catch
+        catch (Exception ex)
         {
+            // 解码失败通常是格式不受支持（例如 WebP）—— 记下来，否则界面只会"什么都没有"
+            _log?.Invoke($"图标解码失败（{bytes.Length} 字节，{Describe(bytes)}）{source} → {ex.GetType().Name}: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>按头部字节判断格式，便于从日志直接看出是哪一类图失败。</summary>
+    private static string Describe(byte[] bytes)
+    {
+        if (bytes.Length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50) return "PNG";
+        if (bytes.Length >= 4 && bytes[0] == 0xFF && bytes[1] == 0xD8) return "JPEG";
+        if (bytes.Length >= 12 && bytes[0] == 'R' && bytes[1] == 'I' && bytes[8] == 'W') return "WebP";
+        if (bytes.Length >= 3 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') return "GIF";
+        return "未知格式";
     }
 
     private static string Hash(string url)

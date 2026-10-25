@@ -299,10 +299,7 @@
                         </StackPanel>
                       </Grid>
 
-                      <TextBlock Text="{Binding DetailBody}" FontSize="11" Foreground="#B4BCC8"
-                                 TextWrapping="Wrap" LineHeight="16" />
-
-                      <!-- 机器翻译：与原文分开显示，颜色略偏绿以便区分 -->
+                      <!-- 机器翻译放在原文**上方**：先看中文判断是不是自己要的，需要时再读原文 -->
                       <Border Background="#20242B" CornerRadius="4" Padding="8"
                               IsVisible="{Binding HasDetailTranslation}">
                         <StackPanel Spacing="3">
@@ -311,6 +308,9 @@
                                      Foreground="#9FB4A8" TextWrapping="Wrap" LineHeight="16" />
                         </StackPanel>
                       </Border>
+
+                      <TextBlock Text="{Binding DetailBody}" FontSize="11" Foreground="#B4BCC8"
+                                 TextWrapping="Wrap" LineHeight="16" />
 
                       <Button Content="在浏览器中打开" Command="{Binding OpenDetailInBrowserCommand}"
                               FontSize="11" Padding="10,3" HorizontalAlignment="Left" />

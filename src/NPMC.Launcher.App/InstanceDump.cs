@@ -1,4 +1,4 @@
-﻿using NPMC.Launcher.App.ViewModels;
+using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
@@ -147,8 +147,22 @@ internal static class InstanceDump
         // 验证升级检查链路（会联网访问 Modrinth）
         if (args.Any(arg => string.Equals(arg, "--exercise-updates", StringComparison.OrdinalIgnoreCase)))
         {
+            // 原版实例的模组页签是禁用的，诊断必须挑加载器实例才走得通
+            var updateTarget = viewModel.Instances.FirstOrDefault(item =>
+                                   item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
+                               ?? viewModel.Instances.FirstOrDefault();
+
+            if (updateTarget is not null)
+            {
+                viewModel.SelectedInstance = updateTarget;
+                viewModel.RefreshCapabilitiesAsync(updateTarget).GetAwaiter().GetResult();
+            }
+
             viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
             viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
+
+            // 图标由页签刷新时后台补，给它时间落盘
+            Thread.Sleep(4000);
 
             lines.Add("");
             lines.Add($"[升级检查] 可升级={viewModel.UpdateCount}");

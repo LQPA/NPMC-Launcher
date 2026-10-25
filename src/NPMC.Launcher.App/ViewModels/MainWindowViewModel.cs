@@ -35,6 +35,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly ModrinthClient _modrinth;
     private readonly ModInstaller _installer;
     private readonly IconLoader _icons;
+    private readonly ContentIconCache _contentIcons;
+    private readonly HashSet<string> _autoIdentifiedInstances = new(StringComparer.OrdinalIgnoreCase);
     private readonly TranslationClient _translation;
     private string? _descriptionLanguage;
     private readonly CurseForgeClient? _curseForge;
@@ -68,7 +70,12 @@ public sealed class MainWindowViewModel : ObservableObject
         _updateService = new ModsUpdateService(_http);
         _modrinth = new ModrinthClient(_http);
         _installer = ModInstaller.Create(_http);
-        _icons = new IconLoader(_http, Path.Combine(_launcher.Root, "cache", "icons"));
+        _icons = new IconLoader(
+            _http,
+            Path.Combine(_launcher.Root, "cache", "icons"),
+            message => LauncherLog.Write(_launcher.Root, message));
+
+        _contentIcons = new ContentIconCache(Path.Combine(_launcher.Root, "cache"));
         _translation = new TranslationClient(_http, Path.Combine(_launcher.Root, "cache", "translations"));
 
         if (CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out _) && curseForgeKey is not null)
@@ -705,6 +712,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
         OnPropertyChanged(nameof(IsContentEmpty));
         RaiseCommandStates();
+
+        // 图标不依赖"检查更新"：先用记住的地址（磁盘缓存，无网络），再后台识别一次
+        if (contentKind == ContentKind.Mod && Content.Count > 0)
+            _ = LoadContentIconsAsync(instance, Content.ToList());
     }
 
     /// <summary>刷新左侧实例行的数量、三个页签的数量，以及概览处目录入口的可见性。</summary>
@@ -1288,7 +1299,7 @@ public sealed class MainWindowViewModel : ObservableObject
     ///   - 目标语言是英文 → 原文就是英文，不必翻
     ///   - 翻译端点失败 → 只显示原文（翻译是附加信息，不是必需品）
     /// </summary>
-    private async Task TranslateDetailAsync(string body)
+    private async Task TranslateDetailAsync(int token, string body)
     {
         DetailTranslation = "";
 
@@ -1300,6 +1311,10 @@ public sealed class MainWindowViewModel : ObservableObject
         if (language.StartsWith("en", StringComparison.OrdinalIgnoreCase)) return;
 
         var translated = await _translation.TranslateAsync(body, language);
+
+        // 关键：用户在等待期间可能已经点了别的项目，A 的译文不能写到 B 上
+        if (token != _detailToken) return;
+
         if (!string.IsNullOrWhiteSpace(translated)) DetailTranslation = translated;
     }
 
@@ -1329,6 +1344,75 @@ public sealed class MainWindowViewModel : ObservableObject
             if (character is >= '\u4E00' and <= '\u9FFF') han++;
 
         return han > text.Length / 20;
+    }
+
+    /// <summary>
+    /// 内容列表的图标（打开页签就显示，**不需要点"检查更新"**）。
+    ///
+    /// 分两步：
+    ///   1. 用记住的"文件名 → 图标地址"直接取图标（位图已在磁盘缓存里，零网络）
+    ///   2. 该实例首次打开时，后台识别一次（只认领项目，不查版本），
+    ///      补上徽标并记住图标地址
+    /// </summary>
+    private async Task LoadContentIconsAsync(InstanceListItem instance, IReadOnlyList<ContentEntryItem> items)
+    {
+        foreach (var item in items)
+        {
+            if (!_contentIcons.TryGetIconUrl(item.Entry.FileName, out var rememberedUrl)) continue;
+
+            var remembered = await _icons.GetAsync(rememberedUrl);
+            if (remembered is not null) item.Icon = remembered;
+        }
+
+        // 同一实例只自动识别一次；"检查更新"仍可随时手动触发
+        if (!_autoIdentifiedInstances.Add(instance.Id)) return;
+
+        try
+        {
+            var loaders = await DetectLoadersAsync(instance);
+            var gameVersion = await ResolveGameVersionAsync(instance);
+
+            var report = await _updateService.CheckAsync(
+                items.Select(item => item.Entry.Path).ToList(),
+                gameVersion,
+                loaders,
+                includeProjectVersions: false);
+
+            var byPath = report.LocalMods.ToDictionary(local => local.Path, StringComparer.OrdinalIgnoreCase);
+
+            var projectIds = report.LocalMods
+                .Where(local => local.Matched?.Source == UpdateSource.Modrinth)
+                .Select(local => local.Matched!.ProjectId)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            var projects = projectIds.Count == 0
+                ? new Dictionary<string, ModrinthProject>()
+                : (IReadOnlyDictionary<string, ModrinthProject>)await _modrinth.GetProjectsAsync(projectIds);
+
+            foreach (var item in items)
+            {
+                if (!byPath.TryGetValue(item.Entry.Path, out var local)) continue;
+
+                // 只补还没识别过的徽标：完整检查的结果比这里更权威，不覆盖
+                if (!item.IsIdentified)
+                    item.SetIdentification(local.Matched?.Source, local.Matched?.Channel);
+
+                if (local.Matched is not { Source: UpdateSource.Modrinth } matched) continue;
+                if (!projects.TryGetValue(matched.ProjectId, out var project)) continue;
+
+                _contentIcons.Set(item.Entry.FileName, project.IconUrl);
+
+                var icon = await _icons.GetAsync(project.IconUrl);
+                if (icon is not null) item.Icon = icon;
+            }
+
+            _contentIcons.Save();
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write(_launcher.Root, $"自动识别内容图标失败 → {ex.GetBaseException().Message}");
+        }
     }
 
     /// <summary>逐个补齐搜索结果图标；取不到的留空，不阻塞列表。</summary>
@@ -1361,6 +1445,8 @@ public sealed class MainWindowViewModel : ObservableObject
             var projects = await _modrinth.GetProjectsAsync(projectIds);
             var byPath = report.LocalMods.ToDictionary(local => local.Path, StringComparer.OrdinalIgnoreCase);
 
+            var loaded = 0;
+
             foreach (var item in items)
             {
                 if (!byPath.TryGetValue(item.Entry.Path, out var local)) continue;
@@ -1368,22 +1454,40 @@ public sealed class MainWindowViewModel : ObservableObject
                 if (!projects.TryGetValue(matched.ProjectId, out var project)) continue;
 
                 var icon = await _icons.GetAsync(project.IconUrl);
-                if (icon is not null) item.Icon = icon;
+                if (icon is null) continue;
+
+                item.Icon = icon;
+                loaded++;
             }
+
+            LauncherLog.Write(_launcher.Root,
+                $"内容图标：项目 {projectIds.Count} 个，载入 {loaded}/{items.Count} 个");
         }
-        catch
+        catch (Exception ex)
         {
-            // 图标拿不到不影响任何功能
+            LauncherLog.Write(_launcher.Root, $"内容图标失败 → {ex.GetBaseException().Message}");
         }
     }
 
+    /// <summary>
+    /// 详情加载的序号。
+    ///
+    /// 详情与翻译都是异步的：用户可能在看 A 的时候已经点了 B，
+    /// 而 A 的请求晚于 B 返回 —— 不做判断就会把 A 的内容写到 B 的界面上。
+    /// 每次发起加载都递增，只有"最后一次"才允许写回。
+    /// </summary>
+    private int _detailToken;
+
     private async Task LoadSearchDetailAsync(ModSearchResultItem item)
     {
+        var token = ++_detailToken;
+
         IsDetailVisible = true;
 
         DetailTitle = item.Title;
         DetailSubtitle = $"{item.SourceLabel} · {item.MetaText}";
         DetailUrl = item.PageUrl;
+        DetailTranslation = "";
 
         // 先用列表里已有的图标，等详情回来再按项目图标刷新
         DetailIcon = item.Icon;
@@ -1398,6 +1502,9 @@ public sealed class MainWindowViewModel : ObservableObject
         if (_detailBodyCache.TryGetValue(item.ProjectRef, out var cached))
         {
             DetailBody = cached;
+
+            // 缓存只省了正文请求，翻译仍要补上（译文本身也有缓存，通常瞬间完成）
+            await TranslateDetailAsync(token, cached);
             return;
         }
 
@@ -1406,6 +1513,8 @@ public sealed class MainWindowViewModel : ObservableObject
             DetailBody = "正在加载详情…";
 
             var detail = await _modrinth.GetProjectAsync(item.ProjectRef);
+            if (token != _detailToken) return;
+
             if (detail is null)
             {
                 DetailBody = "无法获取该项目详情";
@@ -1423,15 +1532,19 @@ public sealed class MainWindowViewModel : ObservableObject
             DetailBody = string.IsNullOrWhiteSpace(body) ? "(该项目没有提供描述)" : body;
 
             var icon = await _icons.GetAsync(detail.IconUrl);
+
+            // 用户可能已经切到别的项目：晚到的结果不能覆盖当前界面
+            if (token != _detailToken) return;
+
             if (icon is not null) DetailIcon = icon;
 
-            // 翻译是附加信息：单独走，失败就当作没有
-            _ = TranslateDetailAsync(DetailBody);
-
             _detailBodyCache[item.ProjectRef] = DetailBody;
+
+            await TranslateDetailAsync(token, DetailBody);
         }
         catch (Exception ex)
         {
+            if (token != _detailToken) return;
             DetailBody = $"获取详情失败：{ex.GetBaseException().Message}";
         }
     }
