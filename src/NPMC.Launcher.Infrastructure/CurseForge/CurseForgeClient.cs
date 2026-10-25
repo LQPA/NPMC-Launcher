@@ -5,6 +5,23 @@ using NPMC.Launcher.Core.Mods;
 
 namespace NPMC.Launcher.Infrastructure.CurseForge;
 
+/// <summary>CurseForge 的依赖关系类型。</summary>
+public static class CurseForgeRelation
+{
+    public const int EmbeddedLibrary = 1;
+    public const int OptionalDependency = 2;
+    public const int RequiredDependency = 3;
+    public const int Tool = 4;
+    public const int Incompatible = 5;
+    public const int Include = 6;
+}
+
+/// <summary>文件声明的依赖（只给了 modId 与关系类型）。</summary>
+public sealed record CurseForgeDependency(int ModId, int RelationType)
+{
+    public bool IsRequired => RelationType == CurseForgeRelation.RequiredDependency;
+}
+
 /// <summary>CurseForge 的一个文件（ModFile）。</summary>
 public sealed record CurseForgeFile(
     int ModId,
@@ -18,6 +35,8 @@ public sealed record CurseForgeFile(
     IReadOnlyList<string> GameVersions,
     string? Sha1)
 {
+    /// <summary>该文件声明的依赖。</summary>
+    public IReadOnlyList<CurseForgeDependency> Dependencies { get; init; } = Array.Empty<CurseForgeDependency>();
     /// <summary>
     /// 转换成与平台无关的候选版本。
     ///
@@ -43,6 +62,17 @@ public sealed record CurseForgeFile(
 
 /// <summary>指纹与它对应的文件。</summary>
 public sealed record CurseForgeMatch(uint Fingerprint, CurseForgeFile File);
+
+/// <summary>CurseForge 搜索结果里的一条。</summary>
+public sealed record CurseForgeSearchHit(
+    int ModId,
+    string Slug,
+    string Name,
+    string Summary,
+    long DownloadCount)
+{
+    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? Slug : Name;
+}
 
 /// <summary>
 /// CurseForge 开放 API 的最小封装。
@@ -241,6 +271,68 @@ public sealed class CurseForgeClient
         return new FingerprintLookup(matches, unmatched);
     }
 
+    /// <summary>Minecraft 在 CurseForge 里的固定 gameId。</summary>
+    private const int MinecraftGameId = 432;
+
+    /// <summary>
+    /// 搜索项目。sortField 6 = 总下载量（CF 枚举：1 推荐 / 2 热度 / 3 最近更新 / 6 总下载）。
+    /// </summary>
+    /// <param name="classId">内容分类：6 = 模组，12 = 资源包。</param>
+    public async Task<IReadOnlyList<CurseForgeSearchHit>> SearchAsync(
+        string query,
+        string? gameVersion,
+        IReadOnlyList<string> loaders,
+        int limit = 10,
+        int classId = 6,
+        CancellationToken cancellationToken = default)
+    {
+        var parameters = new List<string>
+        {
+            $"gameId={MinecraftGameId}",
+            $"classId={classId}",
+            $"searchFilter={Uri.EscapeDataString(query)}",
+            $"pageSize={Math.Clamp(limit, 1, 50)}",
+            "sortField=6",
+            "sortOrder=desc",
+        };
+
+        if (!string.IsNullOrWhiteSpace(gameVersion))
+            parameters.Add($"gameVersion={Uri.EscapeDataString(gameVersion)}");
+
+        // 该参数只接受单个加载器；取第一个能识别的
+        var loaderType = loaders.Select(ToModLoaderType).FirstOrDefault(type => type.HasValue);
+        if (loaderType is not null) parameters.Add($"modLoaderType={loaderType.Value}");
+
+        using var document = await SendAsync(
+            HttpMethod.Get,
+            $"{ApiBase}/mods/search?{string.Join("&", parameters)}",
+            null,
+            cancellationToken).ConfigureAwait(false);
+
+        if (document is null) return Array.Empty<CurseForgeSearchHit>();
+        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            return Array.Empty<CurseForgeSearchHit>();
+
+        var hits = new List<CurseForgeSearchHit>();
+
+        foreach (var element in data.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Object) continue;
+
+            var modId = GetInt(element, "id");
+            if (modId == 0) continue;
+
+            hits.Add(new CurseForgeSearchHit(
+                modId,
+                GetString(element, "slug") ?? "",
+                GetString(element, "name") ?? "",
+                GetString(element, "summary") ?? "",
+                GetLong(element, "downloadCount")));
+        }
+
+        return hits;
+    }
+
     /// <summary>取某个项目在指定游戏版本/加载器下的文件，按发布时间从新到旧排序。</summary>
     public async Task<IReadOnlyList<CurseForgeFile>> GetFilesAsync(
         int modId,
@@ -363,7 +455,31 @@ public sealed class CurseForgeClient
             GetString(element, "downloadUrl"),
             GetInt(element, "releaseType"),
             gameVersions,
-            GetSha1(element));
+            GetSha1(element))
+        {
+            Dependencies = ParseDependencies(element),
+        };
+    }
+
+    /// <summary>解析文件的 dependencies（relationType 3 = 必需）。</summary>
+    private static IReadOnlyList<CurseForgeDependency> ParseDependencies(JsonElement element)
+    {
+        if (!element.TryGetProperty("dependencies", out var array) || array.ValueKind != JsonValueKind.Array)
+            return Array.Empty<CurseForgeDependency>();
+
+        var dependencies = new List<CurseForgeDependency>();
+
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+
+            var modId = GetInt(item, "modId");
+            if (modId == 0) continue;
+
+            dependencies.Add(new CurseForgeDependency(modId, GetInt(item, "relationType")));
+        }
+
+        return dependencies;
     }
 
     /// <summary>CurseForge 的 hashes 数组里 algo = 1 表示 SHA1。</summary>

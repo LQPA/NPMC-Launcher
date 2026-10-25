@@ -4,28 +4,50 @@ using NPMC.Launcher.Infrastructure.Mods;
 
 namespace NPMC.Launcher.App.ViewModels;
 
-/// <summary>搜索结果里的一行。</summary>
+/// <summary>
+/// 搜索结果里的一行。
+///
+/// 两个平台的搜索结果要能放进同一个列表，所以这里只暴露"展示 + 安装所需的引用"：
+/// <see cref="Source"/> 决定安装时走哪条解析链路，<see cref="ProjectRef"/> 是那条链路要的标识
+/// （Modrinth 用 slug，CurseForge 用数字 modId 的字符串形式）。
+/// </summary>
 public sealed class ModSearchResultItem
 {
-    public ModSearchResultItem(ModrinthSearchHit hit, Func<ModSearchResultItem, Task> install)
+    public ModSearchResultItem(
+        UpdateSource source,
+        string projectRef,
+        string title,
+        string slug,
+        long downloads,
+        Func<ModSearchResultItem, Task> install)
     {
-        Slug = hit.Slug;
-        Title = hit.DisplayName;
-        Description = hit.Description;
-        Downloads = hit.Downloads;
+        Source = source;
+        ProjectRef = projectRef;
+        Title = title;
+        Slug = slug;
+        Downloads = downloads;
         InstallCommand = new AsyncRelayCommand(() => install(this));
     }
 
-    public string Slug { get; }
+    public UpdateSource Source { get; }
+
+    public string ProjectRef { get; }
 
     public string Title { get; }
 
-    public string Description { get; }
+    public string Slug { get; }
 
     public long Downloads { get; }
 
-    /// <summary>副标题：slug 与下载量 —— 判断"是不是同一个东西"靠 slug，下载量是个粗略的可信度信号。</summary>
-    public string MetaText => $"{Slug} · {FormatDownloads(Downloads)} 次下载";
+    /// <summary>副标题：来源与下载量。</summary>
+    public string MetaText => $"{SourceLabel} · {FormatDownloads(Downloads)} 次下载";
+
+    /// <summary>与列表徽标一致的来源标记（M / C）。</summary>
+    public string SourceBadge => Source == UpdateSource.CurseForge ? "C" : "M";
+
+    public string SourceColor => Source == UpdateSource.CurseForge ? "#A93226" : "#2E7D46";
+
+    public string SourceLabel => Source == UpdateSource.CurseForge ? "CurseForge" : "Modrinth";
 
     public ICommand InstallCommand { get; }
 

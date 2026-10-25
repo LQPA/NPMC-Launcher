@@ -136,8 +136,9 @@ public sealed class ModInstaller
     {
         Directory.CreateDirectory(modsDirectory);
 
+        // 资源包与光影是 .zip，不能只按 *.jar 判断"已存在"，否则每次都会重复下载
         var existing = new HashSet<string>(
-            Directory.EnumerateFiles(modsDirectory, "*.jar").Select(Path.GetFileName)!,
+            Directory.EnumerateFiles(modsDirectory).Select(Path.GetFileName)!,
             StringComparer.OrdinalIgnoreCase);
 
         var installed = new List<InstallTarget>();
@@ -155,6 +156,13 @@ public sealed class ModInstaller
             }
 
             var destination = Path.Combine(modsDirectory, target.FileName);
+
+            // CurseForge 上作者禁止第三方下载时拿不到地址，这不是失败而是"不可能自动装"
+            if (string.IsNullOrWhiteSpace(target.DownloadUrl))
+            {
+                failed.Add((target, "该文件不允许第三方下载，需到网页手动下载"));
+                continue;
+            }
 
             try
             {

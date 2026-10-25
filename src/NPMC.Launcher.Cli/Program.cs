@@ -1129,6 +1129,7 @@ internal static class Program
     private sealed record ModTarget(
         LauncherPaths Paths,
         string VersionId,
+        string GameDirectory,
         string ModsDirectory,
         IReadOnlyList<string> Loaders,
         LauncherInstance? Instance);
@@ -1158,14 +1159,19 @@ internal static class Program
 
         var paths = layout?.Paths ?? launcher;
         var gameDirectory = layout?.GameDirectory ?? launcher.Root;
-        var modsDirectory = Path.Combine(gameDirectory, "mods");
 
         var version = await GameLauncher.TryLoadInstalledVersionAsync(paths, versionId);
         IReadOnlyList<string> loaders = version is null
             ? Array.Empty<string>()
             : LoaderDetector.Detect(version);
 
-        return new ModTarget(paths, versionId, modsDirectory, loaders, instance);
+        return new ModTarget(
+            paths,
+            versionId,
+            gameDirectory,
+            Path.Combine(gameDirectory, "mods"),
+            loaders,
+            instance);
     }
 
     /// <summary>
@@ -1196,34 +1202,82 @@ internal static class Program
         return result;
     }
 
+    /// <summary>--type 的取值解析。</summary>
+    private static ContentKind ParseContentKind(string? text) => (text ?? "").ToLowerInvariant() switch
+    {
+        "resourcepack" or "resourcepacks" or "rp" => ContentKind.ResourcePack,
+        "shader" or "shaders" or "shaderpack" or "shaderpacks" or "sp" => ContentKind.ShaderPack,
+        _ => ContentKind.Mod,
+    };
+
     private static async Task<int> ModsSearchAsync(string[] args)
     {
-        var query = string.Join(" ", Positionals(args, "--instance", "--version", "--root", "--limit"));
+        var query = string.Join(" ", Positionals(
+            args, "--instance", "--version", "--root", "--limit", "--type", "--source"));
+
         if (string.IsNullOrWhiteSpace(query))
         {
-            Error("用法: npmc mods search <关键词> [--instance <Id> | --version <版本>] [--root <目录>] [--limit N]");
+            Error("用法: npmc mods search <关键词> [--type mod|resourcepack|shader] [--source modrinth|curseforge]");
+            Dim("        [--instance <Id> | --version <版本>] [--root <目录>] [--limit N]");
             return 1;
         }
 
         var limit = int.TryParse(Opt(args, "--limit"), out var parsed) && parsed > 0 ? parsed : 10;
+        var kind = ParseContentKind(Opt(args, "--type"));
+        var source = (Opt(args, "--source") ?? "modrinth").ToLowerInvariant();
         var target = await ResolveModTargetAsync(args);
 
+        // 资源包与光影不按加载器过滤（它们声明的 loaders 是 "minecraft"）
+        var loaders = kind.UsesLoaderFilter() ? target.Loaders : Array.Empty<string>();
+
         Section($"搜索 “{query}”");
+        Info($"类型     {kind.DisplayName()}");
         Info($"版本     {target.VersionId}");
-        Info($"加载器   {(target.Loaders.Count > 0 ? string.Join(", ", target.Loaders) : "原版 / 未知")}");
+        Info($"加载器   {(loaders.Count > 0 ? string.Join(", ", loaders) : "不按加载器过滤")}");
 
         using var http = HttpFileDownloader.CreateClient();
-        var client = new ModrinthClient(http);
 
-        var hits = await client.SearchAsync(query, target.VersionId, target.Loaders, limit);
-
-        if (hits.Count == 0)
+        if (source is "cf" or "curseforge")
         {
-            Warn("没有结果 —— 该游戏版本/加载器下可能没有匹配项目");
+            if (!CurseForgeClient.TryResolveApiKey(out var apiKey, out var keyProblem) || apiKey is null)
+            {
+                Error($"CurseForge 不可用：{keyProblem}");
+                return 1;
+            }
+
+            if (kind.CurseForgeClassId() is not { } classId)
+            {
+                Error($"CurseForge 没有{kind.DisplayName()}分类，请用 --source modrinth");
+                return 1;
+            }
+
+            var curseForge = new CurseForgeClient(http, apiKey);
+            var cfHits = await curseForge.SearchAsync(query, target.VersionId, loaders, limit, classId);
+
+            if (cfHits.Count == 0)
+            {
+                Warn("没有结果");
+                return 0;
+            }
+
+            Section($"结果（{cfHits.Count}）");
+            foreach (var hit in cfHits)
+                Console.WriteLine($"  {hit.DisplayName}\n    {hit.Slug}   下载 {hit.DownloadCount:N0}   modId={hit.ModId}");
+
             return 0;
         }
 
-        Section("结果");
+        var client = new ModrinthClient(http);
+        var hits = await client.SearchAsync(
+            query, target.VersionId, loaders, limit, kind.ModrinthProjectType());
+
+        if (hits.Count == 0)
+        {
+            Warn("没有结果 —— 该游戏版本下可能没有匹配项目");
+            return 0;
+        }
+
+        Section($"结果（{hits.Count}）");
         foreach (var hit in hits)
         {
             var description = hit.Description.Length <= 56 ? hit.Description : hit.Description[..56] + "…";
@@ -1231,29 +1285,35 @@ internal static class Program
             Dim($"    {hit.Slug}   下载 {hit.Downloads:N0}   {description}");
         }
 
-        Dim("\n用 npmc mods install <slug> 安装（会自动解析必需依赖）");
+        Dim($"\n用 npmc mods install <slug> --type {kind.ModrinthProjectType()} 安装");
         return 0;
     }
 
     private static async Task<int> ModsInstallAsync(string[] args)
     {
-        var project = Positionals(args, "--instance", "--version", "--root").FirstOrDefault();
+        var project = Positionals(args, "--instance", "--version", "--root", "--type").FirstOrDefault();
         if (string.IsNullOrWhiteSpace(project))
         {
-            Error("用法: npmc mods install <slug|项目Id> [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease] [--latest-deps] [--yes]");
+            Error("用法: npmc mods install <slug|项目Id> [--type mod|resourcepack|shader] [--instance <Id> | --version <版本>]");
+            Dim("        [--root <目录>] [--prerelease] [--latest-deps] [--yes]");
             Dim("  --latest-deps  忽略作者钉死的依赖版本，改用该项目当前最新正式版");
             return 1;
         }
 
+        var kind = ParseContentKind(Opt(args, "--type"));
         var target = await ResolveModTargetAsync(args);
+
+        // 资源包/光影不按加载器过滤，也不解析依赖
+        var loaders = kind.UsesLoaderFilter() ? target.Loaders : Array.Empty<string>();
+        var installDirectory = Path.Combine(target.GameDirectory, kind.DirectoryName());
 
         using var http = HttpFileDownloader.CreateClient();
         var installer = ModInstaller.Create(http);
 
-        Section($"安装 {project}");
+        Section($"安装 {project}（{kind.DisplayName()}）");
         Info($"版本     {target.VersionId}");
-        Info($"加载器   {(target.Loaders.Count > 0 ? string.Join(", ", target.Loaders) : "原版 / 未知")}");
-        Info($"mods     {target.ModsDirectory}");
+        Info($"加载器   {(loaders.Count > 0 ? string.Join(", ", loaders) : "不按加载器过滤")}");
+        Info($"目录     {installDirectory}");
 
         InstallPlan plan;
         try
@@ -1261,7 +1321,7 @@ internal static class Program
             plan = await installer.ResolveAsync(
                 project!,
                 target.VersionId,
-                target.Loaders,
+                loaders,
                 Has(args, "--prerelease"),
                 Has(args, "--latest-deps"));
         }
@@ -1293,7 +1353,7 @@ internal static class Program
             }
         }
 
-        var outcome = await installer.InstallAsync(plan, target.ModsDirectory);
+        var outcome = await installer.InstallAsync(plan, installDirectory);
 
         Section("结果");
         Ok($"已安装 {outcome.Installed.Count} 个 / 跳过 {outcome.Skipped.Count} 个（同名已存在）/ 失败 {outcome.Failed.Count} 个");
@@ -1799,10 +1859,14 @@ internal static class Program
               npmc mods check [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease] [--curseforge-only]
                                                       按哈希/指纹反查 Modrinth 与 CurseForge，
                                                       按游戏版本与加载器判断哪些模组有新版本
-              npmc mods search <关键词> [--instance <Id> | --version <版本>] [--limit N]
-                                                      在 Modrinth 搜索模组（按游戏版本与加载器过滤）
-              npmc mods install <slug|项目Id> [--instance <Id> | --version <版本>] [--prerelease] [--yes]
-                                                      安装模组，递归解析必需的依赖
+              npmc mods search <关键词> [--type mod|resourcepack|shader] [--source modrinth|curseforge]
+                                       [--instance <Id> | --version <版本>] [--limit N]
+                                                      在 Modrinth 或 CurseForge 搜索；
+                                                      资源包与光影不按加载器过滤
+              npmc mods install <slug|项目Id> [--type mod|resourcepack|shader]
+                                       [--instance <Id> | --version <版本>] [--prerelease] [--latest-deps] [--yes]
+                                                      安装并递归解析必需的依赖；
+                                                      按 --type 装到 mods/、resourcepacks/ 或 shaderpacks/
               npmc mods cf-probe <文件> [更多文件…]
                                                       探测 CurseForge 指纹算法：把几种候选变体
                                                       一次发给服务端，看哪个被命中（需 API key）

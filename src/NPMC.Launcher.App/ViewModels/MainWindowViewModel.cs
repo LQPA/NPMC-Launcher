@@ -13,6 +13,7 @@ using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Modrinth;
 using NPMC.Launcher.Infrastructure.Mods;
+using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Storage;
 
 namespace NPMC.Launcher.App.ViewModels;
@@ -29,6 +30,8 @@ public sealed class MainWindowViewModel : ObservableObject
     private readonly ModsUpdateService _updateService;
     private readonly ModrinthClient _modrinth;
     private readonly ModInstaller _installer;
+    private readonly CurseForgeClient? _curseForge;
+    private readonly CurseForgeInstaller? _curseForgeInstaller;
 
     private InstanceListItem? _selectedInstance;
     private ContentTabItem _selectedTab;
@@ -58,6 +61,12 @@ public sealed class MainWindowViewModel : ObservableObject
         _updateService = new ModsUpdateService(_http);
         _modrinth = new ModrinthClient(_http);
         _installer = ModInstaller.Create(_http);
+
+        if (CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out _) && curseForgeKey is not null)
+        {
+            _curseForge = new CurseForgeClient(_http, curseForgeKey);
+            _curseForgeInstaller = new CurseForgeInstaller(_curseForge);
+        }
 
         RefreshCommand = new AsyncRelayCommand(LoadAsync, onError: ex => Status = $"刷新失败：{ex.Message}");
 
@@ -405,7 +414,10 @@ public sealed class MainWindowViewModel : ObservableObject
         get => _selectedTab;
         set
         {
-            if (value is null || !SetProperty(ref _selectedTab, value)) return;
+            if (value is null) return;
+
+            var previousKind = _selectedTab.ContentKind;
+            if (!SetProperty(ref _selectedTab, value)) return;
 
             OnPropertyChanged(nameof(IsOverview));
             OnPropertyChanged(nameof(IsContentList));
@@ -415,13 +427,22 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(ShowContentList));
             OnPropertyChanged(nameof(ShowLog));
             OnPropertyChanged(nameof(ContentEmptyHint));
+            OnPropertyChanged(nameof(SearchPlaceholder));
             RaiseCommandStates();
             UpdateLogTimer();
 
-            // 离开模组页签就把搜索面板收起来。
-            // 结果不删（同一实例下它依然有效，删了等于让人白搜一次），
-            // 但切回来时不该再顶着一屏上次的结果 —— 收起后只留一个「展开」按钮。
-            if (!IsModsTab) IsSearchPanelExpanded = false;
+            // 离开内容页签就把搜索面板收起来（结果保留，同一实例下仍有效）
+            if (!IsContentList) IsSearchPanelExpanded = false;
+
+            // 内容类型变了（模组 → 资源包）→ 搜索结果与待确认计划都不再适用
+            if (previousKind != value.ContentKind)
+            {
+                ResetSearchState();
+
+                // CurseForge 没有光影分类，切到光影时把来源切回 Modrinth
+                if (value.ContentKind is { } tabKind && tabKind.CurseForgeClassId() is null)
+                    SearchSourceIndex = 0;
+            }
 
             if (IsLogTab) _ = RefreshLogAsync();
             else _ = RefreshContentAsync();
@@ -931,6 +952,25 @@ public sealed class MainWindowViewModel : ObservableObject
     private bool _isPlanVisible;
     private bool _isInstalling;
     private InstallPlan? _pendingPlan;
+    private string? _pendingDirectory;
+    private int _searchSourceIndex;
+
+    /// <summary>搜索来源：0 = Modrinth，1 = CurseForge。</summary>
+    public int SearchSourceIndex
+    {
+        get => _searchSourceIndex;
+        set
+        {
+            if (!SetProperty(ref _searchSourceIndex, value)) return;
+            OnPropertyChanged(nameof(SelectedSearchSource));
+        }
+    }
+
+    public UpdateSource SelectedSearchSource =>
+        _searchSourceIndex == 1 ? UpdateSource.CurseForge : UpdateSource.Modrinth;
+
+    /// <summary>未配置 key 时 CurseForge 来源不可用，界面上据此禁用选项。</summary>
+    public bool IsCurseForgeSearchAvailable => _curseForge is not null;
 
     public ObservableCollection<ModSearchResultItem> SearchResults { get; } = new();
     public ObservableCollection<InstallPlanLineItem> PlanLines { get; } = new();
@@ -996,6 +1036,11 @@ public sealed class MainWindowViewModel : ObservableObject
         ? "收起"
         : SearchResults.Count > 0 ? $"展开（{SearchResults.Count} 条）" : "展开";
 
+    /// <summary>搜索框的占位提示随当前页签变化（模组 / 资源包 / 光影）。</summary>
+    public string SearchPlaceholder => SelectedTab.ContentKind is { } kind
+        ? $"搜索{kind.DisplayName()}…"
+        : "搜索…";
+
     public bool IsInstalling
     {
         get => _isInstalling;
@@ -1050,24 +1095,78 @@ public sealed class MainWindowViewModel : ObservableObject
         IsSearching = true;
         try
         {
-            var loaders = await DetectLoadersAsync(instance);
+            // 日志页签没有内容类型 —— 那里不显示搜索面板，走到这里直接退出
+            if (SelectedTab.ContentKind is not { } kind) return;
 
-            Status = $"正在搜索「{query}」…";
-            var hits = await _modrinth.SearchAsync(query, instance.VersionId, loaders, limit: 8);
+            // 只有模组按加载器过滤。资源包/光影的 loaders 是 "minecraft"，
+            // 按 fabric/forge 过滤会一条都搜不到。
+            var loaders = kind.UsesLoaderFilter()
+                ? await DetectLoadersAsync(instance)
+                : Array.Empty<string>();
+
+            var source = SelectedSearchSource;
+
+            if (source == UpdateSource.CurseForge && !IsCurseForgeSearchAvailable)
+            {
+                SearchSummaryText = "CurseForge 搜索需要配置 CURSEFORGE_API_KEY";
+                Status = SearchSummaryText;
+                return;
+            }
+
+            if (source == UpdateSource.CurseForge && kind.CurseForgeClassId() is not { } classId)
+            {
+                SearchSummaryText = $"CurseForge 没有{kind.DisplayName()}分类，请把来源切回 Modrinth";
+                Status = SearchSummaryText;
+                return;
+            }
+
+            Status = $"正在 {source} 搜索「{query}」…";
 
             SearchResults.Clear();
-            foreach (var hit in hits)
-                SearchResults.Add(new ModSearchResultItem(hit, BeginInstallAsync));
+
+            if (source == UpdateSource.CurseForge)
+            {
+                var hits = await _curseForge!.SearchAsync(
+                    query, instance.VersionId, loaders, 8, kind.CurseForgeClassId()!.Value);
+
+                foreach (var hit in hits)
+                {
+                    SearchResults.Add(new ModSearchResultItem(
+                        UpdateSource.CurseForge,
+                        hit.ModId.ToString(),
+                        hit.DisplayName,
+                        hit.Slug,
+                        hit.DownloadCount,
+                        BeginInstallAsync));
+                }
+            }
+            else
+            {
+                var hits = await _modrinth.SearchAsync(
+                    query, instance.VersionId, loaders, 8, kind.ModrinthProjectType());
+
+                foreach (var hit in hits)
+                {
+                    SearchResults.Add(new ModSearchResultItem(
+                        UpdateSource.Modrinth,
+                        hit.Slug,
+                        hit.DisplayName,
+                        hit.Slug,
+                        hit.Downloads,
+                        BeginInstallAsync));
+                }
+            }
 
             OnPropertyChanged(nameof(HasSearchResults));
 
             // 搜出结果就展开 —— 收起状态下搜完看不到东西会让人以为没搜到
             IsSearchPanelExpanded = true;
 
-            SearchSummaryText = hits.Count == 0
-                ? $"没有找到适用于 {instance.VersionId} 的模组"
-                : $"找到 {hits.Count} 个（已按 {instance.VersionId}"
-                  + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + " 过滤）";
+            SearchSummaryText = SearchResults.Count == 0
+                ? $"{source} 上没有找到适用于 {instance.VersionId} 的{kind.DisplayName()}"
+                : $"找到 {SearchResults.Count} 个{kind.DisplayName()}"
+                  + $"（{source} · {instance.VersionId}"
+                  + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + "）";
 
             Status = SearchSummaryText;
         }
@@ -1087,15 +1186,40 @@ public sealed class MainWindowViewModel : ObservableObject
     private async Task BeginInstallAsync(ModSearchResultItem item)
     {
         if (SelectedInstance is not { } instance) return;
+        if (SelectedTab.ContentKind is not { } kind) return;
 
         try
         {
             Status = $"正在解析 {item.Title} 的依赖…";
-            var loaders = await DetectLoadersAsync(instance);
 
-            var plan = await _installer.ResolveAsync(item.Slug, instance.VersionId, loaders);
+            var loaders = kind.UsesLoaderFilter()
+                ? await DetectLoadersAsync(instance)
+                : Array.Empty<string>();
+
+            InstallPlan plan;
+
+            if (item.Source == UpdateSource.CurseForge)
+            {
+                if (_curseForgeInstaller is null || !int.TryParse(item.ProjectRef, out var modId))
+                {
+                    Status = "CurseForge 不可用（未配置 CURSEFORGE_API_KEY）";
+                    return;
+                }
+
+                plan = await _curseForgeInstaller.ResolveAsync(
+                    modId,
+                    instance.VersionId,
+                    loaders,
+                    includeDependencies: kind.HasDependencies(),
+                    rootTitle: item.Title);
+            }
+            else
+            {
+                plan = await _installer.ResolveAsync(item.ProjectRef, instance.VersionId, loaders);
+            }
 
             _pendingPlan = plan;
+            _pendingDirectory = Path.Combine(instance.GameDirectory, kind.DirectoryName());
 
             PlanLines.Clear();
             foreach (var target in plan.Main) PlanLines.Add(new InstallPlanLineItem(target));
@@ -1110,7 +1234,7 @@ public sealed class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             Status = $"解析失败：{ex.GetBaseException().Message}";
-            LauncherLog.Write(_launcher.Root, $"解析安装计划失败 {item.Slug} → {ex.GetBaseException().Message}");
+            LauncherLog.Write(_launcher.Root, $"解析安装计划失败 {item.ProjectRef} → {ex.GetBaseException().Message}");
         }
     }
 
@@ -1122,7 +1246,8 @@ public sealed class MainWindowViewModel : ObservableObject
         try
         {
             Status = "正在下载…";
-            var outcome = await _installer.InstallAsync(plan, instance.ModsDirectory);
+            var outcome = await _installer.InstallAsync(
+                plan, _pendingDirectory ?? instance.ModsDirectory);
 
             Status = $"安装完成：新增 {outcome.Installed.Count} 个，跳过 {outcome.Skipped.Count} 个"
                    + (outcome.Failed.Count > 0 ? $"，失败 {outcome.Failed.Count} 个" : "");

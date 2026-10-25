@@ -104,9 +104,10 @@ public sealed class ModrinthClient
         string? gameVersion,
         IReadOnlyList<string> loaders,
         int limit = 10,
+        string projectType = "mod",
         CancellationToken cancellationToken = default)
     {
-        var facets = new List<string> { "[\"project_type:mod\"]" };
+        var facets = new List<string> { $"[\"project_type:{projectType}\"]" };
 
         if (!string.IsNullOrWhiteSpace(gameVersion))
             facets.Add($"[\"versions:{gameVersion}\"]");
