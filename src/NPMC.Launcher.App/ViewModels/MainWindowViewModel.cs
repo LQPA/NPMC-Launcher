@@ -485,7 +485,8 @@ public sealed class MainWindowViewModel : ObservableObject
         var attempts = await Interop.FolderLauncher.OpenAsync(target);
 
         var report = string.Join(" | ", attempts.Select(a => $"{a.Strategy}={(a.Success ? "OK" : a.Error)}"));
-        LauncherLog.Write(_launcher.Root, $"打开目录 {target} → {report}");
+        LauncherLog.Write(_launcher.Root,
+            $"打开目录 {target} → {report}   [完整性 {Interop.ProcessContext.ReadIntegrityLabel()}]");
 
         if (attempts[^1].Success)
         {
