@@ -1,4 +1,4 @@
-using NPMC.Launcher.Core.Content;
+﻿using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Paths;
 
@@ -42,6 +42,12 @@ public sealed class InstanceListItem : ObservableObject
     public LauncherInstance Model => _model;
 
     public string Id => _model.Id;
+
+    /// <summary>实例指定的 java.exe（为空则由版本元数据决定）。</summary>
+    public string? JavaPath => _model.Settings.JavaPath;
+
+    /// <summary>实例指定的运行时组件（启动器自带的）。</summary>
+    public string? JavaComponent => _model.Settings.JavaComponent;
     public string Name => string.IsNullOrWhiteSpace(_model.Name) ? _model.Id : _model.Name;
     public string VersionId => _model.VersionId;
 

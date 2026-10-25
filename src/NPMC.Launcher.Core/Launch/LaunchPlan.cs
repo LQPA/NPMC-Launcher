@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
@@ -19,15 +19,26 @@ public sealed record LaunchContext(
     int Height)
 {
     /// <summary>
-    /// 离线探针用的上下文。accessToken 填占位值即可——单人游戏不需要真实令牌。
+    /// 离线用的上下文。accessToken 填占位值即可——单人游戏不需要真实令牌。
     /// </summary>
+    /// <remarks>
+    /// user_type 用 legacy：离线账号不是微软账号，标成 legacy 才不会让游戏
+    /// 按 MSA 账号去处理皮肤、聊天等依赖在线身份的功能。
+    ///
+    /// 注意：即便如此，1.20.1 启动时仍会请求
+    /// <c>api.minecraftservices.com/player/attributes</c> 并拿到 401，
+    /// 日志里会出现 YggdrasilUserApiService.fetchProperties 的异常。
+    /// 这是**无害的**：实测游戏继续初始化并进入主菜单
+    /// （有 "Setting user"、Sound engine started、贴图集创建完毕）。
+    /// 看到这条异常不要误判为启动失败。
+    /// </remarks>
     public static LaunchContext OfflineProbe(string playerName = "Probe") =>
         new(playerName,
             Uuid: "00000000000000000000000000000000",
             AccessToken: "0",
             ClientId: "0",
             Xuid: "0",
-            UserType: "msa",
+            UserType: "legacy",
             LauncherName: "NPMC-Launcher",
             LauncherVersion: "0.1.0",
             Width: 1280,

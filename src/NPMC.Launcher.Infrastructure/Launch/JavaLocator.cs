@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
 using NPMC.Launcher.Core.Paths;
 
@@ -126,22 +126,56 @@ public static class JavaLocator
     public static IReadOnlyList<JavaInstallation> Discover(LauncherPaths paths, int maxSystemCandidates = 12)
     {
         var results = new List<JavaInstallation>(DiscoverBundled(paths));
-        var seen = new HashSet<string>(results.Select(r => r.Path), StringComparer.OrdinalIgnoreCase);
+        var seen = results.Select(r => Normalize(r.Path)).ToHashSet(StringComparer.Ordinal);
 
-        var checkedCount = 0;
+        foreach (var java in DiscoverSystem(maxSystemCandidates))
+        {
+            if (!seen.Add(Normalize(java.Path))) continue;
+            results.Add(java);
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// 只找**系统安装**的 Java（启动器自带的运行时不算）。
+    ///
+    /// 与 <see cref="Discover"/> 分开，是为了让界面能按
+    /// "本地 → 系统默认位置 → 用户指定" 三档分别展示。
+    /// </summary>
+    public static IReadOnlyList<JavaInstallation> DiscoverSystem(int maxSystemCandidates = 12)
+    {
+        var results = new List<JavaInstallation>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var root in EnumerateSystemRoots())
         {
             foreach (var javaExe in FindJavaExe(root, maxDepth: 4))
             {
-                if (checkedCount >= maxSystemCandidates) return results;
-                if (!seen.Add(javaExe)) continue;
+                if (results.Count >= maxSystemCandidates) return results;
 
-                checkedCount++;
+                // 同一条 java.exe 可能被多个根目录扫到（目录嵌套、8.3 短名等），
+                // 统一用规范化后的真实路径去重
+                if (!seen.Add(Normalize(javaExe))) continue;
+
                 results.Add(new JavaInstallation(javaExe, ReadMajorVersion(javaExe) ?? 0, IsBundled: false, Component: null));
             }
         }
 
         return results;
+    }
+
+    /// <summary>把路径规范化成可比较的键：展开、去掉尾部分隔符、忽略大小写。</summary>
+    public static string Normalize(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path).TrimEnd('\\', '/').ToLowerInvariant();
+        }
+        catch
+        {
+            return path.Trim().ToLowerInvariant();
+        }
     }
 
     /// <summary>广度优先、限深度地找 java.exe，避免扫爆整个 Program Files。</summary>

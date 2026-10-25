@@ -722,6 +722,8 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsContentEmpty));
         RaiseCommandStates();
 
+        _ = LoadJavaChoicesAsync(SelectedInstance);
+
         // 徽标/R·B·A/图标都不依赖"检查更新"：先用缓存，再后台识别一次。
         // 资源包与光影同样适用 —— 它们也能按哈希被认领，只是不按加载器过滤。
         if (Content.Count > 0)
@@ -2800,6 +2802,180 @@ public sealed class MainWindowViewModel : ObservableObject
         return candidate;
     }
 
+    // ---- 实例的 Java 选择 ----
+
+    private JavaChoice? _selectedJavaChoice;
+    private string _javaHint = "";
+
+    /// <summary>可选的 Java：自动、启动器自带的运行时、系统里发现的。</summary>
+    public ObservableCollection<JavaChoice> JavaChoices { get; } = new();
+
+    public JavaChoice? SelectedJavaChoice
+    {
+        get => _selectedJavaChoice;
+        set
+        {
+            if (!SetProperty(ref _selectedJavaChoice, value)) return;
+
+            _ = ApplyJavaChoiceAsync(value);
+        }
+    }
+
+    /// <summary>当前选择的说明（路径或"由版本决定"）。</summary>
+    public string JavaHint
+    {
+        get => _javaHint;
+        private set => SetProperty(ref _javaHint, value);
+    }
+
+    /// <summary>为某实例列出候选 Java，并选中它当前用的那个。</summary>
+    /// <summary>
+    /// 列出候选 Java，按用户期望的优先级分三档：
+    ///   1. 启动器目录附近（runtime/* 、jre/ 、java/）—— 最可能是"就是为这个启动器准备的"
+    ///   2. 系统默认安装位置（Program Files 各厂商、PATH、JAVA_HOME）
+    ///   3. 用户曾经手动指定的非常规路径
+    /// </summary>
+    private int _javaChoicesToken;
+
+    private async Task LoadJavaChoicesAsync(InstanceListItem? instance)
+    {
+        // 这个方法会被多处触发（选中实例、刷新内容、加载完成）。
+        // 直接往 JavaChoices 里填会让并发的几次调用互相叠加，出现重复项；
+        // 因此先建本地列表，最后用序号确认"我仍是最新的一次"再整体替换。
+        var token = ++_javaChoicesToken;
+        var built = new List<JavaChoice> { new() { Label = "自动（用该版本要求的 Java）" } };
+
+        try
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            void AddUnique(string label, string exe, string? component)
+            {
+                if (!File.Exists(exe)) return;
+                if (!seen.Add(JavaLocator.Normalize(exe))) return;
+
+                built.Add(new JavaChoice { Label = label, Path = exe, Component = component });
+            }
+
+            // ---- 1) 启动器目录 ----
+            foreach (var entry in EnumerateLocalJava())
+            {
+                var parent = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(entry.Exe)));
+                AddUnique($"本地 · {entry.Component ?? parent ?? "java"}", entry.Exe, entry.Component);
+            }
+
+            // ---- 2) 系统默认位置 ----
+            var system = await Task.Run(() => JavaLocator.DiscoverSystem());
+            foreach (var java in system)
+                AddUnique($"系统 · Java {java.MajorVersion} · {java.Path}", java.Path, null);
+
+            // ---- 3) 用户指定的非常规路径 ----
+            if (instance?.JavaPath is { Length: > 0 } custom)
+            {
+                var major = JavaLocator.ReadMajorVersion(custom);
+                AddUnique($"指定 · {(major is null ? "Java" : $"Java {major}")} · {custom}", custom, null);
+            }
+
+            if (token != _javaChoicesToken) return;
+
+            JavaChoices.Clear();
+            foreach (var choice in built) JavaChoices.Add(choice);
+
+            // 选中实例现有的设置
+            var current = JavaChoices.FirstOrDefault(choice =>
+                              instance?.JavaPath is { } path
+                              && choice.Path is not null
+                              && JavaLocator.Normalize(choice.Path) == JavaLocator.Normalize(path))
+                          ?? JavaChoices.FirstOrDefault(choice =>
+                              instance?.JavaComponent is { } component
+                              && string.Equals(choice.Component, component, StringComparison.OrdinalIgnoreCase))
+                          ?? JavaChoices[0];
+
+            _selectedJavaChoice = current;
+            OnPropertyChanged(nameof(SelectedJavaChoice));
+            JavaHint = current.Path ?? "由版本元数据决定（缺了会在下载页自动补）";
+        }
+        catch (Exception ex)
+        {
+            JavaHint = $"枚举 Java 失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    /// <summary>启动器目录里能直接用的 Java：runtime/&lt;组件&gt;、jre、java。</summary>
+    private IEnumerable<(string Exe, string? Component)> EnumerateLocalJava()
+    {
+        if (Directory.Exists(_launcher.Runtime))
+        {
+            foreach (var directory in Directory.EnumerateDirectories(_launcher.Runtime).OrderBy(path => path))
+            {
+                var exe = Path.Combine(directory, "bin", "java.exe");
+                if (File.Exists(exe)) yield return (exe, Path.GetFileName(directory));
+            }
+        }
+
+        foreach (var name in new[] { "jre", "java", "jdk" })
+        {
+            var exe = Path.Combine(_launcher.Root, name, "bin", "java.exe");
+            if (File.Exists(exe)) yield return (exe, null);
+        }
+    }
+
+    /// <summary>用户通过"浏览"指定的 java.exe。</summary>
+    public void SetCustomJava(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || SelectedInstance is null) return;
+
+        var normalized = JavaLocator.Normalize(path);
+        var existing = JavaChoices.FirstOrDefault(choice =>
+            choice.Path is not null && JavaLocator.Normalize(choice.Path) == normalized);
+
+        if (existing is null)
+        {
+            var major = JavaLocator.ReadMajorVersion(path);
+            existing = new JavaChoice
+            {
+                Label = $"指定 · {(major is null ? "Java" : $"Java {major}")} · {path}",
+                Path = path,
+            };
+
+            JavaChoices.Add(existing);
+        }
+
+        SelectedJavaChoice = existing;
+    }
+    /// <summary>把选择写回实例设置。</summary>
+    private async Task ApplyJavaChoiceAsync(JavaChoice? choice)
+    {
+        if (choice is null || SelectedInstance is not { } instance) return;
+
+        try
+        {
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+
+            var current = catalog.Find(instance.Id);
+            if (current is null) return;
+
+            // 只改 Java 两项，其余设置（内存、分辨率、附加参数）原样保留
+            var settings = current.Settings with
+            {
+                JavaPath = choice.Path,
+                JavaComponent = choice.Component,
+            };
+
+            catalog.UpdateSettings(instance.Id, settings);
+            await store.SaveAsync(catalog.Instances);
+
+            JavaHint = choice.Path ?? "由版本元数据决定（缺了会在下载页自动补）";
+
+            LauncherLog.Write(_launcher.Root,
+                $"实例 {instance.Name} 的 Java 设为：{choice.Label}");
+        }
+        catch (Exception ex)
+        {
+            JavaHint = $"保存失败：{ex.GetBaseException().Message}";
+        }
+    }
     // ---- 打开目录 ----
 
     /// <summary>由窗口注入的剪贴板写入器。全部打开方式都失败时，把路径复制给用户兜底。</summary>

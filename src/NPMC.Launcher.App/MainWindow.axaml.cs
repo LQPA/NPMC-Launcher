@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -66,6 +66,33 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>手动指定 java.exe（非常规安装路径）。</summary>
+    private async void OnPickJavaClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+
+        try
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "选择 java.exe",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Java 可执行文件") { Patterns = new[] { "java.exe", "javaw.exe" } },
+                },
+            });
+
+            if (files.Count == 0) return;
+
+            var path = files[0].TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path)) viewModel.SetCustomJava(path);
+        }
+        catch (Exception ex)
+        {
+            viewModel.ReportModpackFailure($"选择 Java 失败：{ex.GetBaseException().Message}");
+        }
+    }
     /// <summary>拖拽悬停：只有带文件时才显示"可放置"。</summary>
     private void OnModpackDragOver(object? sender, DragEventArgs e)
     {

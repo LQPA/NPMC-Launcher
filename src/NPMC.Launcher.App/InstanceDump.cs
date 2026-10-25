@@ -390,6 +390,25 @@ internal static class InstanceDump
             lines.Add($"    可安装 = {viewModel.InstallModpackCommand.CanExecute(null)}");
         }
 
+        // 验证实例页的 Java 候选列表
+        if (args.Any(arg => string.Equals(arg, "--exercise-java", StringComparison.OrdinalIgnoreCase)))
+        {
+            var target = viewModel.Instances.FirstOrDefault();
+            if (target is not null)
+            {
+                viewModel.SelectedInstance = target;
+                Thread.Sleep(4000);
+
+                lines.Add("");
+                lines.Add($"[Java 候选] 实例 {target.Name}");
+                lines.Add($"    共 {viewModel.JavaChoices.Count} 个，当前选中：{viewModel.SelectedJavaChoice?.Label}");
+                lines.Add($"    实例记录：path={target.JavaPath ?? "(空)"} component={target.JavaComponent ?? "(空)"}");
+                lines.Add($"    提示：{viewModel.JavaHint}");
+
+                foreach (var choice in viewModel.JavaChoices)
+                    lines.Add($"      · {choice.Label}");
+            }
+        }
         // 验证版本类型过滤（正式版 / 含快照 / 全部）
         if (args.Any(arg => string.Equals(arg, "--exercise-version-filter", StringComparison.OrdinalIgnoreCase)))
         {
