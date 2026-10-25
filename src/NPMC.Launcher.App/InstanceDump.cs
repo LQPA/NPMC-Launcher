@@ -158,7 +158,7 @@ internal static class InstanceDump
 
                 lines.Add($"    可选版本 {viewModel.InstallVersions.Count} 个，当前 {viewModel.SelectedInstallVersion?.Label}");
                 foreach (var choice in viewModel.InstallVersions.Take(4))
-                    lines.Add($"      {choice.DisplayLabel}");
+                    lines.Add($"      [{choice.TypeBadge}] {choice.Label}    ({choice.TypeLabel})");
 
                 // 切到第二个版本，确认计划会跟着重算
                 if (viewModel.InstallVersions.Count > 1)

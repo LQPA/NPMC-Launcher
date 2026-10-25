@@ -265,7 +265,17 @@
                               FontSize="11" MinHeight="26" HorizontalAlignment="Stretch">
                       <ComboBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:InstallVersionChoice">
-                          <TextBlock Text="{Binding DisplayLabel}" FontSize="11" />
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <!-- 版本类型徽标：R 正式 / B beta / A alpha，与来源徽标同一套风格 -->
+                            <Border Width="16" Height="16" CornerRadius="3"
+                                    Background="{Binding TypeColor}" VerticalAlignment="Center"
+                                    ToolTip.Tip="{Binding TypeLabel}">
+                              <TextBlock Text="{Binding TypeBadge}" FontSize="9" FontWeight="Bold"
+                                         Foreground="#FFFFFF" HorizontalAlignment="Center"
+                                         VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="{Binding Label}" FontSize="11" VerticalAlignment="Center" />
+                          </StackPanel>
                         </DataTemplate>
                       </ComboBox.ItemTemplate>
                     </ComboBox>

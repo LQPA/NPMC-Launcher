@@ -1277,14 +1277,18 @@ public sealed class MainWindowViewModel : ObservableObject
                 .Select(file => new InstallVersionChoice(
                     file.FileId.ToString(),
                     string.IsNullOrWhiteSpace(file.DisplayName) ? file.FileName : file.DisplayName,
-                    file.ReleaseType != 1))
+                    // CurseForge 的 releaseType：1 正式 / 2 beta / 3 alpha
+                    file.ReleaseType switch { 2 => "beta", 3 => "alpha", _ => "release" }))
                 .ToList();
         }
 
         var versions = await _modrinth.GetProjectVersionsAsync(item.ProjectRef, gameVersion, loaders);
 
         return versions
-            .Select(version => new InstallVersionChoice(version.Id, version.VersionNumber, version.IsPrerelease))
+            .Select(version => new InstallVersionChoice(
+                version.Id,
+                version.VersionNumber,
+                string.IsNullOrWhiteSpace(version.VersionType) ? "release" : version.VersionType.ToLowerInvariant()))
             .ToList();
     }
 

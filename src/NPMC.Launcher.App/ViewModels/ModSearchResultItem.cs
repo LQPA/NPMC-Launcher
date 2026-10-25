@@ -64,10 +64,36 @@ public sealed class ModSearchResultItem
 /// <see cref="Ref"/> 是各平台自己的标识（Modrinth 的 versionId / CurseForge 的 fileId），
 /// 界面只负责把它传回给解析器，不关心它的含义。
 /// </summary>
-public sealed record InstallVersionChoice(string Ref, string Label, bool IsPrerelease)
+/// <param name="ReleaseType">release / beta / alpha —— 两个平台的枚举都归一化成这三个词。</param>
+public sealed record InstallVersionChoice(string Ref, string Label, string ReleaseType)
 {
-    /// <summary>预发布版本在下拉里标出来，避免选错。</summary>
-    public string DisplayLabel => IsPrerelease ? $"{Label}（beta）" : Label;
+    /// <summary>版本类型徽标：R / B / A。</summary>
+    public string TypeBadge => ReleaseType switch
+    {
+        "alpha" => "A",
+        "beta" => "B",
+        _ => "R",
+    };
+
+    /// <summary>
+    /// 与来源徽标同一套视觉。三种颜色都压暗过，保证 9px 白字仍能看清：
+    /// 绿 #2E7D46 / 琥珀 #94611A / 红 #A93226。
+    /// </summary>
+    public string TypeColor => ReleaseType switch
+    {
+        "alpha" => "#A93226",
+        "beta" => "#94611A",
+        _ => "#2E7D46",
+    };
+
+    public string TypeLabel => ReleaseType switch
+    {
+        "alpha" => "Alpha 版",
+        "beta" => "Beta 版",
+        _ => "正式版",
+    };
+
+    public bool IsPrerelease => ReleaseType is "alpha" or "beta";
 }
 
 /// <summary>安装计划里的一行（主体或依赖）。</summary>
