@@ -13,36 +13,61 @@ namespace NPMC.Launcher.Core.Mods;
 /// </summary>
 public static class MurmurHash2
 {
-    private const uint Seed = 1;
     private const uint M = 0x5bd1e995;
     private const int R = 24;
 
-    /// <summary>计算字节序列的指纹（已过滤空白字符）。</summary>
-    public static uint Compute(ReadOnlySpan<byte> data)
+    /// <summary>计算前要跳过哪些字节。不同实现对"空白"的定义不一致，见各成员说明。</summary>
+    public enum WhitespaceFilter
     {
-        // 1) 过滤空白，得到参与哈希的有效字节
+        /// <summary>
+        /// 只跳过 制表(0x09) / 换行(0x0A) / 回车(0x0D) / 空格(0x20)。
+        /// 这是多数第三方实现采用的定义，也是官方文档 "tabs, spaces, newlines" 的字面含义。
+        /// </summary>
+        Standard = 0,
+
+        /// <summary>在 Standard 基础上再跳过 垂直制表(0x0B) 与 换页(0x0C)。</summary>
+        Extended = 1,
+
+        /// <summary>完全不过滤（原样哈希）。</summary>
+        None = 2,
+    }
+
+    public const uint DefaultSeed = 1;
+
+    /// <summary>按 Standard 定义计算（seed = 1）。</summary>
+    public static uint Compute(ReadOnlySpan<byte> data)
+        => Compute(data, WhitespaceFilter.Standard, DefaultSeed);
+
+    public static uint Compute(ReadOnlySpan<byte> data, WhitespaceFilter filter, uint seed = DefaultSeed)
+    {
+        if (filter == WhitespaceFilter.None) return ComputeHashed(data, seed);
+
         var filtered = new byte[data.Length];
         var count = 0;
+
         foreach (var value in data)
         {
-            if (IsIgnoredWhitespace(value)) continue;
+            if (ShouldSkip(value, filter)) continue;
             filtered[count++] = value;
         }
 
-        var bytes = filtered.AsSpan(0, count);
-        return ComputeFiltered(bytes);
+        return ComputeHashed(filtered.AsSpan(0, count), seed);
     }
 
-    public static async Task<uint> ComputeFileAsync(string path, CancellationToken cancellationToken = default)
+    public static async Task<uint> ComputeFileAsync(
+        string path,
+        WhitespaceFilter filter = WhitespaceFilter.Standard,
+        uint seed = DefaultSeed,
+        CancellationToken cancellationToken = default)
     {
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        return Compute(bytes);
+        return Compute(bytes, filter, seed);
     }
 
-    private static uint ComputeFiltered(ReadOnlySpan<byte> bytes)
+    private static uint ComputeHashed(ReadOnlySpan<byte> bytes, uint seed)
     {
         var length = bytes.Length;
-        var h = Seed ^ (uint)length;
+        var h = seed ^ (uint)length;
 
         var i = 0;
         while (length - i >= 4)
@@ -75,16 +100,10 @@ public static class MurmurHash2
         return h;
     }
 
-    /// <summary>CurseForge 在计算前会忽略的空白字符。</summary>
-    private static bool IsIgnoredWhitespace(byte value) => value switch
+    private static bool ShouldSkip(byte value, WhitespaceFilter filter) => value switch
     {
-        0x20    // 空格
-        or 0x09 // 制表 \t
-        or 0x0A // 换行 \n
-        or 0x0D // 回车 \r
-        or 0x0B // 垂直制表 \v
-        or 0x0C // 换页 \f
-        => true,
+        0x09 or 0x0A or 0x0D or 0x20 => true,                       // 制表 / 换行 / 回车 / 空格
+        0x0B or 0x0C => filter == WhitespaceFilter.Extended,        // 垂直制表 / 换页
         _ => false,
     };
 }

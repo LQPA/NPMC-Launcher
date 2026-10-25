@@ -175,13 +175,29 @@ public sealed class CurseForgeClient
         return buffer.ToString().Trim();
     }
 
+    /// <summary>指纹查询结果：命中的文件 + 服务端报告未匹配的指纹。</summary>
+    public sealed record FingerprintLookup(
+        IReadOnlyList<CurseForgeMatch> Matches,
+        IReadOnlyCollection<uint> Unmatched);
+
     /// <summary>按指纹批量识别文件。查不到的指纹不会出现在结果里。</summary>
     public async Task<IReadOnlyList<CurseForgeMatch>> GetMatchesAsync(
         IReadOnlyCollection<uint> fingerprints,
         CancellationToken cancellationToken = default)
+        => (await LookupAsync(fingerprints, cancellationToken).ConfigureAwait(false)).Matches;
+
+    /// <summary>
+    /// 同上，但同时返回"未匹配"的指纹集合。
+    /// 诊断用：一次把多种候选算法一起发过去，看哪个被命中。
+    /// </summary>
+    public async Task<FingerprintLookup> LookupAsync(
+        IReadOnlyCollection<uint> fingerprints,
+        CancellationToken cancellationToken = default)
     {
         var matches = new List<CurseForgeMatch>();
-        if (fingerprints.Count == 0) return matches;
+        IReadOnlyCollection<uint> unmatched = Array.Empty<uint>();
+
+        if (fingerprints.Count == 0) return new FingerprintLookup(matches, unmatched);
 
         using var document = await SendAsync(
             HttpMethod.Post,
@@ -189,26 +205,40 @@ public sealed class CurseForgeClient
             new { fingerprints = fingerprints.ToArray() },
             cancellationToken).ConfigureAwait(false);
 
-        if (document is null) return matches;
-        if (!document.RootElement.TryGetProperty("data", out var data)) return matches;
-        if (!data.TryGetProperty("exactMatches", out var exactMatches) || exactMatches.ValueKind != JsonValueKind.Array)
-            return matches;
+        if (document is null) return new FingerprintLookup(matches, unmatched);
+        if (!document.RootElement.TryGetProperty("data", out var data)) return new FingerprintLookup(matches, unmatched);
 
-        foreach (var match in exactMatches.EnumerateArray())
+        if (data.TryGetProperty("exactMatches", out var exactMatches) && exactMatches.ValueKind == JsonValueKind.Array)
         {
-            if (!match.TryGetProperty("file", out var fileElement)) continue;
+            foreach (var match in exactMatches.EnumerateArray())
+            {
+                if (!match.TryGetProperty("file", out var fileElement)) continue;
 
-            var file = ParseFile(fileElement);
-            if (file is null) continue;
+                var file = ParseFile(fileElement);
+                if (file is null) continue;
 
-            var fingerprint = 0u;
-            if (match.TryGetProperty("id", out var idElement) && idElement.TryGetInt64(out var id))
-                fingerprint = (uint)id;
+                var fingerprint = 0u;
+                if (match.TryGetProperty("id", out var idElement) && idElement.TryGetInt64(out var id))
+                    fingerprint = (uint)id;
 
-            matches.Add(new CurseForgeMatch(fingerprint, file));
+                matches.Add(new CurseForgeMatch(fingerprint, file));
+            }
         }
 
-        return matches;
+        if (data.TryGetProperty("unmatchedFingerprints", out var unmatchedElement) &&
+            unmatchedElement.ValueKind == JsonValueKind.Array)
+        {
+            var values = new List<uint>();
+            foreach (var item in unmatchedElement.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Number && item.TryGetInt64(out var value))
+                    values.Add((uint)value);
+            }
+
+            unmatched = values;
+        }
+
+        return new FingerprintLookup(matches, unmatched);
     }
 
     /// <summary>取某个项目在指定游戏版本/加载器下的文件，按发布时间从新到旧排序。</summary>

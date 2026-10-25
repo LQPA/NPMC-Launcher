@@ -1106,14 +1106,109 @@ internal static class Program
     /// </summary>
     private static async Task<int> ModsAsync(string[] args)
     {
-        if (args.Length == 0 || args[0] != "check")
+        if (args.Length == 0)
         {
-            Error("用法: npmc mods check [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease] [--curseforge-only]");
-            Dim("--curseforge-only 会跳过 Modrinth，用于验证 CurseForge 指纹是否一致（需要 CURSEFORGE_API_KEY）");
+            Error("用法: npmc mods <check|cf-probe> ...");
+            Dim("  check    检查模组是否有新版本");
+            Dim("  cf-probe 探测 CurseForge 指纹算法（需要 CURSEFORGE_API_KEY）");
             return 1;
         }
 
-        var rest = args[1..];
+        return args[0].ToLowerInvariant() switch
+        {
+            "check" => await ModsCheckAsync(args[1..]),
+            "cf-probe" => await CurseForgeProbeAsync(args[1..]),
+            _ => Unknown($"mods {args[0]}"),
+        };
+    }
+
+    /// <summary>
+    /// 探测 CurseForge 的指纹算法。
+    ///
+    /// 为什么需要它：不同实现对"计算前跳过哪些空白字符"的定义不一致
+    /// （有的只跳 \t \n \r 空格，有的还跳过 \v \f），而 jar 是二进制文件，
+    /// 这两种定义算出来的值必然不同。与其猜，不如把几种候选一次发给服务端，
+    /// 看哪个被命中 —— 一次请求就能确定正确算法。
+    /// </summary>
+    private static async Task<int> CurseForgeProbeAsync(string[] args)
+    {
+        var files = args.Where(arg => !arg.StartsWith("--", StringComparison.Ordinal)).ToList();
+        if (files.Count == 0)
+        {
+            Error("用法: npmc mods cf-probe <文件路径> [更多文件…]");
+            return 1;
+        }
+
+        if (!CurseForgeClient.TryResolveApiKey(out var apiKey, out var keyProblem) || apiKey is null)
+        {
+            Error($"无法使用 CurseForge：{keyProblem}");
+            return 1;
+        }
+
+        Section("CurseForge 指纹探针");
+
+        var variants = new (string Name, MurmurHash2.WhitespaceFilter Filter, uint Seed)[]
+        {
+            ("Standard \\t\\n\\r空格, seed=1", MurmurHash2.WhitespaceFilter.Standard, 1),
+            ("Extended +\\v\\f,     seed=1", MurmurHash2.WhitespaceFilter.Extended, 1),
+            ("不过滤,              seed=1", MurmurHash2.WhitespaceFilter.None, 1),
+            ("Standard,           seed=0", MurmurHash2.WhitespaceFilter.Standard, 0),
+        };
+
+        using var http = HttpFileDownloader.CreateClient();
+        var probe = new CurseForgeClient(http, apiKey);
+        var hitAny = false;
+
+        foreach (var file in files)
+        {
+            if (!File.Exists(file))
+            {
+                Warn($"找不到文件：{file}");
+                continue;
+            }
+
+            Section(Path.GetFileName(file));
+
+            var computed = new List<(string Name, uint Value)>();
+            foreach (var variant in variants)
+            {
+                var value = await MurmurHash2.ComputeFileAsync(file, variant.Filter, variant.Seed);
+                computed.Add((variant.Name, value));
+                Dim($"  {variant.Name}  →  {value}");
+            }
+
+            var lookup = await probe.LookupAsync(computed.Select(item => item.Value).ToList());
+            var matches = lookup.Matches;
+            Dim($"  服务端未匹配数：{lookup.Unmatched.Count}");
+
+            if (matches.Count == 0)
+            {
+                Warn("  没有任何变体被命中（该文件可能不在 CurseForge 的指纹库里）");
+                continue;
+            }
+
+            foreach (var match in matches)
+            {
+                var hit = computed.FirstOrDefault(item => item.Value == match.Fingerprint);
+                hitAny = true;
+                Ok($"  命中：{hit.Name}");
+                Info($"    modId={match.File.ModId}  fileId={match.File.FileId}");
+                Info($"    名称={match.File.DisplayName}  文件={match.File.FileName}");
+            }
+        }
+
+        Section("结论");
+        if (hitAny)
+            Ok("上面的『命中』行给出了正确的算法变体");
+        else
+            Warn("四种变体都未命中 —— 需要换思路（可能是文件不在库里，或 API 用法有误）");
+
+        return 0;
+    }
+
+    private static async Task<int> ModsCheckAsync(string[] args)
+    {
+        var rest = args;
         var withPrerelease = Has(rest, "--prerelease");
 
         // --curseforge-only：跳过 Modrinth，全部交给 CurseForge。
@@ -1640,9 +1735,12 @@ internal static class Program
                                                       实测官方与镜像当前谁更快，结论写入 settings.json
 
             模组:
-              npmc mods check [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease]
-                                                      按 SHA1 反查 Modrinth，按游戏版本与加载器
-                                                      判断哪些模组有新版本
+              npmc mods check [--instance <Id> | --version <版本>] [--root <目录>] [--prerelease] [--curseforge-only]
+                                                      按哈希/指纹反查 Modrinth 与 CurseForge，
+                                                      按游戏版本与加载器判断哪些模组有新版本
+              npmc mods cf-probe <文件> [更多文件…]
+                                                      探测 CurseForge 指纹算法：把几种候选变体
+                                                      一次发给服务端，看哪个被命中（需 API key）
 
             示例:
               npmc probe   1.20.1 --root .\data
