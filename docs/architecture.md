@@ -406,6 +406,8 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | **`.gitignore` 大小写误伤源码** | `core.ignorecase=true` 时，为运行时数据写的 `instances/`、`runtime/` 会同时匹配源码目录 `Core/Instances/`、`Infrastructure/Runtime/`，把新文件静默排除在提交之外（已实际发生：`MojangRuntimeInstaller.cs` 从首次提交起就没进过仓库，导致远端工程一直编译不过） | 运行时数据模式必须**锚定到仓库根**：`/.data/` `/runtime/` `/instances/` …… 提交前用 `git status --ignored=matching -- src tests` 核对，只应看到 `bin/`、`obj/` |
 | **临时目录不完全可用** | 同一套测试在受限模式下 6/6 通过，在 `danger-full-access` 下 3/3 失败，报 `UnauthorizedAccessException`（在真实用户 `%TEMP%` 里建目录）。但后续 `npmc doctor` 在同样提权下又能成功建目录 —— **具体机制未完全定位**，推测与令牌/目录完整性级别不匹配有关 | 结论不变：**测试与工具不要依赖 `%TEMP%`**。测试统一用测试程序集所在目录下的 `test-scratch/`（见 `TestTemp`）——构建产物已写进 bin，证明该目录必然可写 |
 | **`OpenProcess` 部分受限** | 受限模式下：对自身 PID 设置 `EnableRaisingEvents`、用 CIM 查父进程都返回"拒绝访问"，testhost 因此崩溃。提权后：**打开自身进程句柄恢复可用**，但 testhost 打开**父进程**句柄仍然失败 | 用 `npmc doctor` 实测当前环境（它直接报告"进程句柄 可用/被禁止"）。真实用户环境是 Medium 完整性，不受此限；本机已实测游戏进程的 `WaitForExitAsync` 在提权下可正常工作 |
+| **自建 apphost 被降权到 Low 完整性** | 双击或从任意终端启动 `NPMC.Launcher.App.exe`，进程令牌都是 `S-1-16-4096`（Low），即使父进程是 Medium 的 PowerShell 或 Explorer。Low 会**同时**禁掉 `SHOpenFolderAndSelectItems`（`0x80070005`）、ShellExecute（"拒绝访问"）和 explorer.exe（`0xC0000142`），于是"打开文件夹"必然失败。显式 `asInvoker` 清单、自签名证书**都改变不了**这一点 | **改用 `dotnet NPMC.Launcher.App.dll` 启动**：`dotnet.exe` 是微软签名的，托管进程随之获得 Medium，一切正常。仓库根的 `launch.cmd` 就是这条命令的封装 |
+| **未签名 exe 触发 SmartScreen** | 自建 exe 每次启动弹「Windows 已保护你的电脑」。自签名 + 导入受信任存储后，弹窗里的发行者由"未知发布者"变成证书名（说明签名链路有效），但**仍然拦截** —— SmartScreen 还有一层**信誉**判定，自签名证书永远拿不到信誉 | 自签名只能消除"未知发布者"，无法通过信誉检查。实际可用的做法是走 `dotnet` 宿主（`dotnet.exe` 已受信任），或每次点「仍要运行」；要真正发布则需 OV/EV 代码签名证书（EV 要企业资质） |
 
 ---
 

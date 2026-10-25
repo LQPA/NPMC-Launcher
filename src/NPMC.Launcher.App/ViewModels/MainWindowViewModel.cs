@@ -605,7 +605,8 @@ public sealed class MainWindowViewModel : ObservableObject
         if (ProcessContext.IsLowIntegrity)
         {
             var reason = "当前进程处于受限模式（Low 完整性），系统不允许它调起资源管理器。"
-                       + "请从开始菜单正常启动 NPMC Launcher；路径已复制到剪贴板，可直接粘贴到资源管理器地址栏。";
+                       + "请改用仓库根目录的 launch.cmd 启动（通过 dotnet 宿主运行，可获得 Medium 权限）；"
+                       + "路径已复制到剪贴板，也可直接粘贴到资源管理器地址栏。";
 
             LauncherLog.Write(_launcher.Root,
                 $"打开目录被跳过（{ProcessContext.Describe()}）：{target}");
