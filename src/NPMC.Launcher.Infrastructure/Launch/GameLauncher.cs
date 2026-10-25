@@ -172,13 +172,17 @@ public static class GameLauncher
         // 用户只能看到一句无从下手的错误 —— 所以在启动前就拦下来。
         var lockPath = PrepareInstanceLock(prepared.Plan.WorkingDirectory);
 
+        // Fabric 会在 <gameDir>\.fabric\remappedJars 里做一次性重映射。
+        // 如果上一次是被强制结束的（任务管理器、崩溃、启动器关闭），
+        // 会留下半个 *.tmp，而 Fabric 下次写入这个同名 tmp 时会直接失败，
+        // 报 "the jar file ...client-intermediary.jar.tmp can't be written"。
+        // 这些文件随时可以重建，启动前清掉最稳妥。
+        CleanRemapScratch(prepared.Plan.WorkingDirectory);
+
         var startInfo = new ProcessStartInfo(prepared.Plan.JavaPath)
         {
-            WorkingDirectory = prepared.Plan.WorkingDirectory,
-            UseShellExecute = false,
-
             // java 是控制台程序，默认会开一个黑色控制台窗口。
-            // CREATE_NO_WINDOW 让它在没有控制台的情况下运行。
+            // 设了 CreateNoWindow 就不会弹窗；stdout/stderr 仍然重定向（见下）。
             CreateNoWindow = true,
 
             // 但只设 CreateNoWindow 不读管道是危险的：
@@ -211,6 +215,19 @@ public static class GameLauncher
         // 早期失败（JVM 起不来、main class 找不到等）**不会**写 latest.log，
         // 唯一的信息就在 stderr 里。所以这里不能丢：写到实例 logs 下供失败后查看，
         // 同时持续把管道读空，避免缓冲区写满导致游戏卡死。
+        // 把这次真正执行的命令行记下来：出问题时要能和"手动跑一次"逐字对比
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(prepared.Plan.WorkingDirectory, "logs"));
+            File.WriteAllText(
+                Path.Combine(prepared.Plan.WorkingDirectory, "logs", "nmpc-command.txt"),
+                prepared.Plan.ToDisplayString());
+        }
+        catch
+        {
+            // 记不下来不影响启动
+        }
+
         var stdoutPath = StdoutLogPath(prepared.Plan.WorkingDirectory);
         var stderrPath = StderrLogPath(prepared.Plan.WorkingDirectory);
 
@@ -234,6 +251,30 @@ public static class GameLauncher
 
         return process;
     }
+    /// <summary>清掉 Fabric 重映射留下的半成品文件（只删 *.tmp）。</summary>
+    private static void CleanRemapScratch(string gameDirectory)
+    {
+        try
+        {
+            var remapRoot = Path.Combine(gameDirectory, ".fabric", "remappedJars");
+            if (!Directory.Exists(remapRoot)) return;
+
+            // 只要发现半成品，就把整个缓存目录重建：
+            // 崩溃时可能连已完成的 jar 都是截断的，留着反而更难查。
+            var hasScratch = Directory
+                .EnumerateFiles(remapRoot, "*.tmp", SearchOption.AllDirectories)
+                .Any();
+
+            if (!hasScratch) return;
+
+            try { Directory.Delete(remapRoot, recursive: true); } catch { }
+        }
+        catch
+        {
+            // 清理失败不影响启动，Fabric 自己会报错
+        }
+    }
+
     /// <summary>游戏标准输出的落盘位置（每次启动覆盖）。</summary>
     public static string StdoutLogPath(string gameDirectory)
         => Path.Combine(gameDirectory, "logs", "nmpc-stdout.log");

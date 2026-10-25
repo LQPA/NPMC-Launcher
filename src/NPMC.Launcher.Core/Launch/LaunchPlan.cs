@@ -95,7 +95,6 @@ public static class ClasspathBuilder
         string clientJarPath)
     {
         var list = new List<string>();
-
         foreach (var library in effectiveLibraries)
         {
             var artifact = library.Downloads?.Artifact;
@@ -115,9 +114,7 @@ public static class ClasspathBuilder
         }
 
 
-        // client jar 放**最后**：与官方启动器一致。
-        // Fabric 会按 classpath 顺序定位游戏 jar 做重映射，
-        // 放在最前会让它把加载器自己的类当成游戏内容，报 "error remapping game jars"。
+        // client jar 放**最后**：与官方启动器一致，Fabric 依赖这个顺序定位游戏 jar。
         list.Add(clientJarPath);
         return list;
     }

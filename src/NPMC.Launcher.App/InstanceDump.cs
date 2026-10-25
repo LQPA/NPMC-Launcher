@@ -21,6 +21,29 @@ internal static class InstanceDump
 {
     private const string Option = "--dump-instances";
 
+    /// <summary>
+    /// 读日志尾部。游戏正在写 latest.log，必须以共享模式打开，否则会抛"文件被占用"。
+    /// </summary>
+    private static string ReadTailSafe(string path, int lines)
+    {
+        try
+        {
+            if (!File.Exists(path)) return "(没有日志)";
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+
+            var all = new List<string>();
+            while (reader.ReadLine() is { } line) all.Add(line.Trim());
+
+            return string.Join(" / ", all.TakeLast(lines));
+        }
+        catch (Exception ex)
+        {
+            return $"(读取失败：{ex.GetBaseException().Message})";
+        }
+    }
+
     /// <summary>诊断：解析一个本地整合包文件（--exercise-modpack &lt;路径&gt;）。</summary>
     private static string? ModpackPath(string[] args)
     {
@@ -242,7 +265,15 @@ internal static class InstanceDump
         if (args.Any(arg => string.Equals(arg, "--exercise-search", StringComparison.OrdinalIgnoreCase)))
         {
             // 优先选加载器实例：那才是最容易踩"用 profile 名当游戏版本"坑的场景
-            var target = viewModel.Instances.FirstOrDefault(item =>
+            // 允许点名实例：--exercise-launch <实例名>
+            var launchIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-launch", StringComparison.OrdinalIgnoreCase));
+            var requestedName = launchIndex >= 0 && launchIndex + 1 < args.Length ? args[launchIndex + 1] : null;
+
+            var target = (requestedName is null
+                             ? null
+                             : viewModel.Instances.FirstOrDefault(item => item.Name == requestedName))
+                         ?? viewModel.Instances.FirstOrDefault(item =>
                              item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
                          ?? viewModel.Instances.FirstOrDefault();
 
@@ -463,7 +494,15 @@ internal static class InstanceDump
         // 真跑一次启动（界面同一条路径），确认游戏能起来、锁文件到位
         if (args.Any(arg => string.Equals(arg, "--exercise-launch", StringComparison.OrdinalIgnoreCase)))
         {
-            var target = viewModel.Instances.FirstOrDefault(item =>
+            // 允许点名实例：--exercise-launch <实例名>
+            var launchIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-launch", StringComparison.OrdinalIgnoreCase));
+            var requestedName = launchIndex >= 0 && launchIndex + 1 < args.Length ? args[launchIndex + 1] : null;
+
+            var target = (requestedName is null
+                             ? null
+                             : viewModel.Instances.FirstOrDefault(item => item.Name == requestedName))
+                         ?? viewModel.Instances.FirstOrDefault(item =>
                              item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
                          ?? viewModel.Instances.FirstOrDefault();
 
@@ -483,9 +522,7 @@ internal static class InstanceDump
                 var statusBeforeKill = viewModel.Status;
                 var running = System.Diagnostics.Process.GetProcessesByName("java").Length;
                 var logFile = Path.Combine(target.GameDirectory, "logs", "latest.log");
-                var logTail = File.Exists(logFile)
-                    ? string.Join(" / ", File.ReadLines(logFile).TakeLast(3).Select(line => line.Trim()))
-                    : "(没有日志)";
+                var logTail = ReadTailSafe(logFile, 3);
 
                 lines.Add("");
                 lines.Add($"[启动] 实例 {target.Name}");
