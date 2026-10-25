@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using Avalonia.Media.Imaging;
 using System.Text;
 using System.Windows.Input;
@@ -2147,11 +2147,19 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>是否与已有实例重名（重名会让人分不清哪个是新的）。</summary>
-    public bool DownloadConflictsWithExisting => Instances.Any(item =>
-        string.Equals(item.Name, _downloadInstanceName.Trim(), StringComparison.OrdinalIgnoreCase));
+    /// <summary>实际会用的实例名：留空就用默认名（版本号 / 带加载器版本）。</summary>
+    public string EffectiveInstanceName =>
+        string.IsNullOrWhiteSpace(_downloadInstanceName)
+            ? DefaultInstanceName()
+            : _downloadInstanceName.Trim();
 
-    /// <summary>新实例名。默认跟版本/加载器走，用户手改后不再覆盖。</summary>
+    /// <summary>是否与已有实例重名（重名会让人分不清哪个是新的）。</summary>
+    public bool DownloadConflictsWithExisting =>
+        EffectiveInstanceName.Length > 0
+        && Instances.Any(item =>
+            string.Equals(item.Name, EffectiveInstanceName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>新实例名。留空表示使用默认名；手改后不再跟随版本/加载器。</summary>
     public string DownloadInstanceName
     {
         get => _downloadInstanceName;
@@ -2159,8 +2167,12 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _downloadInstanceName, value)) return;
 
-            if (!_suppressNameEdit) _instanceNameEdited = true;
+            // 只有"非空输入"才算用户改名。
+            // TextBox 挂载时会先把它自己的空值写回来，若把那也算改名，
+            // 后续的"跟随版本"就全部失效 —— 名称会一直是空、按钮也永远灰着。
+            if (!_suppressNameEdit && !string.IsNullOrWhiteSpace(value)) _instanceNameEdited = true;
 
+            OnPropertyChanged(nameof(EffectiveInstanceName));
             OnPropertyChanged(nameof(DownloadConflictsWithExisting));
             (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
@@ -2223,7 +2235,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private bool CanDownload => !IsDownloading
                                 && _selectedDownloadVersion is not null
-                                && _downloadInstanceName.Trim().Length > 0
+                                && EffectiveInstanceName.Length > 0
                                 && !DownloadConflictsWithExisting;
 
     private void Navigate(NavPage page)
@@ -2342,9 +2354,7 @@ public sealed class MainWindowViewModel : ObservableObject
             var store = new JsonInstanceStore(_launcher);
             var catalog = new InstanceCatalog(await store.LoadAsync());
 
-            var name = string.IsNullOrWhiteSpace(_downloadInstanceName)
-                ? DefaultInstanceName()
-                : _downloadInstanceName.Trim();
+            var name = EffectiveInstanceName;
             var instance = catalog.Add(name, instanceVersionId);
 
             await store.SaveAsync(catalog.Instances);
