@@ -103,6 +103,16 @@
               <TextBlock Text="{Binding DisplayTitle}" FontSize="12" Padding="12,5" />
             </DataTemplate>
           </ListBox.ItemTemplate>
+          <ListBox.Styles>
+            <!-- 不可用的页签直接禁用（不能点进去），并用提示说明原因 -->
+            <Style Selector="ListBoxItem" x:DataType="vm:ContentTabItem">
+              <Setter Property="IsEnabled" Value="{Binding IsEnabled}" />
+              <Setter Property="ToolTip.Tip" Value="{Binding TabTip}" />
+            </Style>
+            <Style Selector="ListBoxItem:disabled">
+              <Setter Property="Opacity" Value="0.38" />
+            </Style>
+          </ListBox.Styles>
         </ListBox>
 
         <!-- 概览 -->

@@ -56,6 +56,22 @@ internal static class InstanceDump
 
         // 验证启动准备链路（只组装计划、不启动进程）
         var first = viewModel.Instances.FirstOrDefault();
+
+        // 页签可用性由实例能力决定，这里逐个列出来
+        if (first is not null)
+        {
+            viewModel.SelectedInstance = viewModel.Instances[0];
+            viewModel.RefreshCapabilitiesAsync(first).GetAwaiter().GetResult();
+
+            lines.Add("");
+            lines.Add($"[实例能力] 加载器={viewModel.DetectedLoadersText}");
+            foreach (var tab in viewModel.ContentTabs)
+            {
+                lines.Add($"    {tab.Title,-6} 可用={tab.IsEnabled}"
+                          + (tab.IsEnabled ? "" : $"   原因={tab.TabTip}"));
+            }
+        }
+
         if (first is not null)
         {
             var paths = new LauncherPaths(root);

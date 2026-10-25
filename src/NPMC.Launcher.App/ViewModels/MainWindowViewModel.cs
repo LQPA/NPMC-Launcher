@@ -237,10 +237,97 @@ public sealed class MainWindowViewModel : ObservableObject
 
             if (IsLogTab) _ = RefreshLogAsync();
             else _ = RefreshContentAsync();
+
+            // 换实例 → 重新判断该实例能不能用模组/光影
+            if (value is { } selectedInstance) _ = RefreshCapabilitiesAsync(selectedInstance);
         }
     }
 
     public bool HasSelection => SelectedInstance is not null;
+
+    // ---- 实例能力（决定哪些内容页签可用）----
+
+    private bool _hasModLoader;
+    private bool _hasShaderSupport;
+    private IReadOnlyList<string> _detectedLoaders = Array.Empty<string>();
+
+    public bool HasModLoader => _hasModLoader;
+
+    /// <summary>检测到的加载器名（fabric / forge / neoforge / quilt）。</summary>
+    public string DetectedLoadersText =>
+        _detectedLoaders.Count == 0 ? "无（原版）" : string.Join(", ", _detectedLoaders);
+
+    /// <summary>
+    /// 重新计算实例能力并刷新页签可用性。
+    ///
+    /// 为什么要禁用而不是隐藏：
+    ///   - 隐藏会让人以为"这个启动器不支持模组"；禁用 + 提示能说清"缺的是加载器"。
+    ///   - 模组需要加载器；光影还需要 Iris/OptiFine —— 原版客户端根本不读 shaderpacks。
+    ///   - 资源包原版就支持，永远可用。
+    /// </summary>
+    public async Task RefreshCapabilitiesAsync(InstanceListItem instance)
+    {
+        var loaders = await DetectLoadersAsync(instance);
+
+        var hasShaderProvider = false;
+        try
+        {
+            if (Directory.Exists(instance.ModsDirectory))
+            {
+                hasShaderProvider = Directory
+                    .EnumerateFiles(instance.ModsDirectory, "*.jar")
+                    .Select(Path.GetFileName)
+                    .Any(name => name is not null
+                                 && (name.Contains("iris", StringComparison.OrdinalIgnoreCase)
+                                     || name.Contains("optifine", StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+        catch
+        {
+            // 目录读不了就当没有
+        }
+
+        _detectedLoaders = loaders;
+        _hasModLoader = loaders.Count > 0;
+        _hasShaderSupport = _hasModLoader && hasShaderProvider;
+
+        OnPropertyChanged(nameof(HasModLoader));
+        OnPropertyChanged(nameof(DetectedLoadersText));
+
+        ApplyTabAvailability();
+    }
+
+    private void ApplyTabAvailability()
+    {
+        foreach (var tab in ContentTabs)
+        {
+            if (tab.ContentKind is not { } kind) continue;
+
+            var (enabled, hint) = kind switch
+            {
+                ContentKind.Mod => (
+                    _hasModLoader,
+                    "该实例没有安装模组加载器（Fabric / Forge / NeoForge / Quilt），"
+                    + "模组不会被游戏加载。请先安装加载器。"),
+
+                ContentKind.ShaderPack => (
+                    _hasShaderSupport,
+                    "该实例缺少光影支持（Iris 或 OptiFine），原版客户端不会读取 shaderpacks。"
+                    + "安装 Iris 后即可使用。"),
+
+                _ => (true, ""),
+            };
+
+            tab.SetAvailability(enabled, hint);
+        }
+
+        // 当前页签恰好被禁用（换了实例、或删掉了 Iris）→ 退回概览
+        if (SelectedTab.ContentKind is { } selectedKind
+            && ContentTabs.FirstOrDefault(tab => tab.ContentKind == selectedKind) is { IsEnabled: false })
+        {
+            SelectedTab = ContentTabs[0];
+        }
+    }
 
     public bool IsEmpty => Instances.Count == 0;
 
