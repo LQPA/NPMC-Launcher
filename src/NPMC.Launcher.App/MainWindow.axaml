@@ -542,6 +542,15 @@
             <TextBlock Text="{Binding ContentEmptyHint}" FontSize="12" Foreground="#949CA9"
                        TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" LineHeight="19" />
           </StackPanel>
+
+            <!-- 存档页签的操作行（世界列表 / 数据包管理各给一个入口） -->
+            <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,10,0,0"
+                        IsVisible="{Binding IsDataPackTab}">
+              <Button Content="打开存档根目录" Command="{Binding OpenSavesFolderCommand}"
+                      IsVisible="{Binding ShowWorldPicker}" FontSize="12" />
+              <Button Content="打开该世界的数据包目录" Command="{Binding OpenDatapacksFolderCommand}"
+                      IsVisible="{Binding IsManagingDataPacks}" FontSize="12" />
+            </StackPanel>
         </Grid>
 
         <!-- 日志 -->
@@ -584,12 +593,8 @@
         </StackPanel>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
-                    IsVisible="{Binding ShowContentActions}">
+                    IsVisible="{Binding ShowContentList}">
           <Button Content="打开当前文件夹" Command="{Binding OpenContentFolderCommand}" />
-          <Button Content="打开存档根目录" Command="{Binding OpenSavesFolderCommand}"
-                  IsVisible="{Binding ShowWorldPicker}" />
-          <Button Content="打开该世界的数据包目录" Command="{Binding OpenDatapacksFolderCommand}"
-                  IsVisible="{Binding IsManagingDataPacks}" />
           <Button Content="全部禁用" Command="{Binding DisableAllCommand}" IsVisible="{Binding ShowContentList}" />
           <Button Content="全部启用" Command="{Binding EnableAllCommand}" IsVisible="{Binding ShowContentList}" />
           <TextBlock Text="也可以把文件直接拖进列表导入（模组 .jar，其余 .zip）"

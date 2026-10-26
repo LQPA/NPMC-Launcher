@@ -993,8 +993,6 @@ public sealed class MainWindowViewModel : ObservableObject
         HasSelection && IsContentList && (!IsDataPackTab || IsManagingDataPacks);
     public bool ShowLog => HasSelection && IsLogTab;
 
-    /// <summary>内容页签底部操作行：内容列表与存档页签都要显示。</summary>
-    public bool ShowContentActions => ShowContentList || IsDataPackTab;
     /// <summary>内容列表本身（含搜索面板）只在"能看到列表"时显示。</summary>
     public bool ShowContentRows => ShowContentList && !IsContentEmpty;
 
