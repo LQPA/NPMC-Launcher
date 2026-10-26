@@ -31,6 +31,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly LauncherPaths _launcher;
     private readonly ContentManager _contentManager = new();
     private readonly DispatcherTimer _logTimer;
+    private DispatcherTimer? _memoryTraceTimer;
 
     // Modrinth / CurseForge 查询与文件下载共用同一个 HttpClient（连接池复用，UA 统一）。
     // 代理与超时只能在建客户端时设定，所以这里先同步读一次 settings.json。
@@ -93,6 +94,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         // NPMC_MEMORY_TRACE=1 时把关键节点的内存快照写进 <root>\logs\memory.log
         MemoryTrace.Configure(launcher.Root);
+
+        // 排查真实鼠标操作时，关键节点太少；开启 trace 时再加每秒一条时间线。
+        if (MemoryTrace.IsEnabled)
+        {
+            _memoryTraceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _memoryTraceTimer.Tick += (_, _) => CaptureMemory("tick");
+            _memoryTraceTimer.Start();
+        }
 
         if (CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out _) && curseForgeKey is not null)
         {
