@@ -158,8 +158,8 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 
 ## 7. 未提交/未完成的事项
 
-- 工作区干净。`main` 上比远端多三个本地提交：`54913d3`（页签可见性）、`852bd96`（设置页 + 存档数字），
-  以及记录它们的文档提交；**没有 push**，要同步远端请显式执行。
+- 工作区干净。`main` 上比远端多四个本地提交：`54913d3`（页签可见性）、`852bd96`（设置页 + 存档数字）、
+  下载页高亮修复，以及记录它们的文档提交；**没有 push**，要同步远端请显式执行。
 - 会话末尾有两个回归已修（空提示行、离开页签清理），见 `56ce5a3` 说明。
 
 ---
@@ -231,3 +231,14 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 界面验证（本轮已截图核对）：侧栏「设置」可点且高亮、实例列表与详情面板完全让位、
 四个分区（下载源 / 下载与网络 / 实例默认 / Java）排版正常、底部「恢复默认」与状态文案正常、
 返回实例页与下载页无残留。
+
+### 9.3 下载页左侧「游戏本体」首次进入不高亮（用户报）
+
+又一处"派生属性没通知"：`VersionsModeBackground` / `VersionsModeForeground`（以及整合包那份）
+都写成 `IsVersionsMode ? … : …`，而 `IsVersionsMode = 在下载页 && 选了游戏本体`。
+`Navigate` 只通知了 `IsVersionsMode`，没通知这 4 个颜色属性 → 首屏进下载页时内容出来了、
+左侧「游戏本体」还是透明背景。
+
+改法：`RaiseDownloadModeChanged()` 统一通知这 7 个属性（两个分区可见性 + 4 个颜色 + 版本列表），
+`Navigate` 与 `SetDownloadMode` 都调它。`--exercise-nav` 在"下载页"这一步额外核对这 4 个颜色属性
+（缺了会打印"缺 VersionsModeBackground / …"）。

@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Paths;
@@ -708,7 +708,7 @@ internal static class InstanceDump
                     nameof(MainWindowViewModel.IsContentEmptyOrNotList),
                 };
 
-                void Dump(string tag, bool requireNotifications = true)
+                void Dump(string tag, bool requireNotifications = true, string[]? extra = null)
                 {
                     lines.Add(
                         $"    {tag}：当前页签={viewModel.SelectedTab.Title} 面板={viewModel.ShowContentPane} "
@@ -723,7 +723,8 @@ internal static class InstanceDump
                         return;
                     }
 
-                    var missing = expected.Where(name => !announced.Contains(name)).ToList();
+                    var required = extra is null ? expected : expected.Concat(extra).ToArray();
+                    var missing = required.Where(name => !announced.Contains(name)).ToList();
                     lines.Add($"        通知：{(missing.Count == 0 ? "齐全" : "缺 " + string.Join(" / ", missing))}");
                     announced.Clear();
                 }
@@ -754,7 +755,15 @@ internal static class InstanceDump
 
                 viewModel.ShowDownloadsCommand.Execute(null);
                 Thread.Sleep(600);
-                Dump("下载页");
+                Dump("下载页", extra: new[]
+                {
+                    // 进下载页时左侧「游戏本体 / 整合包」的高亮也要跟着通知，
+                    // 否则会显示内容却没高亮（首屏进下载页的经典现象）
+                    nameof(MainWindowViewModel.VersionsModeBackground),
+                    nameof(MainWindowViewModel.VersionsModeForeground),
+                    nameof(MainWindowViewModel.ModpacksModeBackground),
+                    nameof(MainWindowViewModel.ModpacksModeForeground),
+                });
 
                 viewModel.ShowInstancesCommand.Execute(null);
                 Thread.Sleep(600);

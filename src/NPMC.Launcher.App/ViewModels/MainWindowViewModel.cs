@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using Avalonia.Media.Imaging;
 using System.Text;
 using System.Windows.Input;
@@ -2813,12 +2813,30 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsSettingsPage));
         OnPropertyChanged(nameof(SettingsNavBackground));
         OnPropertyChanged(nameof(SettingsNavForeground));
-        OnPropertyChanged(nameof(ShowVersionList));
-        OnPropertyChanged(nameof(IsVersionsMode));
-        OnPropertyChanged(nameof(IsModpacksMode));
+
+        // 下载页两个分区的可见性/高亮也依赖"在不在下载页"，必须一起通知：
+        // 只通知 IsVersionsMode 会留下"内容出来了、左侧「游戏本体」没高亮"。
+        RaiseDownloadModeChanged();
 
         if (page == NavPage.Downloads) _ = LoadDownloadVersionsAsync();
         if (page == NavPage.Settings) _ = EnsureSettingsPageDataAsync();
+    }
+
+    /// <summary>
+    /// 下载页两个分区（游戏本体 / 整合包）的可见性与高亮。
+    ///
+    /// 这些属性都是 `=>` 现算的，输入有两个：在不在下载页、选了哪个分区。
+    /// 两处变化都要走这里 —— 否则首屏进下载页会出现"显示游戏本体、左侧没高亮"。
+    /// </summary>
+    private void RaiseDownloadModeChanged()
+    {
+        OnPropertyChanged(nameof(IsVersionsMode));
+        OnPropertyChanged(nameof(IsModpacksMode));
+        OnPropertyChanged(nameof(ShowVersionList));
+        OnPropertyChanged(nameof(VersionsModeBackground));
+        OnPropertyChanged(nameof(ModpacksModeBackground));
+        OnPropertyChanged(nameof(VersionsModeForeground));
+        OnPropertyChanged(nameof(ModpacksModeForeground));
     }
 
     /// <summary>拉取版本清单。只在下拉页可见时才做，避免启动时多一次网络请求。</summary>
@@ -3075,14 +3093,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (_downloadMode == mode) return;
 
         _downloadMode = mode;
-
-        OnPropertyChanged(nameof(IsVersionsMode));
-        OnPropertyChanged(nameof(IsModpacksMode));
-        OnPropertyChanged(nameof(ShowVersionList));
-        OnPropertyChanged(nameof(VersionsModeBackground));
-        OnPropertyChanged(nameof(ModpacksModeBackground));
-        OnPropertyChanged(nameof(VersionsModeForeground));
-        OnPropertyChanged(nameof(ModpacksModeForeground));
+        RaiseDownloadModeChanged();
     }
 
     /// <summary>界面侧的错误（例如拖入的不是 .mrpack）也要能显示出来。</summary>
