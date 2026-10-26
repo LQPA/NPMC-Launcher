@@ -521,7 +521,7 @@ internal static class InstanceDump
                 var tab = viewModel.ContentTabs.FirstOrDefault(item => item.ContentKind == ContentKind.DataPack);
                 lines.Add($"    {candidate.Name}（{candidate.VersionId}）");
                 lines.Add($"      数据包页签 可用={tab?.IsEnabled}  提示={tab?.TabTip ?? "-"}");
-                lines.Add($"      世界 {viewModel.Worlds.Count} 个，当前 {viewModel.SelectedWorld?.Name ?? "(未选)"}");
+                lines.Add($"      世界 {viewModel.Worlds.Count} 个");
 
                 if (tab is { IsEnabled: true })
                 {
@@ -529,13 +529,15 @@ internal static class InstanceDump
                     Thread.Sleep(1200);
 
                     lines.Add($"      世界列表视图={viewModel.ShowWorldPicker}  管理视图={viewModel.IsManagingDataPacks}");
+                    foreach (var world in viewModel.Worlds)
+                        lines.Add($"      世界行 {world.Name}  数据包按钮={world.CanManageDataPacks}");
 
-                    // 进入数据包管理
-                    viewModel.ManageDataPacksCommand.Execute(null);
+                    // 进入数据包管理（行内按钮）
+                    viewModel.Worlds.FirstOrDefault()?.ManageDataPacksCommand.Execute(null);
                     Thread.Sleep(1500);
 
                     lines.Add($"      → 管理后：{viewModel.DataPackWorld?.Name}  列表视图={viewModel.ShowWorldPicker}");
-                    lines.Add($"      → 目录 {viewModel.SelectedWorld?.Directory}\\datapacks");
+                    lines.Add($"      → 目录 {viewModel.DataPackWorld?.Directory}\\datapacks");
                     lines.Add($"      → 内容 {viewModel.Content.Count} 个  空提示={viewModel.ShowContentEmptyHint}");
 
                     // 返回世界列表

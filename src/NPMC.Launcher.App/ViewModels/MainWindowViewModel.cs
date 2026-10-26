@@ -61,7 +61,7 @@ public sealed class MainWindowViewModel : ObservableObject
             new("模组", DetailTabKind.Content, ContentKind.Mod),
             new("资源包", DetailTabKind.Content, ContentKind.ResourcePack),
             new("光影", DetailTabKind.Content, ContentKind.ShaderPack),
-            new("数据包", DetailTabKind.Content, ContentKind.DataPack),
+            new("存档", DetailTabKind.Content, ContentKind.DataPack),
             new("日志", DetailTabKind.Log),
         };
         _selectedTab = ContentTabs[0];
@@ -550,7 +550,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsDataPackTab => SelectedTab.ContentKind == ContentKind.DataPack;
 
-    /// <summary>重新枚举世界（数据包页签要用）。</summary>
+    /// <summary>重新枚举世界，并给每一行挂上操作（打开目录 / 数据包 / 删除）。</summary>
     private void LoadWorlds()
     {
         Worlds.Clear();
@@ -566,7 +566,14 @@ public sealed class MainWindowViewModel : ObservableObject
                     // 只认真正的世界：有 level.dat
                     if (!File.Exists(Path.Combine(directory.FullName, "level.dat"))) continue;
 
-                    Worlds.Add(new WorldItem(directory.Name, directory.FullName, directory.LastWriteTime));
+                    Worlds.Add(new WorldItem(
+                        directory.Name,
+                        directory.FullName,
+                        directory.LastWriteTime,
+                        _supportsDataPacks,
+                        OpenWorldFolder,
+                        ManageWorldDataPacks,
+                        DeleteWorld));
                 }
             }
             catch
@@ -575,14 +582,70 @@ public sealed class MainWindowViewModel : ObservableObject
             }
         }
 
-        if (_selectedWorld is null || !Worlds.Any(world => world.Directory == _selectedWorld.Directory))
-            _selectedWorld = Worlds.FirstOrDefault();
-
-        OnPropertyChanged(nameof(SelectedWorld));
         OnPropertyChanged(nameof(HasWorlds));
         OnPropertyChanged(nameof(ContentEmptyHint));
     }
 
+    private async void OpenWorldFolder(WorldItem world)
+        => await OpenDirectoryAsync(Path.Combine(world.Directory, "datapacks"));
+
+    /// <summary>进入某个世界的数据包管理页。</summary>
+    private async void ManageWorldDataPacks(WorldItem world)
+    {
+        if (!world.CanManageDataPacks)
+        {
+            Status = $"「{world.Name}」的游戏版本没有数据包功能（1.13 起才有）。";
+            return;
+        }
+
+        DataPackWorld = world;
+        RaiseWorldViewChanged();
+
+        Status = $"正在管理「{world.Name}」的数据包";
+        await RefreshContentAsync();
+    }
+
+    private string? _pendingWorldDelete;
+
+    /// <summary>删除世界：两次点击确认（会删掉 level.dat 与所有区块数据，不可恢复）。</summary>
+    private async void DeleteWorld(WorldItem world)
+    {
+        if (IsGameRunning)
+        {
+            Status = "游戏正在运行，先关闭游戏再删除存档。";
+            return;
+        }
+
+        if (!string.Equals(_pendingWorldDelete, world.Directory, StringComparison.OrdinalIgnoreCase))
+        {
+            _pendingWorldDelete = world.Directory;
+            Status = $"将删除世界「{world.Name}」（含所有区块与数据包，不可恢复）。再点一次确认。";
+            return;
+        }
+
+        _pendingWorldDelete = null;
+
+        try
+        {
+            Directory.Delete(world.Directory, recursive: true);
+            LoadWorlds();
+
+            if (DataPackWorld is { } managed &&
+                string.Equals(managed.Directory, world.Directory, StringComparison.OrdinalIgnoreCase))
+            {
+                DataPackWorld = null;
+                RaiseWorldViewChanged();
+            }
+
+            Status = $"已删除世界「{world.Name}」";
+            LauncherLog.Write(_launcher.Root, $"已删除世界「{world.Name}」：{world.Directory}");
+        }
+        catch (Exception ex)
+        {
+            Status = $"删除世界失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"删除世界失败 → {ex.GetBaseException().Message}");
+        }
+    }
     /// <summary>
     /// 内容类型对应的实际目录。
     ///
@@ -673,10 +736,8 @@ public sealed class MainWindowViewModel : ObservableObject
                     + "安装 Iris 后即可使用。"),
 
                 ContentKind.DataPack => (
-                    _supportsDataPacks && HasWorlds,
-                    _supportsDataPacks
-                        ? "还没有世界。先在游戏里创建一个世界，数据包是按世界安装的。"
-                        : "该版本（1.13 之前）没有数据包功能，因此不提供数据包管理。"),
+                    HasWorlds,
+                    "还没有世界。先在游戏里创建一个世界，数据包是按世界安装的。"),
 
                 _ => (true, ""),
             };
