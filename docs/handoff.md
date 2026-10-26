@@ -1,7 +1,8 @@
-﻿# 交接说明（Handoff）
+# 交接说明（Handoff）
 
 > 写于 2026-10-26，对应提交 `56ce5a3`；下午的页签回归修复见第 8 节（`54913d3`），
 > 设置页与存档数字修复见第 9 节（`852bd96`）。
+> 2026-10-27 凌晨补：模组页 495 图标的内存诊断与懒加载改造，见 9.1.7。
 > 新会话请先读本文件，再读 `D:\Agents\AGENTS.md`（工作区规则）与 `docs/architecture.md`。
 
 ---
@@ -171,6 +172,10 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
     它们拼在 `-p` 模块路径与 `-DignoreList` 里。漏设不会报错，只会把字面量 `${...}` 交给 JVM，
     表现是"启动闪退 / 找不到主类"。`architecture.md` 的占位符全集里一直列着这两个，
     但代码 2026-10-26 之前从没 `Set` 过 —— 文档全 ≠ 实现全。
+13. **原生 Bitmap 不按托管堆压力回收**：495 个图标解码后托管堆只有 12MB，GC 没理由跑，
+    工作集就一直挂着（用户看到 528MB）；强制 GC 后能掉 100MB+。所以内容列表的图标要
+    **按可见行懒加载**、行离开可视树就丢引用，别在 `LoadContentMetadataAsync` 里给所有行预先解码。
+    详见 9.1.7。
 
 ---
 
@@ -277,7 +282,67 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 - ATM10 实测：列表与概览显示「缺少 6 个模组」，面板 6 条；手动放入正确 SHA1 的文件后应变为 0
   （合成测试已覆盖：错误内容被拒、正确内容导入）。
 
-### 9.1.4 整合包实例的模组整理（2026-10-26 晚）\n\n- 模组页默认勾选「隐藏整合包自带模组」：按 `.nmpc-modpack.json` 的 `PackFiles` 过滤，\n  ATM10 实测 495 个自带模组折叠后列表为 0；取消勾选可看全部。\n- 空列表提示改为「没有手动添加的模组；整合包自带的 N 个已折叠」。\n- 更新检查：整合包自带文件**不检查更新**（作者钉的是整套版本），只检查用户手动添加的文件；\n  没有手动模组时状态栏直接写明「整合包实例：整合包内模组不做单独更新检查」。\n  实测：折叠后 0 个 → 跳过；加一个 `zzz-user-mod.jar` → 只检查这 1 个。\n- 说明：`PackFiles` 在新安装时自动写入；老实例（如当前 ATM10）已按现有 mods 文件名补了一份。\n\n### 9.1.5 模组页改成“列表 + 下载”两段（2026-10-27）\n\n- 列表上方搜索框改为**本地实时筛选**（`ModFilterQuery`，不联网，按文件名过滤当前列表）。\n- 右侧「下载模组」进入下载模式：显示原来的 Modrinth/CurseForge 搜索与依赖计划，\n  左上「← 返回模组列表」退出；下载模式下隐藏本地列表与批量按钮。\n- 去掉了底部“也可以把文件直接拖进列表导入…”提示（拖拽导入仍然有效）。\n- 整合包自带模组直接按整合包来源标注（CF 包 → CurseForge，Modrinth 包 → Modrinth），\n  不再逐个联网查哈希、也不会显示“未知来源”；用户添加的模组才走原识别流程。\n- 实测：`显示全部后 495 个`；筛选 `tombstone` → 1 个且来源为 CurseForge；\n  模式切换：列表模式 筛选=True/列表=True/搜索=False，下载模式相反。\n\n### 9.1.6 模组页内存优化（2026-10-27）\n\n- 根因：每次折叠/筛选都重新扫盘并重建 495 个 `ContentEntryItem`，还顺带加载 495 个图标位图，\n  进程内存会从 ~100MB 顶到 ~300MB。\n- 改法：模组页扫描结果缓存到 `_modSnapshot`，折叠/筛选只移动已有的行对象（`_modItemCache`），\n  不再重新扫描或创建对象；整合包自带模组不加载图标（只显示来源徽标）。\n- 图标缓存改成上限 128 条的 LRU（磁盘缓存保留）；\n- 图标不再对整合包模组禁用：首次打开会用哈希识别并落盘图标缓存；\n  折叠（隐藏整包模组）时立即释放隐藏行的 `Icon` 并清空 `IconLoader`；\n  正在后台跑的那次识别也会在每次 `await` 后检查 `Content.Contains(item)`，\n  列表已经清空就不再往行上贴图标（否则隐藏了还在偷偷加载 495 个图标）。\n  切换实例时 `ReleaseContentIcons()` 把行上的 `Icon` 置空并清空 `IconLoader`，\n  下次回到该实例再从磁盘缓存加载（避免"列表只剩 C 徽标"的观感）。\n- 实测反复开关 6 次：内存变化约 258 KB；列表/筛选/来源归属仍正确。\n- 另把内容列表从 `ItemsControl`（在 ScrollViewer 里会实例化全部 495 行）换成带\n  `VirtualizingStackPanel` 的 `ListBox`：只创建可见行，495 行全展开时也不会再顶到 300MB。\n  已用透明背景/无选中样式保持原来的外观。\n\n### 9.2 设置页（原先左侧导航是灰的）
+### 9.1.4 整合包实例的模组整理（2026-10-26 晚）\n\n- 模组页默认勾选「隐藏整合包自带模组」：按 `.nmpc-modpack.json` 的 `PackFiles` 过滤，\n  ATM10 实测 495 个自带模组折叠后列表为 0；取消勾选可看全部。\n- 空列表提示改为「没有手动添加的模组；整合包自带的 N 个已折叠」。\n- 更新检查：整合包自带文件**不检查更新**（作者钉的是整套版本），只检查用户手动添加的文件；\n  没有手动模组时状态栏直接写明「整合包实例：整合包内模组不做单独更新检查」。\n  实测：折叠后 0 个 → 跳过；加一个 `zzz-user-mod.jar` → 只检查这 1 个。\n- 说明：`PackFiles` 在新安装时自动写入；老实例（如当前 ATM10）已按现有 mods 文件名补了一份。\n\n### 9.1.5 模组页改成“列表 + 下载”两段（2026-10-27）\n\n- 列表上方搜索框改为**本地实时筛选**（`ModFilterQuery`，不联网，按文件名过滤当前列表）。\n- 右侧「下载模组」进入下载模式：显示原来的 Modrinth/CurseForge 搜索与依赖计划，\n  左上「← 返回模组列表」退出；下载模式下隐藏本地列表与批量按钮。\n- 去掉了底部“也可以把文件直接拖进列表导入…”提示（拖拽导入仍然有效）。\n- 整合包自带模组直接按整合包来源标注（CF 包 → CurseForge，Modrinth 包 → Modrinth），\n  不再逐个联网查哈希、也不会显示“未知来源”；用户添加的模组才走原识别流程。\n- 实测：`显示全部后 495 个`；筛选 `tombstone` → 1 个且来源为 CurseForge；\n  模式切换：列表模式 筛选=True/列表=True/搜索=False，下载模式相反。\n\n### 9.1.6 模组页内存优化（2026-10-27）\n\n- 根因：每次折叠/筛选都重新扫盘并重建 495 个 `ContentEntryItem`，还顺带加载 495 个图标位图，\n  进程内存会从 ~100MB 顶到 ~300MB。\n- 改法：模组页扫描结果缓存到 `_modSnapshot`，折叠/筛选只移动已有的行对象（`_modItemCache`），\n  不再重新扫描或创建对象；整合包自带模组不加载图标（只显示来源徽标）。\n- 图标缓存改成上限 128 条的 LRU（磁盘缓存保留）；\n- 图标不再对整合包模组禁用：首次打开会用哈希识别并落盘图标缓存；\n  折叠（隐藏整包模组）时立即释放隐藏行的 `Icon` 并清空 `IconLoader`；\n  正在后台跑的那次识别也会在每次 `await` 后检查 `Content.Contains(item)`，\n  列表已经清空就不再往行上贴图标（否则隐藏了还在偷偷加载 495 个图标）。\n  切换实例时 `ReleaseContentIcons()` 把行上的 `Icon` 置空并清空 `IconLoader`，\n  下次回到该实例再从磁盘缓存加载（避免"列表只剩 C 徽标"的观感）。\n- 实测反复开关 6 次：内存变化约 258 KB；列表/筛选/来源归属仍正确。\n- 另把内容列表从 `ItemsControl`（在 ScrollViewer 里会实例化全部 495 行）换成带\n  `VirtualizingStackPanel` 的 `ListBox`：只创建可见行，495 行全展开时也不会再顶到 300MB。\n  已用透明背景/无选中样式保持原来的外观。
+
+### 9.1.7 内存诊断与图标懒加载（2026-10-27 凌晨）
+
+用户报：ATM10 模组页显示 495 个模组后，切到 26.1.2 概览仍占约 **528MB**。
+要求先加诊断（WorkingSet / GC / Bitmap 计数）区分"真泄漏"与"没回收"，再决定 dispose 还是懒加载。
+
+#### 诊断工具
+
+```powershell
+# 真实窗口（最小化），按 ATM10 → 显示全部 495 → 切 26.1.2 → 概览 跑一遍；
+# --memory-visible 会正常显示窗口，用来看清列表只 materialize 了哪几行
+dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
+  --root .data --exercise-memory --memory-visible [--memory-out .data\memory-probe.txt]
+```
+
+- 走真实 Avalonia 平台和真实 `ListBox`，只操作 ViewModel，**不模拟鼠标键盘**。
+- 每个节点记：`ws`（工作集）/ `private` / `managed`（GC.GetTotalMemory）/ `gc=0/1/2` 次数 /
+  `live`（仍被引用的 Bitmap 数）/ `pixel`（宽×高×4 估算）/ `iconRows` / `iconCache`。
+- 之后依次做：强制 GC → trim 工作集 → Dispose 全部存活位图，作为三组对照。
+- 正常使用也可以开 `NPMC_MEMORY_TRACE=1`，关键节点写入 `<root>\logs\memory.log`。
+- **无头 `--dump-instances` 量不到图标**：那套诊断不初始化渲染平台，`new Bitmap(...)` 必失败。
+  现在 `IconLoader` 检测到 `Application.Current is null` 就直接跳过，不再刷 495 行解码失败日志。
+
+#### 实测数据（ATM10，319 个有缓存图标 URL 的模组）
+
+| 节点 | WS | live Bitmap | 位图字节 | 说明 |
+|---|---:|---:|---:|---|
+| 基线（空概览） | 217MB | 0 | 0 | Avalonia + .NET 本体 |
+| 495 行全展开 | 323MB | 319 | 96.3MB | 旧代码一次性解码所有图标 |
+| 切到 26.1.2 概览 | 327MB | 319 | 96.3MB | 行引用已清空，但 GC 没跑 |
+| 同上 + 强制 GC | 220MB | 1 | 0.6MB | **live 归零 → 不是真泄漏** |
+
+结论：托管堆只有 12MB，GC 没有压力，所以**原生位图释放后没人触发回收**；
+`DisposeAll` 对照实验里 WS 不再下降，说明"位图对象泄漏"不成立，问题是**一次加载太多 + 回收不及时**。
+
+#### 改法：懒加载（而不是逐行 Dispose）
+
+- `LoadContentMetadataAsync` / `SaveMetadataAsync` 不再为所有条目解码图标，只把 `IconUrl` 落盘。
+- 内容行根 `Grid` 加 `AttachedToVisualTree` / `DetachedFromVisualTree`：
+  行真的进入虚拟化列表才 `EnsureIconAsync`，滚走就 `ReleaseIcon`（只丢引用，磁盘/LRU 缓存还在，滚回来秒开）。
+  识别结果晚到时只给 `IsRowVisible` 仍为真的行补图标。
+- `IconLoader.GetAsync` 改走 `Store()`：**原来的 LRU 上限 128 从未生效** ——
+  `GetAsync` 三处都直接写 `_memory[url]`，绕过了 `Store()` 的淘汰逻辑，这是本轮发现的实打实的 bug。
+
+#### 改造后实测（同一份数据）
+
+| 节点 | WS | live | 位图字节 |
+|---|---:|---:|---:|
+| 495 行全展开（只有可视行加载） | 239MB | 6 | 1.8MB |
+| 程序化滚完整张列表 | 298MB | 137 | 45.2MB |
+| 同上 + 强制 GC | 286MB | 128 | 38.8MB |
+| 切 26.1.2 概览 + 强制 GC | 238MB | 0 | 0 |
+
+- 列表只 materialize 8 行；滚完整表累计创建 137 个位图，缓存稳定在 128 条（38.8MB），不再随行数线性增长。
+- 没有逐行 `Dispose`：同一个 `Bitmap` 可能被多行共享（同一图标 URL），
+  Dispose 需要引用计数/所有权模型；当前"离开可视树即丢引用 + LRU 上限"已足够让 GC 回收，
+  且不会出现"释放了还在显示中的位图"。
+- 想再压可以把 `IconLoader.MaxEntries` 从 128 降到 64（代价是回滚时多读几次磁盘缓存）。
+
+### 9.2 设置页（原先左侧导航是灰的）
 
 - 代码：`ViewModels/MainWindowViewModel.Settings.cs`（partial，设置页专用的字段/命令都在这）、
   `ViewModels/RuntimeChoiceItem.cs`；XAML 在 `MainWindow.axaml` 末尾的「设置页」块。

@@ -760,7 +760,8 @@
           <Border Grid.Row="2" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="8"
                   IsVisible="{Binding ShowModList}">
-            <ListBox ItemsSource="{Binding Content}" Background="Transparent" BorderThickness="0"
+            <ListBox x:Name="ContentList"
+                     ItemsSource="{Binding Content}" Background="Transparent" BorderThickness="0"
                      SelectionMode="Single" Padding="0"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                 <ListBox.ItemsPanel>
@@ -782,7 +783,9 @@
                 </ListBox.Styles>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ContentEntryItem">
-                    <Grid ColumnDefinitions="60,30,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
+                    <Grid ColumnDefinitions="60,30,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5"
+                          AttachedToVisualTree="OnContentRowAttached"
+                          DetachedFromVisualTree="OnContentRowDetached">
 
                       <!--
                         项目图标 + 识别徽标。

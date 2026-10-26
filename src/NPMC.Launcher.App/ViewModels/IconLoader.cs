@@ -1,6 +1,8 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Text;
+using Avalonia;
 using Avalonia.Media.Imaging;
+using NPMC.Launcher.App.Diagnostics;
 
 namespace NPMC.Launcher.App.ViewModels;
 
@@ -21,6 +23,9 @@ internal sealed class IconLoader
     private const int MaxEntries = 128;
     private readonly Dictionary<string, Bitmap?> _memory = new(StringComparer.OrdinalIgnoreCase);
     private readonly LinkedList<string> _order = new();
+
+    /// <summary>内存缓存里有多少条（含"取不到"的 null 记录）；内存诊断用。</summary>
+    public int CachedCount => _memory.Count;
 
     public IconLoader(HttpClient http, string cacheDirectory, Action<string>? log = null)
     {
@@ -46,8 +51,11 @@ internal sealed class IconLoader
             {
                 var bytes = await File.ReadAllBytesAsync(file).ConfigureAwait(true);
                 var cachedBitmap = Decode(bytes, $" (缓存 {file})");
-                _memory[url] = cachedBitmap;
-                if (cachedBitmap is not null) return cachedBitmap;
+                if (cachedBitmap is not null)
+                {
+                    Store(url, cachedBitmap);
+                    return cachedBitmap;
+                }
             }
 
             var downloaded = await _http.GetByteArrayAsync(url).ConfigureAwait(true);
@@ -67,13 +75,13 @@ internal sealed class IconLoader
                 }
             }
 
-            _memory[url] = bitmap;
+            Store(url, bitmap);
             return bitmap;
         }
         catch
         {
             // 图标缺失不该影响任何功能：记成 null 就不再重试
-            _memory[url] = null;
+            Store(url, null);
             return null;
         }
     }
@@ -110,10 +118,21 @@ internal sealed class IconLoader
     }
     private Bitmap? Decode(byte[] bytes, string source)
     {
+        // 无头诊断（--dump-instances）没有 Avalonia Application / 渲染平台，Bitmap 必然抛
+        // "Unable to locate IPlatformRenderInterface"。直接跳过，别把日志刷满 495 行。
+        if (Application.Current is null) return null;
+
         try
         {
             using var stream = new MemoryStream(bytes);
-            return new Bitmap(stream);
+            var bitmap = new Bitmap(stream);
+            LiveBitmapTracker.Track(bitmap);
+            return bitmap;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException
+                                   && ex.Message.Contains("IPlatformRenderInterface", StringComparison.Ordinal))
+        {
+            return null;
         }
         catch (Exception ex)
         {

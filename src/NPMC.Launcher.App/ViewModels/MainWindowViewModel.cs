@@ -3,6 +3,7 @@ using Avalonia.Media.Imaging;
 using System.Text;
 using System.Windows.Input;
 using Avalonia.Threading;
+using NPMC.Launcher.App.Diagnostics;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Mirrors;
@@ -89,6 +90,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         _contentMetadata = new ContentMetadataCache(Path.Combine(_launcher.Root, "cache"));
         _translation = new TranslationClient(_http, Path.Combine(_launcher.Root, "cache", "translations"));
+
+        // NPMC_MEMORY_TRACE=1 时把关键节点的内存快照写进 <root>\logs\memory.log
+        MemoryTrace.Configure(launcher.Root);
 
         if (CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out _) && curseForgeKey is not null)
         {
@@ -662,7 +666,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         get => _selectedInstance;
         set
         {
+            var previous = _selectedInstance;
             if (!SetProperty(ref _selectedInstance, value)) return;
+
+            MemoryTrace.Write("switch:before-release", $"from={previous?.Id ?? "-"} to={value?.Id ?? "-"}");
 
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(ShowInstanceHeader));
@@ -707,9 +714,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 _ = RefreshCapabilitiesAsync(selectedInstance);
                 SyncAccountChoice(selectedInstance.Model);
-                _icons.Clear();
                 LoadBlockedModsForSelectedInstance(value);
                 ReleaseContentIcons();
+                MemoryTrace.Write("switch:after-release", $"instance={value.Id}");
             }
 
             // 先同步清空 Java 那一行再异步填充：否则会短暂显示上一个实例的 Java（"慢一拍"）
@@ -1315,6 +1322,55 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public ObservableCollection<ContentEntryItem> Content { get; } = new();
 
+    /// <summary>
+    /// 内容页签的后台图标/识别任务。正常界面不等它；诊断（--exercise-memory）
+    /// 需要等它跑完才能拿到"图标全加载完"的那一刻。
+    /// 用列表是因为折叠/筛选会连续触发多次刷新，不能只等最后一次。
+    /// </summary>
+    private readonly List<Task> _contentMetadataTasks = new();
+
+    private void TrackContentMetadata(Task task)
+    {
+        lock (_contentMetadataTasks)
+        {
+            _contentMetadataTasks.RemoveAll(item => item.IsCompleted);
+            _contentMetadataTasks.Add(task);
+        }
+    }
+
+    internal async Task WaitForContentMetadataAsync(TimeSpan timeout)
+    {
+        Task[] pending;
+        lock (_contentMetadataTasks)
+            pending = _contentMetadataTasks.Where(item => !item.IsCompleted).ToArray();
+
+        if (pending.Length == 0) return;
+
+        try
+        {
+            await Task.WhenAll(pending).WaitAsync(timeout);
+        }
+        catch
+        {
+            // 超时/失败都继续往下走，快照里会反映实际状态
+        }
+    }
+
+    /// <summary>诊断入口：输出一行内存快照（可选先强制 GC），并写入 memory.log（若已启用）。</summary>
+    public string CaptureMemory(string label, bool forceCollect = false)
+    {
+        if (forceCollect) MemorySnapshot.ForceCollect();
+
+        var context =
+            $"instance={SelectedInstance?.Id ?? "-"} tab={SelectedTab?.Title ?? "-"} "
+            + $"content={Content.Count} rows={_modItemCache.Count} "
+            + $"iconRows={Content.Count(item => item.Icon is not null)} iconCache={_icons.CachedCount}";
+
+        var snapshot = MemorySnapshot.Capture(label, context);
+        MemoryTrace.Write(label, context);
+        return snapshot.ToLine();
+    }
+
     public bool IsContentEmpty => Content.Count == 0;
 
     public string ContentEmptyHint => SelectedTab.ContentKind switch
@@ -1402,6 +1458,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Status = status;
 
             await RefreshContentAsync();
+            MemoryTrace.Write("load-done");
         }
         catch (Exception ex)
         {
@@ -1482,7 +1539,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         // 徽标/R·B·A/图标都不依赖"检查更新"：先用缓存，再后台识别一次。
         // 资源包与光影同样适用 —— 它们也能按哈希被认领，只是不按加载器过滤。
         if (Content.Count > 0)
-            _ = LoadContentMetadataAsync(instance, resolvedKind, Content.ToList());
+            TrackContentMetadata(LoadContentMetadataAsync(instance, resolvedKind, Content.ToList()));
+
+        MemoryTrace.Write("content-refresh", $"kind={resolvedKind} count={Content.Count}");
     }
 
     /// <summary>刷新左侧实例行的数量、三个页签的数量，以及概览处目录入口的可见性。</summary>
@@ -2199,26 +2258,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ? UpdateSource.CurseForge
             : UpdateSource.Modrinth;
 
-        // 1) 先用记住的结果：徽标、R/B/A、图标全部离线可用
+        // 1) 先用记住的结果：徽标、R/B/A 离线可用。
+        //    图标不在这里统一取 —— 495 行一次解码 495 个位图是内存尖峰的主因；
+        //    改由行进入可视树时按需加载（MainWindow.OnContentRowAttached → EnsureIconAsync）。
         foreach (var item in items)
         {
             if (!Content.Contains(item)) continue;
             var name = Path.GetFileName(item.Entry.Path);
             var isPack = packNames.Contains(name);
 
-            // 整合包自带：来源直接按整合包归属，不再联网猜；图标只用磁盘缓存里的
+            // 整合包自带：来源直接按整合包归属，不再联网猜
             if (isPack) item.SetIdentification(packSource);
 
             if (!_contentMetadata.TryGet(item.Entry.FileName, out var remembered)) continue;
 
             if (!isPack && remembered.Identified)
                 item.SetIdentification(remembered.Source, remembered.Channel);
-
-            if (string.IsNullOrWhiteSpace(remembered.IconUrl)) continue;
-
-            var icon = await _icons.GetAsync(remembered.IconUrl);
-            if (icon is not null && Content.Contains(item)) item.Icon = icon;
         }
+
+        MemoryTrace.Write("icons-cached", $"kind={kind} items={items.Count}");
 
         // 图标识别：整合包自带的文件也参与（只查项目/图标，不查更新），结果落盘缓存；\n        // 切换实例时会释放图标内存，下次从磁盘缓存直接加载。\n        if (items.Count == 0) return;
 
@@ -2266,9 +2324,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     && projects.TryGetValue(matched.ProjectId, out var project))
                 {
                     iconUrl = project.IconUrl;
-
-                    var icon = await _icons.GetAsync(iconUrl);
-                    if (icon is not null) item.Icon = icon;
+                    // 图标地址只落盘，不在这里解码：行可见时由 EnsureIconAsync 取
                 }
 
                 // 落盘：来源与版本通道也要记住，否则重启后徽标又得重新联网识别
@@ -2277,6 +2333,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     local.Matched?.Source,
                     local.Matched?.Channel,
                     iconUrl));
+
+                // 这一行正好在屏幕上（识别结果刚回来）→ 补一次图标；其余行等滚到可见时再取
+                if (item.IsRowVisible) await EnsureIconAsync(item);
             }
 
             _contentMetadata.Save();
@@ -2284,6 +2343,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             LauncherLog.Write(_launcher.Root, $"自动识别内容失败 → {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            MemoryTrace.Write("icons-identified", $"kind={kind} items={items.Count}");
         }
     }
 
@@ -2330,9 +2393,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     && projects.TryGetValue(matched.ProjectId, out var project))
                 {
                     iconUrl = project.IconUrl;
-
-                    var icon = await _icons.GetAsync(iconUrl);
-                    if (icon is not null) item.Icon = icon;
+                    // 同上：只记地址，不在这里解码 495 个图标
                 }
 
                 _contentMetadata.Set(item.Entry.FileName, new ContentMetadata(
@@ -2340,6 +2401,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     local.Matched?.Source,
                     local.Matched?.Channel,
                     iconUrl));
+
+                if (item.IsRowVisible) await EnsureIconAsync(item);
             }
 
             _contentMetadata.Save();

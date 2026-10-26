@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -43,8 +43,15 @@ public partial class MainWindow : Window
         DataContext = viewModel;
 
         // LoadAsync 内部已捕获全部异常并写进 Status，因此这里不需要额外的异常处理
-        _ = viewModel.LoadAsync();
+        _loadTask = viewModel.LoadAsync();
     }
+
+    private readonly Task _loadTask;
+
+    /// <summary>诊断（--exercise-memory）要等首页加载完成再开始操作。</summary>
+    internal Task LoadTask => _loadTask;
+
+    internal MainWindowViewModel ViewModel => (MainWindowViewModel)DataContext!;
 
     // ---- 实例列表：按住拖动排序 ----
 
@@ -141,6 +148,25 @@ public partial class MainWindow : Window
     }
 
     private bool _revertingTabSelection;
+
+    // ---- 内容列表：图标按"行真的出现"再加载 ----
+    //
+    // 495 行一次性解码 495 个位图（约 100~300MB）是内存尖峰的主因；
+    // 列表本身是虚拟化的，所以只在行挂到可视树时取图标、离开时丢掉引用，
+    // 滚动时由 IconLoader 的 LRU 缓存兜住最近用过的图标。
+
+    private void OnContentRowAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is not Control { DataContext: ContentEntryItem item }) return;
+        item.IsRowVisible = true;
+        if (Vm is { } viewModel) _ = viewModel.EnsureIconAsync(item);
+    }
+
+    private void OnContentRowDetached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is Control { DataContext: ContentEntryItem item } && Vm is { } viewModel)
+            viewModel.ReleaseIcon(item);
+    }
 
     /// <summary>
     /// 选择本地整合包。文件对话框必须由窗口提供，所以放在代码里而不是 ViewModel。

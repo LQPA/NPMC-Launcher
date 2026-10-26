@@ -40,6 +40,12 @@ public sealed class ContentEntryItem : ObservableObject
 
     public ContentEntry Entry => _entry;
 
+    /// <summary>
+    /// 这一行当前是否真的挂在可视树上（列表是虚拟化的）。
+    /// 图标懒加载靠它判断"后台识别晚到的图标要不要贴上来"。
+    /// </summary>
+    internal bool IsRowVisible { get; set; }
+
     private Bitmap? _icon;
 
     /// <summary>项目图标（识别成功后才会有）；未就绪时为 null，界面留空但占位。</summary>

@@ -117,19 +117,40 @@ public sealed partial class MainWindowViewModel
     private readonly Dictionary<string, ContentEntryItem> _modItemCache = new(StringComparer.OrdinalIgnoreCase);
     private InstanceListItem? _modSnapshotInstance;
 
-    private async Task EnsureCachedIconAsync(ContentEntryItem item)
+    /// <summary>
+    /// 行进入可视树时按需取图标（懒加载）。取不到就留空，不阻塞列表。
+    /// 只对当前列表里的行生效：切换实例/页签后晚到的结果不会贴到新列表上。
+    /// </summary>
+    internal async Task EnsureIconAsync(ContentEntryItem item)
     {
         if (item.Icon is not null) return;
+        if (!Content.Contains(item)) return;
         if (!_contentMetadata.TryGet(item.Entry.FileName, out var metadata)) return;
         if (string.IsNullOrWhiteSpace(metadata.IconUrl)) return;
 
         var icon = await _icons.GetAsync(metadata.IconUrl);
-        if (icon is not null) item.Icon = icon;
+
+        // 等磁盘/网络这段时间里行可能已经滚走：只给还在可视树上的行贴图标
+        if (icon is not null && item.Icon is null && item.IsRowVisible && Content.Contains(item))
+            item.Icon = icon;
     }
-    /// <summary>切换实例时释放图标内存：行对象还在，下次回到该实例再按需从磁盘缓存加载。</summary>
+
+    /// <summary>行离开可视树时丢掉位图引用（图标还在 IconLoader 的 LRU 缓存里，滚回来时秒开）。</summary>
+    internal void ReleaseIcon(ContentEntryItem item)
+    {
+        item.IsRowVisible = false;
+        if (item.Icon is not null) item.Icon = null;
+    }
+    /// <summary>
+    /// 切换实例时释放图标内存：行对象还在，下次回到该实例再按需从磁盘缓存加载。
+    /// 除了模组行缓存，还要清当前列表（资源包/光影行不在 _modItemCache 里）。
+    /// </summary>
     private void ReleaseContentIcons()
     {
         foreach (var item in _modItemCache.Values)
+            item.Icon = null;
+
+        foreach (var item in Content)
             item.Icon = null;
 
         _icons.Clear();
