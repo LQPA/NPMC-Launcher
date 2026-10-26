@@ -380,14 +380,17 @@ internal static class Program
                 Height = settings.WindowHeight,
             };
 
-        var plan = LaunchPlanFactory.Create(paths, versionId, version, context, os,
+        // 加载器 profile 目录里只有 JSON：client jar / natives 都在根版本（如 1.21.1）目录下
+        var rootVersionId = version.RootVersionId ?? versionId;
+
+        var plan = LaunchPlanFactory.Create(paths, rootVersionId, version, context, os,
             memoryMb: OptInt(args, "--memory", instance?.Settings.MemoryMb ?? launcherSettings.DefaultMemoryMb),
             hasCustomResolution: true,
             logConfigFile: logConfig,
             gameDirectory: layout?.GameDirectory);
 
         // 离线皮肤：账号选了皮肤且 authlib 支持时挂 javaagent（不改实例、不装模组）
-        var skinAgent = SkinAgentProvider.TryCreateArgument(launcher, version, account, paths.ClientJar(version.RootVersionId ?? versionId));
+        var skinAgent = SkinAgentProvider.TryCreateArgument(launcher, version, account, paths.ClientJar(rootVersionId));
 
         if (skinAgent is not null)
             plan = plan with { JvmArguments = new[] { skinAgent }.Concat(plan.JvmArguments).ToList() };
@@ -409,14 +412,14 @@ internal static class Program
             Warn($"先执行: npmc runtime {version.JavaVersion?.Component ?? "java-runtime-gamma"}");
             return 1;
         }
-        if (!File.Exists(paths.ClientJar(versionId)))
+        if (!File.Exists(paths.ClientJar(rootVersionId)))
         {
-            Error($"找不到 client jar: {paths.ClientJar(versionId)}");
-            Warn($"先执行: npmc install {versionId}");
+            Error($"找不到 client jar: {paths.ClientJar(rootVersionId)}");
+            Warn($"先执行: npmc install {rootVersionId}");
             return 1;
         }
 
-        Directory.CreateDirectory(paths.NativesDir(versionId));
+        Directory.CreateDirectory(paths.NativesDir(rootVersionId));
 
         Section("启动");
         Info($"java  {plan.JavaPath}");

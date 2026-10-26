@@ -193,6 +193,8 @@ public sealed partial class MainWindowViewModel
             OnPropertyChanged(nameof(HasModpackPlan));
             OnPropertyChanged(nameof(ModpackTitle));
             OnPropertyChanged(nameof(ModpackSummary));
+        OnPropertyChanged(nameof(HasModpackWarnings));
+        OnPropertyChanged(nameof(ModpackWarnings));
             (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
             ModpackStatus = $"下载完成：{plan.Name}（{plan.Index.LoaderText}），开始安装…";
@@ -228,6 +230,8 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(HasModpackPlan));
         OnPropertyChanged(nameof(ModpackTitle));
         OnPropertyChanged(nameof(ModpackSummary));
+        OnPropertyChanged(nameof(HasModpackWarnings));
+        OnPropertyChanged(nameof(ModpackWarnings));
         (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
         return plan;

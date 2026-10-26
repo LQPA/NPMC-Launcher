@@ -3699,6 +3699,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool HasModpackPlan => _modpackPlan is not null;
 
+    /// <summary>整合包清单里需要用户注意的条目（主要是作者禁止 API 下载的模组）。</summary>
+    public bool HasModpackWarnings => _modpackPlan is { Problems.Count: > 0 };
+
+    public string ModpackWarnings => _modpackPlan is { Problems.Count: > 0 } plan
+        ? string.Join(Environment.NewLine, plan.Problems)
+        : "";
+
     public string ModpackTitle => _modpackPlan?.Name ?? "尚未选择整合包";
 
     /// <summary>解析出来的关键信息：游戏版本、加载器、文件数、大小。</summary>
@@ -3743,6 +3750,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(HasModpackPlan));
             OnPropertyChanged(nameof(ModpackTitle));
             OnPropertyChanged(nameof(ModpackSummary));
+            OnPropertyChanged(nameof(HasModpackWarnings));
+            OnPropertyChanged(nameof(ModpackWarnings));
             (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
             ModpackStatus = plan.Problems.Count == 0
@@ -3756,6 +3765,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(HasModpackPlan));
             OnPropertyChanged(nameof(ModpackTitle));
             OnPropertyChanged(nameof(ModpackSummary));
+            OnPropertyChanged(nameof(HasModpackWarnings));
+            OnPropertyChanged(nameof(ModpackWarnings));
             (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
             ModpackStatus = $"无法读取该文件：{ex.GetBaseException().Message}";

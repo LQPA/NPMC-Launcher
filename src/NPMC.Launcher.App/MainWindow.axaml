@@ -1147,6 +1147,11 @@
                            Foreground="#E8EAED" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding ModpackSummary}" FontSize="11" Foreground="#949CA9"
                            TextWrapping="Wrap" />
+                <TextBlock Text="{Binding ModpackWarnings}" FontSize="10" Foreground="#E0A94A"
+                           TextWrapping="Wrap" IsVisible="{Binding HasModpackWarnings}" />
+                <TextBlock Text="标记为「只能从 CurseForge 手动下载」的模组不会被自动替换：Modrinth 同项目版本不一定与作者测试过的一致，请用 CurseForge App 或网页手动补齐。"
+                           FontSize="10" Foreground="#6E7684" TextWrapping="Wrap"
+                           IsVisible="{Binding HasModpackWarnings}" />
                 <TextBlock Text="安装会下载对应的游戏本体与加载器，并把文件与覆盖层写进新实例。"
                            FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" />
               </StackPanel>

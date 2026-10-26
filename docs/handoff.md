@@ -263,7 +263,7 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
   1. 首次 NeoForge 安装失败时旧代码会"按原版创建"继续装模组 → 实例版本记成 1.21.1，
      模组全不生效。现在**加载器失败直接中止**，不再建半成品实例。
   2. 中断后重跑会优先复用同名实例，并把 `VersionId` 更新成新的加载器版本（之前会留在 1.21.1）。
-- 作者禁止 API 下载的文件会回退到 **Modrinth 同名项目**（只接受 slug 完全一致），\n  版本取该游戏版本 + 加载器下的最新正式版；ATM10 的 6 个阻塞文件已全部补齐。\n  注意：CF 清单钉的是具体文件版本，Modrinth 只能给到"同项目最新版"，版本号可能不同，\n  属于"能跑但未必与作者测试过的完全一致"；CF 独占的模组仍然补不了。\n- 下载速度：`InstallIntoAsync` 原来串行，CF 493 个文件慢到不可用；改成默认 8 路并发
+- 作者禁止 API 下载的文件**默认不回退**：安装计划里会列成「只能从 CurseForge 手动下载：<名字>（<slug>）」，\n  界面用黄色提示展示，并说明 Modrinth 同项目版本不一定与作者测试过的一致；\n  只有显式传 `allowModrinthFallback: true` 才会用 Modrinth 同名项目补齐（slug 必须完全一致）。\n  ATM10 实测教训：Structory 的 Modrinth 最新版是给新版本的包，放进 1.21.1 会被 NeoForge 判为\n  `not a valid mod file`，直接导致「broken mod state」；所以默认不能静默替换。\n  版本取该游戏版本 + 加载器下的最新正式版；ATM10 的 6 个阻塞文件已全部补齐。\n  注意：CF 清单钉的是具体文件版本，Modrinth 只能给到"同项目最新版"，版本号可能不同，\n  属于"能跑但未必与作者测试过的完全一致"；CF 独占的模组仍然补不了。\n- 下载速度：`InstallIntoAsync` 原来串行，CF 493 个文件慢到不可用；改成默认 8 路并发
   （取 `settings.DownloadConcurrency`，钳制 1~16），无 SHA1 的文件"存在且非空"即跳过。
   实测从 288 → 488 个模组约 2 分钟；全部已存在的 493 个文件重跑 47 秒。
 
