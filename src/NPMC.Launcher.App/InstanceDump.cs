@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
@@ -1062,10 +1062,15 @@ internal static class InstanceDump
                                 .GetAwaiter().GetResult();
 
                             lines.Add($"    准备完成：{plan.Name} {plan.VersionLabel}"
+                                      + (plan.Problems.Count > 0
+                                          ? $"（{plan.Problems.Count} 个文件作者禁止 API 下载）"
+                                          : "")
                                       + $" / {plan.Index.GameVersion} / {plan.Index.LoaderText}"
                                       + $" / {plan.Index.Files.Count} 个模组");
 
                             CfLog("install");
+                            foreach (var problem in plan.Problems.Take(8))
+                                lines.Add($"      跳过：{problem}");
                             viewModel.InstallPreparedModpackAsync().GetAwaiter().GetResult();
                             CfLog("installed");
                             lines.Add($"    安装结果：{viewModel.ModpackStatus}");
