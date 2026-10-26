@@ -5,6 +5,7 @@ using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Launch;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
+using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Storage;
 
@@ -1005,6 +1006,46 @@ internal static class InstanceDump
 
                     var restored = viewModel.Instances.FirstOrDefault(item => item.Id == originalId);
                     lines.Add($"    还原 → Id={restored?.Id ?? "(丢失)"} 名称={restored?.Name ?? "(丢失)"}");
+                }
+            }
+        }
+
+        // CurseForge：API key + ATM10 搜索 / 文件 / 下载地址（只读探测，不安装）
+        if (args.Any(arg => string.Equals(arg, "--exercise-cf", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[CurseForge]");
+
+            if (!CurseForgeClient.TryResolveApiKey(out var cfKey, out var cfProblem) || cfKey is null)
+            {
+                lines.Add($"    key 不可用：{cfProblem}");
+            }
+            else
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+                var cf = new CurseForgeClient(http, cfKey);
+
+                var hits = cf.SearchAsync("All the Mods 10", gameVersion: null,
+                    loaders: Array.Empty<string>(), limit: 5, classId: 4471).GetAwaiter().GetResult();
+
+                lines.Add($"    搜索 ATM10：{hits.Count} 个结果"
+                          + (hits.Count > 0 ? $"（首个：{hits[0].DisplayName} id={hits[0].ModId}）" : ""));
+
+                if (hits.Count > 0)
+                {
+                    var files = cf.GetFilesAsync(hits[0].ModId, "1.21.1", new[] { "neoforge" })
+                        .GetAwaiter().GetResult();
+                    lines.Add($"    文件 {files.Count} 个"
+                              + (files.Count > 0 ? $"（最新：{files[0].FileName} id={files[0].FileId}）" : ""));
+
+                    if (files.Count > 0)
+                    {
+                        var url = cf.TryGetDownloadUrlAsync(hits[0].ModId, files[0].FileId)
+                            .GetAwaiter().GetResult();
+                        lines.Add(url is null
+                            ? "    下载地址：作者禁止 API 下载"
+                            : $"    下载地址：{new Uri(url).Host}/{Path.GetFileName(new Uri(url).AbsolutePath)}");
+                    }
                 }
             }
         }
