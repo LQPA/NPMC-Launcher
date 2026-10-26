@@ -101,10 +101,14 @@
 
         <StackPanel Grid.Row="0" Margin="14,16,14,8" Spacing="8">
           <TextBlock Text="账号" FontSize="14" FontWeight="SemiBold" Foreground="#E8EAED" />
-          <TextBox Text="{Binding NewAccountName, Mode=TwoWay}" FontSize="12"
-                   Watermark="新离线账号的用户名（1~16 位字母/数字/下划线）" />
-          <Button Content="新建离线账号" Command="{Binding CreateAccountCommand}"
+
+          <!-- 搜索：按用户名或 UUID 过滤 -->
+          <TextBox Text="{Binding AccountSearchText, Mode=TwoWay}" FontSize="12"
+                   Watermark="搜索账号（用户名 / UUID）" />
+
+          <Button Content="创建账号" Command="{Binding CreateAccountCommand}"
                   HorizontalAlignment="Stretch" FontSize="12" Height="30" />
+
           <TextBlock Text="{Binding AccountStatus}" FontSize="10" Foreground="#7BC47F"
                      TextWrapping="Wrap" IsVisible="{Binding HasAccountStatus}" />
         </StackPanel>
@@ -131,13 +135,13 @@
           </ListBox.ItemTemplate>
         </ListBox>
 
-        <TextBlock Grid.Row="1" Text="还没有账号，先在上方新建一个离线账号"
+        <TextBlock Grid.Row="1" Text="{Binding AccountListEmptyText}"
                    FontSize="12" Foreground="#949CA9" TextWrapping="Wrap"
                    HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20"
                    IsVisible="{Binding !HasAccounts}" />
       </Grid>
 
-      <!-- ================= 账号页：右侧账号详情 ================= -->
+      <!-- ================= 账号页：右侧账号详情 / 新建档案 ================= -->
       <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
             IsVisible="{Binding IsAccountsPage}">
 
@@ -151,7 +155,37 @@
         <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
           <StackPanel Spacing="14">
 
-            <StackPanel Spacing="14" IsVisible="{Binding HasSelectedAccount}">
+            <!-- 新建空档案：填用户名 + 验证方式；名字一填好就自动保存 -->
+            <StackPanel Spacing="14" IsVisible="{Binding IsCreatingAccount}">
+              <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                      CornerRadius="8" Padding="16,14">
+                <StackPanel Spacing="12">
+
+                  <Grid ColumnDefinitions="96,*">
+                    <TextBlock Text="用户名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                    <TextBox Grid.Column="1" Text="{Binding NewAccountName, Mode=TwoWay}" FontSize="12"
+                             Height="30" Watermark="1~16 位字母 / 数字 / 下划线" />
+                  </Grid>
+
+                  <Grid ColumnDefinitions="96,*">
+                    <TextBlock Text="验证方式" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                    <ComboBox Grid.Column="1" SelectedIndex="{Binding NewAccountVerificationIndex, Mode=TwoWay}"
+                              HorizontalAlignment="Stretch" FontSize="12">
+                      <ComboBoxItem Content="离线（默认）" />
+                      <ComboBoxItem Content="微软正版（暂未接入）" IsEnabled="False" />
+                    </ComboBox>
+                  </Grid>
+
+                  <TextBlock Text="{Binding NewAccountHint}" FontSize="10" Foreground="#6E7684"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+
+              <Button Content="取消创建" Command="{Binding CancelCreateAccountCommand}"
+                      FontSize="12" HorizontalAlignment="Left" />
+            </StackPanel>
+
+            <StackPanel Spacing="14" IsVisible="{Binding ShowAccountDetail}">
               <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                       CornerRadius="8" Padding="16,14">
                 <StackPanel Spacing="12">
@@ -197,13 +231,14 @@
                          FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
             </StackPanel>
 
-            <TextBlock Text="在左侧选择账号，或先新建一个离线账号。" FontSize="12" Foreground="#949CA9"
-                       IsVisible="{Binding !HasSelectedAccount}" />
+            <TextBlock Text="在左侧选择账号，或点「创建账号」新建一个。"
+                       FontSize="12" Foreground="#949CA9"
+                       IsVisible="{Binding ShowAccountEmptyHint}" />
           </StackPanel>
         </ScrollViewer>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
-                    IsVisible="{Binding HasSelectedAccount}">
+                    IsVisible="{Binding ShowAccountDetail}">
           <Button Content="设为默认账号" Command="{Binding SetDefaultAccountCommand}" FontSize="12" />
           <Button Content="{Binding DeleteAccountText}" Command="{Binding DeleteAccountCommand}"
                   FontSize="12" Foreground="#E06C6C" />

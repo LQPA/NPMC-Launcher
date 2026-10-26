@@ -3370,6 +3370,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (page == NavPage.Downloads) _ = LoadDownloadVersionsAsync();
         if (page == NavPage.Accounts) _ = EnsureAccountsLoadedAsync();
+        else CancelAccountDraft();
         if (page == NavPage.Settings) _ = EnsureSettingsPageDataAsync();
     }
 

@@ -380,6 +380,8 @@ CLI 是 `npmc settings show` / `npmc settings set <键> <值>`。
   `user_type=legacy`、`access_token` 为占位值（离线不需要真令牌）。
 - 账号 Id 是随机 GUID（不是用户名），改用户名只重算 UUID、不破坏实例的 `AccountId` 引用；
   删除账号时如果它正好是全局默认，会同时清空 `settings.json` 里的 `DefaultAccountId`。
+- 新建账号是"空档案 → 填表 → 自动落盘"：草稿只存在内存里（`IsCreatingAccount`），
+  用户名合法后延迟 700ms 自动写入 `accounts.json`；空名取消/离开页面不会产生账号。
 - 微软 / authlib-injector 的令牌不会写进 `accounts.json`；后续接它们时单独存受保护位置。
 
 ## 9. 正版登录（受外部阻塞）

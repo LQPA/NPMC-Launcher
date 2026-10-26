@@ -1093,12 +1093,17 @@ internal static class InstanceDump
 
             var before = viewModel.Accounts.Select(item => item.Username).ToList();
 
-            viewModel.NewAccountName = "DiagAcc";
+            // 先点「创建账号」打开空档案，再填用户名 —— 填完自动保存
             viewModel.CreateAccountCommand.Execute(null);
-            Thread.Sleep(700);
+            Thread.Sleep(200);
+            lines.Add($"    空档案：IsCreatingAccount={viewModel.IsCreatingAccount} 账号数={viewModel.Accounts.Count}");
+
+            viewModel.NewAccountName = "DiagAcc";
+            Thread.Sleep(1400);
 
             var created = viewModel.Accounts.FirstOrDefault(item => item.Username == "DiagAcc");
-            lines.Add($"    新建：{created?.Username ?? "(失败)"} UUID={created?.UuidDisplay ?? "-"}");
+            lines.Add($"    新建：{created?.Username ?? "(失败)"} UUID={created?.UuidDisplay ?? "-"}"
+                      + $"  草稿已收={!viewModel.IsCreatingAccount}");
 
             if (created is not null)
             {
@@ -1140,6 +1145,25 @@ internal static class InstanceDump
                 if (viewModel.SelectedInstance is { } after)
                     lines.Add($"    还原后实例 AccountId={after.Model.Settings.AccountId ?? "null"}");
             }
+
+            // 空名取消：打开草稿但不填用户名，取消后账号数不变
+            var countBeforeCancel = viewModel.Accounts.Count;
+            viewModel.CreateAccountCommand.Execute(null);
+            Thread.Sleep(300);
+            viewModel.CancelCreateAccountCommand.Execute(null);
+            Thread.Sleep(300);
+
+            lines.Add($"    空名取消：账号数 {countBeforeCancel} → {viewModel.Accounts.Count}，"
+                      + $"草稿已收={!viewModel.IsCreatingAccount}");
+
+            // 搜索过滤
+            viewModel.AccountSearchText = "zzz-不存在的账号";
+            Thread.Sleep(250);
+            lines.Add($"    搜索不存在的名字：列表 {viewModel.Accounts.Count} 个（应为 0）");
+
+            viewModel.AccountSearchText = "";
+            Thread.Sleep(250);
+            lines.Add($"    清空搜索：列表 {viewModel.Accounts.Count} 个");
         }
 
         // 加载器检查的缓存与"切回不再卡住"：首次联网耗时 vs 切回命中缓存耗时

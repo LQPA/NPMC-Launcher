@@ -23,14 +23,21 @@ public sealed partial class MainWindowViewModel
     private AccountListItem? _selectedAccount;
     private string _accountNameEdit = "";
 
+    private string _accountSearchText = "";
+    private bool _isCreatingAccount;
+    private int _newAccountVerificationIndex;
+    private CancellationTokenSource? _autoCreateCts;
+
     private bool _isDeletingAccount;
     private string _deleteAccountText = "删除账号";
 
     private AccountChoiceItem? _selectedAccountChoice;
     private bool _suppressAccountSelection;
+    private bool _suppressAccountDraftCancel;
 
     public ICommand ShowAccountsCommand { get; private set; }
     public ICommand CreateAccountCommand { get; private set; }
+    public ICommand CancelCreateAccountCommand { get; private set; }
     public ICommand SaveAccountNameCommand { get; private set; }
     public ICommand DeleteAccountCommand { get; private set; }
     public ICommand SetDefaultAccountCommand { get; private set; }
@@ -39,7 +46,8 @@ public sealed partial class MainWindowViewModel
     private void InitializeAccountCommands()
     {
         ShowAccountsCommand = new RelayCommand(() => Navigate(NavPage.Accounts));
-        CreateAccountCommand = new AsyncRelayCommand(CreateAccountAsync);
+        CreateAccountCommand = new RelayCommand(BeginCreateAccount);
+        CancelCreateAccountCommand = new RelayCommand(CancelCreateAccount);
         SaveAccountNameCommand = new AsyncRelayCommand(SaveAccountNameAsync);
         DeleteAccountCommand = new AsyncRelayCommand(DeleteAccountAsync,
             () => SelectedAccount is not null);
@@ -74,6 +82,10 @@ public sealed partial class MainWindowViewModel
     public ObservableCollection<AccountListItem> Accounts { get; } = new();
 
     public bool HasAccounts => Accounts.Count > 0;
+
+    public string AccountListEmptyText => _accountCatalog.Count == 0
+        ? "还没有账号，点上面的「创建账号」新建一个"
+        : "没有匹配的账号";
 
     /// <summary>实例概览里的账号下拉：第一项是"跟随默认"。</summary>
     public ObservableCollection<AccountChoiceItem> AccountOptions { get; } = new();
@@ -127,8 +139,65 @@ public sealed partial class MainWindowViewModel
     public string NewAccountName
     {
         get => _newAccountName;
-        set => SetProperty(ref _newAccountName, value);
+        set
+        {
+            if (!SetProperty(ref _newAccountName, value)) return;
+
+            // 新建档案：名字一填好就自动落盘（见 ScheduleAutoCreate）
+            if (IsCreatingAccount) ScheduleAutoCreate();
+        }
     }
+
+    /// <summary>左侧搜索框：按用户名或 UUID 过滤账号列表。</summary>
+    public string AccountSearchText
+    {
+        get => _accountSearchText;
+        set
+        {
+            if (!SetProperty(ref _accountSearchText, value)) return;
+            RebuildAccountViews(keepSelection: true);
+        }
+    }
+
+    /// <summary>右侧正在新建"空档案"：还没填名字，也没落盘。</summary>
+    public bool IsCreatingAccount
+    {
+        get => _isCreatingAccount;
+        private set
+        {
+            if (!SetProperty(ref _isCreatingAccount, value)) return;
+            OnPropertyChanged(nameof(ShowAccountDetail));
+            OnPropertyChanged(nameof(ShowAccountEmptyHint));
+            OnPropertyChanged(nameof(AccountDetailTitle));
+            OnPropertyChanged(nameof(AccountDetailSubtitle));
+        }
+    }
+
+    /// <summary>验证方式：0 = 离线（默认），1 = 微软正版（暂未接入）。</summary>
+    public int NewAccountVerificationIndex
+    {
+        get => _newAccountVerificationIndex;
+        set
+        {
+            if (!SetProperty(ref _newAccountVerificationIndex, value)) return;
+
+            if (value != 0)
+            {
+                AccountStatus = "微软正版验证还在等 Azure 审批，先按离线账号创建。";
+                _newAccountVerificationIndex = 0;
+                OnPropertyChanged(nameof(NewAccountVerificationIndex));
+                return;
+            }
+
+            if (IsCreatingAccount) ScheduleAutoCreate();
+        }
+    }
+
+    public string NewAccountHint => "填写用户名后自动保存；名称为空则取消，不会留下空档案。验证方式未选时按离线创建。";
+
+    public bool ShowAccountDetail => HasSelectedAccount && !IsCreatingAccount;
+
+    public bool ShowAccountEmptyHint => !ShowAccountDetail && !IsCreatingAccount;
 
     // ---- 选中的账号（右侧详情）----
 
@@ -139,11 +208,17 @@ public sealed partial class MainWindowViewModel
         {
             if (!SetProperty(ref _selectedAccount, value)) return;
 
+            // 点列表里的已有账号 = 放弃"新建空档案"
+            if (!_suppressAccountDraftCancel && IsCreatingAccount && value is not null)
+                CancelCreateAccount();
+
             _isDeletingAccount = false;
             DeleteAccountText = "删除账号";
             AccountNameEdit = value?.Username ?? "";
 
             OnPropertyChanged(nameof(HasSelectedAccount));
+            OnPropertyChanged(nameof(ShowAccountDetail));
+            OnPropertyChanged(nameof(ShowAccountEmptyHint));
             OnPropertyChanged(nameof(AccountDetailTitle));
             OnPropertyChanged(nameof(AccountDetailSubtitle));
             OnPropertyChanged(nameof(SelectedAccountIsDefault));
@@ -154,11 +229,15 @@ public sealed partial class MainWindowViewModel
 
     public bool HasSelectedAccount => SelectedAccount is not null;
 
-    public string AccountDetailTitle => SelectedAccount?.Username ?? "账号";
+    public string AccountDetailTitle => IsCreatingAccount
+        ? "新建账号"
+        : SelectedAccount?.Username ?? "账号";
 
-    public string AccountDetailSubtitle => SelectedAccount is { } account
-        ? $"{account.KindText}账号 · UUID {account.UuidDisplay}"
-        : "在左侧选择一个账号";
+    public string AccountDetailSubtitle => IsCreatingAccount
+        ? "选择验证方式（目前只有离线），填写用户名后自动保存"
+        : SelectedAccount is { } account
+            ? $"{account.KindText}账号 · UUID {account.UuidDisplay}"
+            : "在左侧选择一个账号";
 
     public bool SelectedAccountIsDefault => SelectedAccount?.IsDefault ?? false;
 
@@ -217,17 +296,38 @@ public sealed partial class MainWindowViewModel
     private void RebuildAccountViews(bool keepSelection)
     {
         var selectedId = keepSelection ? SelectedAccount?.Id : null;
+        var query = AccountSearchText.Trim();
 
         Accounts.Clear();
+
         foreach (var account in _accountCatalog.Accounts)
+        {
+            if (query.Length > 0
+                && !account.Username.Contains(query, StringComparison.OrdinalIgnoreCase)
+                && !account.Uuid.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             Accounts.Add(new AccountListItem(account));
+        }
 
         RefreshAccountDefaults();
 
         OnPropertyChanged(nameof(HasAccounts));
+        OnPropertyChanged(nameof(AccountListEmptyText));
 
-        SelectedAccount = Accounts.FirstOrDefault(item => item.Id == selectedId)
-                          ?? Accounts.FirstOrDefault();
+        _suppressAccountDraftCancel = true;
+
+        try
+        {
+            SelectedAccount = Accounts.FirstOrDefault(item => item.Id == selectedId)
+                              ?? Accounts.FirstOrDefault();
+        }
+        finally
+        {
+            _suppressAccountDraftCancel = false;
+        }
 
         RebuildAccountOptions();
         RebuildDefaultAccountOptions();
@@ -424,21 +524,121 @@ public sealed partial class MainWindowViewModel
 
     // ---- 新建 / 改名 / 删除 / 默认 ----
 
-    private async Task CreateAccountAsync()
+    /// <summary>「创建账号」：新建一个空档案，等用户填用户名；没填就取消，不会留下空账号。</summary>
+    private void BeginCreateAccount()
+    {
+        _autoCreateCts?.Cancel();
+
+        _newAccountName = "";
+        OnPropertyChanged(nameof(NewAccountName));
+        _newAccountVerificationIndex = 0;
+        OnPropertyChanged(nameof(NewAccountVerificationIndex));
+
+        IsCreatingAccount = true;
+        AccountStatus = NewAccountHint;
+    }
+
+    /// <summary>取消新建：丢弃草稿（从未落盘）。</summary>
+    private void CancelCreateAccount()
+    {
+        _autoCreateCts?.Cancel();
+        _autoCreateCts = null;
+
+        if (!IsCreatingAccount) return;
+
+        IsCreatingAccount = false;
+
+        _newAccountName = "";
+        OnPropertyChanged(nameof(NewAccountName));
+
+        AccountStatus = "已取消创建账号";
+    }
+
+    /// <summary>离开账号页时悄悄丢弃草稿（不弹提示）。</summary>
+    private void CancelAccountDraft()
+    {
+        if (!IsCreatingAccount) return;
+
+        _autoCreateCts?.Cancel();
+        _autoCreateCts = null;
+        IsCreatingAccount = false;
+
+        _newAccountName = "";
+        OnPropertyChanged(nameof(NewAccountName));
+    }
+
+    /// <summary>用户名填好后延迟 700ms 自动保存；期间继续输入会重新计时。</summary>
+    private async void ScheduleAutoCreate()
+    {
+        _autoCreateCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _autoCreateCts = cts;
+
+        var name = NewAccountName.Trim();
+
+        if (name.Length == 0)
+        {
+            AccountStatus = "请输入用户名；留空并取消则不会创建账号。";
+            return;
+        }
+
+        if (!PlayerAccount.IsValidUsername(name))
+        {
+            AccountStatus = "用户名只能是 1~16 个字母、数字或下划线。";
+            return;
+        }
+
+        // 验证方式没选/选了不可用的正版 → 按离线创建（正版通道等审批）
+        if (NewAccountVerificationIndex != 0)
+        {
+            AccountStatus = "微软正版验证还在等 Azure 审批，先按离线账号创建。";
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(700, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (cts.IsCancellationRequested || !IsCreatingAccount) return;
+
+        await AutoCreateAccountAsync(name);
+    }
+
+    private async Task AutoCreateAccountAsync(string name)
     {
         try
         {
             var store = new JsonAccountStore(_launcher);
             var catalog = new AccountCatalog(await store.LoadAsync());
+            var account = catalog.AddOffline(name);
 
-            var account = catalog.AddOffline(NewAccountName);
             await store.SaveAsync(catalog.Accounts);
 
-            NewAccountName = "";
+            // 先收起草稿再刷新列表，否则 Rebuild 的选中逻辑会把它当成"点列表取消创建"
+            IsCreatingAccount = false;
+
+            _newAccountName = "";
+            OnPropertyChanged(nameof(NewAccountName));
+
             await ReloadAccountsAsync();
 
-            SelectedAccount = Accounts.FirstOrDefault(item => item.Id == account.Id);
-            AccountStatus = $"已创建离线账号「{account.Username}」· UUID {account.UuidDisplay}";
+            _suppressAccountDraftCancel = true;
+
+            try
+            {
+                SelectedAccount = Accounts.FirstOrDefault(item => item.Id == account.Id);
+            }
+            finally
+            {
+                _suppressAccountDraftCancel = false;
+            }
+
+            AccountStatus = $"已自动保存离线账号「{account.Username}」· UUID {account.UuidDisplay}";
         }
         catch (Exception ex)
         {
