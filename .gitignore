@@ -54,3 +54,6 @@ desktop.ini
 # å‘å¸ƒäº§ç‰©ï¼ˆtools/publish.ps1 ç”Ÿæˆï¼‰
 /dist/
 
+
+# ---- Æ¤·ô agent ¹¹½¨²úÎï£¨Ô´ÂëÔÚ tools/skin-agent/src£©----
+/tools/skin-agent/out/

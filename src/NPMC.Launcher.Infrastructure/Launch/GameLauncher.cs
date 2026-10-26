@@ -6,6 +6,7 @@ using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
 using NPMC.Launcher.Core.Settings;
+using NPMC.Launcher.Infrastructure.Skins;
 
 namespace NPMC.Launcher.Infrastructure.Launch;
 
@@ -139,6 +140,16 @@ public static class GameLauncher
             hasCustomResolution: !instanceSettings.Fullscreen,
             logConfigFile: logConfig,
             gameDirectory: layout?.GameDirectory);
+
+        // 离线皮肤：账号选了皮肤（自定义 / 同名正版）且该版本 authlib 支持时，挂上 javaagent。
+        // 只在 JVM 参数里加一项，不动实例目录、不装模组。
+        var skinAgentArgument = SkinAgentProvider.TryCreateArgument(launcher, version, account, paths.ClientJar(rootVersionId));
+
+        if (skinAgentArgument is not null)
+            plan = plan with
+            {
+                JvmArguments = new[] { skinAgentArgument }.Concat(plan.JvmArguments).ToList(),
+            };
 
         // Java 优先级：实例指定路径 → 实例指定组件 → 全局默认 Java → 版本元数据声明的组件
         var javaPath = plan.JavaPath;

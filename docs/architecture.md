@@ -389,6 +389,21 @@ CLI 是 `npmc settings show` / `npmc settings set <键> <值>`。
   进游戏显示仍需皮肤站 / 模组（authlib-injector 后续接入）。
 - 微软 / authlib-injector 的令牌不会写进 `accounts.json`；后续接它们时单独存受保护位置。
 
+### 8.6 离线皮肤 javaagent（已实现，原型）
+
+| 文件 | 职责 |
+|---|---|
+| `Infrastructure/Skins/SkinAgentProvider.cs` | 判断 authlib 版本、解出内嵌 agent、拼 `-javaagent` 参数 |
+| `Infrastructure/Skins/Agent/nmpc-skin-agent.jar` | 含 ASM 的 agent（由 `tools/skin-agent/build.ps1` 生成） |
+| `tools/skin-agent/src/nmpc/skin/*.java` | 本地皮肤 API、环境注入、`getTextures` 替换 |
+
+- 只劫持 `minecraft.api.session.host`，auth/account/services 保持官方，在线功能不受影响。
+- 用 ASM 替换 authlib `getTextures`，避免离线纹理的签名校验；纹理 URL 以 PNG 内容的 SHA-1 命名，
+  防止客户端按 URL 文件名缓存到旧皮肤。
+- Steve/Alex 从客户端 jar 的 `assets/.../player/{wide,slim}/` 取默认皮肤；自定义/同名正版用
+  `accounts.json` 里缓存的 PNG。
+- 仅 authlib 4~7 支持（约 1.16~1.20.x）；效果只在客户端，服务器其他玩家仍需皮肤站/模组。
+
 ## 9. 正版登录（受外部阻塞）
 
 ### 完整链路

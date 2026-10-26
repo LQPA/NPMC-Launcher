@@ -11,4 +11,10 @@
     <ProjectReference Include="..\NPMC.Launcher.Core\NPMC.Launcher.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 离线皮肤 javaagent（tools\skin-agent 的构建产物，打进程序以便单文件发布） -->
+    <EmbeddedResource Include="Skins\Agent\nmpc-skin-agent.jar"
+                      LogicalName="NPMC.Launcher.Infrastructure.SkinAgent.jar" />
+  </ItemGroup>
+
 </Project>

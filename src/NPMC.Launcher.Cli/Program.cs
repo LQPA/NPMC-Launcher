@@ -18,6 +18,7 @@ using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Mirrors;
 using NPMC.Launcher.Infrastructure.Modrinth;
 using NPMC.Launcher.Infrastructure.Mods;
+using NPMC.Launcher.Infrastructure.Skins;
 using NPMC.Launcher.Infrastructure.Network;
 using NPMC.Launcher.Infrastructure.Runtime;
 using NPMC.Launcher.Infrastructure.Storage;
@@ -384,6 +385,12 @@ internal static class Program
             hasCustomResolution: true,
             logConfigFile: logConfig,
             gameDirectory: layout?.GameDirectory);
+
+        // 离线皮肤：账号选了皮肤且 authlib 支持时挂 javaagent（不改实例、不装模组）
+        var skinAgent = SkinAgentProvider.TryCreateArgument(launcher, version, account, paths.ClientJar(version.RootVersionId ?? versionId));
+
+        if (skinAgent is not null)
+            plan = plan with { JvmArguments = new[] { skinAgent }.Concat(plan.JvmArguments).ToList() };
 
         // Java 优先级：实例指定路径 → 实例指定组件 → 版本元数据声明的组件
         var javaPath = plan.JavaPath;

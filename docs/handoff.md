@@ -428,6 +428,33 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
     **javaagent（不是模组）+ 本地 Yggdrasil/皮肤 API**；这套工作量明显大于当前皮肤设置本身。
   - 另：26.3 用的 authlib 10.x 已经**不再读**这些 `minecraft.api.*` 属性（class 里没有这些字符串），
     所以该劫持手段只适用于 authlib 4/6/7 那一代版本。
+
+### 10.8 离线皮肤 javaagent（2026-10-26 晚，原型已跑通）
+
+不改实例目录、不装模组，只在启动参数里加一个 `-javaagent`：
+
+- 源码 `tools/skin-agent/`（`build.ps1` 用 `.data` 里的 JDK 编译，产物是**内含 ASM 的 fat jar**，
+  137KB）；jar 作为 EmbeddedResource 打进 Infrastructure，启动时解到 `<root>\cache\agent\`。
+- agent 做的事：
+  1. `127.0.0.1:<随机端口>` 起一个只服务当前账号的皮肤 API
+     （`/session/minecraft/profile/<uuid>`、`/textures/<sha1>.png`、`/player/attributes`、`/publickeys`）；
+  2. 四个 `minecraft.api.*.host` **必须都设**：auth/account/services 指回官方，**只把 session 指到本地**
+     —— 全指本地会禁用聊天/Realms/在线功能（踩过）；
+  3. 用 ASM 把 authlib 的
+     `YggdrasilMinecraftSessionService.getTextures(profile, requireSecure)` 整体替换成
+     `SkinBridge.textures(profile)`，直接返回本地皮肤纹理表，绕开 Mojang 签名校验。
+- 纹理 URL 用**皮肤文件内容的 SHA-1** 命名：客户端拿 URL 文件名当缓存 key，固定 `skin.png`
+  会命中上一次的缓存（症状：模型变了、贴图还是旧的/别人的）。
+- Steve / Alex 不依赖账号里的 PNG：直接从客户端 jar 的
+  `assets/minecraft/textures/entity/player/{wide,slim}/{steve,alex}.png` 取默认皮肤
+  （Alex 用 slim 模型）。
+- 适用版本：按版本 libraries 里的 `com.mojang:authlib` 主版本判断，**4~7（约 1.16~1.20.x）**；
+  1.7.10（authlib 1.5.x）与 26.3（authlib 10.x）跳过。账号没有皮肤时也跳过。
+- 实测（1.20.1 / 原版生存 / 账号 LQPA_）：agent 日志出现
+  `textures served … /textures/781ebc…png model=slim` 且客户端下载了该 PNG，
+  游戏内皮肤与纤细手臂都正确；换成 Notch 皮肤也正常。
+- 限制：**客户端侧生效**——同一离线服务器上的其他玩家看到的仍是默认皮肤；
+  皮肤 PNG 建议 64×64；多实例同时启动时各用各的随机端口，互不干扰。
 - **账号解析优先级**（启动时）：实例的 `Settings.AccountId` → 全局 `settings.json` 的
   `DefaultAccountId` → 账号列表第一个；一个账号都没有时退回 `Player` 这个名字（不阻断启动）。
 - 实例概览新增「账号」下拉；第一项"跟随默认账号"。选择会写进该实例的 `AccountId`。
