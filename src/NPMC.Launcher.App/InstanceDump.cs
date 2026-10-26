@@ -1009,6 +1009,59 @@ internal static class InstanceDump
             }
         }
 
+        // 页签数量要跟实例走：停在「日志」页换实例时，数字不能留在上一个实例上
+        if (args.Any(arg => string.Equals(arg, "--exercise-tab-counts", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[页签数量]");
+
+            var items = viewModel.Instances.ToList();
+
+            if (items.Count < 2)
+            {
+                lines.Add("    实例不足两个，跳过");
+            }
+            else
+            {
+                var logTab = viewModel.ContentTabs.First(tab => tab.Kind == DetailTabKind.Log);
+
+                viewModel.SelectedInstance = items[0];
+                Thread.Sleep(800);
+                viewModel.SelectedTab = logTab;
+                Thread.Sleep(300);
+
+                viewModel.SelectedInstance = items[1];
+                Thread.Sleep(1500);
+
+                var second = items[1];
+
+                int CountOf(ContentKind kind) =>
+                    viewModel.ContentTabs.FirstOrDefault(tab => tab.ContentKind == kind)?.Count ?? -1;
+
+                var tabs = $"mods={CountOf(ContentKind.Mod)} packs={CountOf(ContentKind.ResourcePack)}"
+                           + $" shaders={CountOf(ContentKind.ShaderPack)} saves={CountOf(ContentKind.DataPack)}";
+
+                var expected = $"mods={second.ModsCount} packs={second.ResourcePackCount}"
+                               + $" shaders={second.ShaderPackCount} saves={second.SaveCount}";
+
+                lines.Add($"    {second.Name}：页签 {tabs}  |  实例 {expected}"
+                          + (tabs == expected ? "  ✔" : "  ✘ 不一致"));
+
+                // 再切回第一个实例（同样停在日志页），验证数字不会留在第二个上
+                viewModel.SelectedInstance = items[0];
+                Thread.Sleep(1500);
+
+                var firstItem = items[0];
+                var tabsBack = $"mods={CountOf(ContentKind.Mod)} packs={CountOf(ContentKind.ResourcePack)}"
+                               + $" shaders={CountOf(ContentKind.ShaderPack)} saves={CountOf(ContentKind.DataPack)}";
+                var expectedBack = $"mods={firstItem.ModsCount} packs={firstItem.ResourcePackCount}"
+                                   + $" shaders={firstItem.ShaderPackCount} saves={firstItem.SaveCount}";
+
+                lines.Add($"    {firstItem.Name}：页签 {tabsBack}  |  实例 {expectedBack}"
+                          + (tabsBack == expectedBack ? "  ✔" : "  ✘ 不一致"));
+            }
+        }
+
         // 实例排序：验证 VM → instances.json → 重新读取 的往返
         if (args.Any(arg => string.Equals(arg, "--exercise-instance-order", StringComparison.OrdinalIgnoreCase)))
         {

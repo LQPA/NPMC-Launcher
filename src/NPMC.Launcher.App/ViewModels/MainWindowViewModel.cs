@@ -687,6 +687,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 RaiseWorldViewChanged();
             }
 
+            // 页签上的数量（模组/资源包/光影/存档）必须跟实例走。
+            // 以前只有 RefreshContentAsync 会刷新数量，停在「日志」页换实例时
+            // 数字就留在上一个实例上（明明 2 个资源包，页签写 3）。
+            _ = RefreshCountsAsync(value);
+
             if (IsLogTab) _ = RefreshLogAsync();
             else _ = RefreshContentAsync();
 
@@ -872,7 +877,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         tab.Count = SelectedInstance is null
             ? 0
             : DataPackWorld is null
-                ? Worlds.Count
+                // 用实例自己的存档数：停在「日志」页换实例时 Worlds 还没加载，
+                // 读 Worlds.Count 会把页签数字清成 0。
+                ? SelectedInstance.SaveCount
                 : Content.Count;
     }
 

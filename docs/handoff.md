@@ -1,4 +1,4 @@
-# 交接说明（Handoff）
+﻿# 交接说明（Handoff）
 
 > 写于 2026-10-26，对应提交 `56ce5a3`；下午的页签回归修复见第 8 节（`54913d3`），
 > 设置页与存档数字修复见第 9 节（`852bd96`）。
@@ -131,6 +131,7 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 | `--exercise-datapack-race` | 紧邻点击（切页签立即点数据包）是否还能扫到内容 |
 | `--exercise-nav` | 面板/头部/列表/空提示/日志的可见性随导航变化，**并核对 PropertyChanged 是否真的发出** |
 | `--exercise-global-settings` | 设置页：字段 ↔ `settings.json` ↔ 启动计划（默认 Java）；改完**还原原设置** |
+| `--exercise-tab-counts` | 停在日志页双向切实例，逐项核对页签数字与实例实际数量 |
 | `--exercise-instance-order` | 拖动排序：VM → `instances.json` → 重新读取，最后还原原值 |
 | `--exercise-instance-rename` | 改名：显示名与目录一起改，旧目录消失/新目录出现，最后改回 |
 | `--exercise-instance-folder-sync` | 直接在磁盘上改实例文件夹名，确认刷新后 Id/名称同步，再改回 |
@@ -231,6 +232,20 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 现在 `SelectedInstance` 的 setter 里会清 `DataPackWorld` 并 `LoadWorlds()`。
 
 `--exercise-datapacks` 增加"页签数字"与"26.1.2 管理世界后切到无存档实例"的检查。
+
+#### 9.1.1 停在日志页换实例，所有页签数字都不刷新（2026-10-26 再修）
+
+用户报：实例 A（3 资源包）→ 切到日志页 → 换实例 B（2 资源包），页签仍是 A 的 3。
+根因：`SelectedInstance` 的 setter 只在 **非日志页** 调 `RefreshContentAsync()`，
+而页签数字只在它里面刷新；停在日志页时只跑了 `RefreshLogAsync()`，数字完全没重算。
+
+改法：
+- setter 里**无条件**先 `_ = RefreshCountsAsync(value)`（模组/资源包/光影/存档 + 左侧实例行 + 目录入口），
+  再决定刷新日志还是内容；
+- `UpdateDataPackTabCount()` 的"世界数"改用 `SelectedInstance.SaveCount`，
+  不再读 `Worlds.Count` —— 停在日志页时世界列表根本没加载，读它会清成 0。
+
+`--exercise-tab-counts` 覆盖双向切换（A→日志→B、B→日志→A），逐项对比页签数字与实例实际数量。
 
 ### 9.2 设置页（原先左侧导航是灰的）
 
