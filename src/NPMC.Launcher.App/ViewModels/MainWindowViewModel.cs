@@ -736,8 +736,8 @@ public sealed class MainWindowViewModel : ObservableObject
                     + "安装 Iris 后即可使用。"),
 
                 ContentKind.DataPack => (
-                    HasWorlds,
-                    "还没有世界。先在游戏里创建一个世界，数据包是按世界安装的。"),
+                    true,
+                    ""),
 
                 _ => (true, ""),
             };
@@ -3537,6 +3537,94 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             JavaHint = $"保存失败：{ex.GetBaseException().Message}";
         }
+    }
+    // ---- 拖入导入 ----
+
+    /// <summary>
+    /// 把拖进来的文件导入当前页签对应的目录。
+    ///
+    /// 只接受该类型该有的扩展名（模组 .jar，其余 .zip）；
+    /// 数据包要先进到某个世界，因为它是按世界存放的。
+    /// </summary>
+    public async Task ImportFilesAsync(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0) return;
+
+        if (SelectedTab.ContentKind is not { } kind || SelectedInstance is null)
+        {
+            Status = "当前页签不能导入文件（先进入模组 / 资源包 / 光影 / 存档页签）。";
+            return;
+        }
+
+        var directory = ResolveContentDirectory(kind);
+        if (directory is null)
+        {
+            Status = "数据包是按世界安装的：先进入某个世界再拖入。";
+            return;
+        }
+
+        var expectedExtension = kind == ContentKind.Mod ? ".jar" : ".zip";
+
+        var imported = 0;
+        var skipped = 0;
+        var wrongType = 0;
+        var failed = new List<string>();
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+        }
+        catch (Exception ex)
+        {
+            Status = $"无法写入 {directory}：{ex.GetBaseException().Message}";
+            return;
+        }
+
+        foreach (var path in paths)
+        {
+            var name = Path.GetFileName(path);
+
+            if (!string.Equals(Path.GetExtension(path), expectedExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                wrongType++;
+                continue;
+            }
+
+            var destination = Path.Combine(directory, name);
+
+            try
+            {
+                // 同名文件不覆盖：重复拖入不该把用户已启用的东西替换掉
+                if (File.Exists(destination) || Directory.Exists(destination))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                File.Copy(path, destination);
+                imported++;
+            }
+            catch (Exception ex)
+            {
+                failed.Add($"{name}：{ex.GetBaseException().Message}");
+            }
+        }
+
+        await RefreshContentAsync();
+
+        var parts = new List<string>();
+        if (imported > 0) parts.Add($"已导入 {imported} 个");
+        if (skipped > 0) parts.Add($"同名跳过 {skipped} 个");
+        if (wrongType > 0) parts.Add($"类型不符 {wrongType} 个（需要 {expectedExtension}）");
+        if (failed.Count > 0) parts.Add($"失败 {failed.Count} 个");
+
+        Status = parts.Count == 0 ? "没有可导入的文件。" : string.Join("，", parts);
+
+        if (failed.Count > 0)
+            LauncherLog.Write(_launcher.Root, $"拖入导入失败：{string.Join("；", failed.Take(10))}");
+
+        if (imported > 0)
+            LauncherLog.Write(_launcher.Root, $"拖入导入 {kind.DisplayName()}：{imported} 个 → {directory}");
     }
     // ---- 打开目录 ----
 

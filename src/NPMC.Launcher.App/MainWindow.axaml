@@ -86,8 +86,7 @@
       </Grid>
 
       <!-- ================= 右侧：标题 / 页签 / 主体 / 操作 ================= -->
-      <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="24,20"
-            IsVisible="{Binding IsInstancesPage}">
+      <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="24,20">
 
         <StackPanel Grid.Row="0" Spacing="3" IsVisible="{Binding HasSelection}">
           <TextBlock Text="{Binding SelectedInstance.Name}" FontSize="24" FontWeight="SemiBold"
@@ -231,7 +230,8 @@
 
         <!-- 内容列表 -->
           <Grid Grid.Row="2" Margin="0,14,0,0" RowDefinitions="Auto,Auto,*,Auto"
-                IsVisible="{Binding IsContentList}">
+                IsVisible="{Binding IsContentList}"
+                DragDrop.AllowDrop="True" DragDrop.DragOver="OnContentDragOver" DragDrop.Drop="OnContentDrop">
             <!-- 存档列表：每个世界一行，操作直接挂在行上 -->
             <ScrollViewer Grid.Row="0" Grid.RowSpan="3" IsVisible="{Binding ShowWorldPicker}">
               <StackPanel Spacing="8">
@@ -589,6 +589,9 @@
                   IsVisible="{Binding IsManagingDataPacks}" />
           <Button Content="全部禁用" Command="{Binding DisableAllCommand}" IsVisible="{Binding ShowContentList}" />
           <Button Content="全部启用" Command="{Binding EnableAllCommand}" IsVisible="{Binding ShowContentList}" />
+          <TextBlock Text="也可以把文件直接拖进列表导入（模组 .jar，其余 .zip）"
+                     IsVisible="{Binding IsContentList}" FontSize="11" Foreground="#6E7684"
+                     VerticalAlignment="Center" Margin="6,0,0,0" />
 
           <!-- 检查更新只对模组有意义 -->
           <Button Content="{Binding CheckUpdatesText}" Command="{Binding CheckUpdatesCommand}"

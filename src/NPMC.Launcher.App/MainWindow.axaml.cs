@@ -123,4 +123,29 @@ public partial class MainWindow : Window
 
         e.Handled = true;
     }
+
+    // ---- 模组 / 资源包 / 光影 / 数据包：把文件拖进来即导入 ----
+
+    private void OnContentDragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = e.Data.Contains(DataFormats.Files)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+    }
+
+    private async void OnContentDrop(object? sender, DragEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+        if (!e.Data.Contains(DataFormats.Files)) return;
+
+        var paths = e.Data.GetFiles()?
+            .Select(item => item.TryGetLocalPath())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .ToList();
+
+        if (paths is { Count: > 0 }) await viewModel.ImportFilesAsync(paths);
+
+        e.Handled = true;
+    }
 }
