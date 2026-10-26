@@ -2202,6 +2202,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         // 1) 先用记住的结果：徽标、R/B/A、图标全部离线可用
         foreach (var item in items)
         {
+            if (!Content.Contains(item)) continue;
             var name = Path.GetFileName(item.Entry.Path);
             var isPack = packNames.Contains(name);
 
@@ -2216,7 +2217,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (string.IsNullOrWhiteSpace(remembered.IconUrl)) continue;
 
             var icon = await _icons.GetAsync(remembered.IconUrl);
-            if (icon is not null) item.Icon = icon;
+            if (icon is not null && Content.Contains(item)) item.Icon = icon;
         }
 
         // 图标识别：整合包自带的文件也参与（只查项目/图标，不查更新），结果落盘缓存；\n        // 切换实例时会释放图标内存，下次从磁盘缓存直接加载。\n        if (items.Count == 0) return;
@@ -2252,6 +2253,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             foreach (var item in items)
             {
+                if (!Content.Contains(item)) continue;
                 if (!byPath.TryGetValue(item.Entry.Path, out var local)) continue;
 
                 // 只补还没识别过的徽标：完整检查的结果比这里更权威，不覆盖
@@ -2319,6 +2321,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             foreach (var item in items)
             {
+                if (!Content.Contains(item)) continue;
                 if (!byPath.TryGetValue(item.Entry.Path, out var local)) continue;
 
                 var iconUrl = "";

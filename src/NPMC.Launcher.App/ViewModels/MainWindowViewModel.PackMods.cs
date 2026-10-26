@@ -117,6 +117,15 @@ public sealed partial class MainWindowViewModel
     private readonly Dictionary<string, ContentEntryItem> _modItemCache = new(StringComparer.OrdinalIgnoreCase);
     private InstanceListItem? _modSnapshotInstance;
 
+    private async Task EnsureCachedIconAsync(ContentEntryItem item)
+    {
+        if (item.Icon is not null) return;
+        if (!_contentMetadata.TryGet(item.Entry.FileName, out var metadata)) return;
+        if (string.IsNullOrWhiteSpace(metadata.IconUrl)) return;
+
+        var icon = await _icons.GetAsync(metadata.IconUrl);
+        if (icon is not null) item.Icon = icon;
+    }
     /// <summary>切换实例时释放图标内存：行对象还在，下次回到该实例再按需从磁盘缓存加载。</summary>
     private void ReleaseContentIcons()
     {
