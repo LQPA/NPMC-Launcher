@@ -500,6 +500,11 @@ internal static class InstanceDump
                 lines.Add($"      页签 {tabs}");
                 lines.Add($"      列表行 {candidate.ContentText}");
                 lines.Add($"      存档入口={viewModel.HasSavesDirectory} 数据包入口={viewModel.HasDatapacksEntry}");
+                lines.Add($"      按钮可用 mods={viewModel.OpenModsFolderCommand.CanExecute(null)}"
+                          + $" 光影={viewModel.OpenShaderPacksFolderCommand.CanExecute(null)}"
+                          + $" 存档={viewModel.OpenSavesFolderCommand.CanExecute(null)}"
+                          + $" 数据包={viewModel.OpenDatapacksFolderCommand.CanExecute(null)}"
+                          + $" 删除={viewModel.DeleteInstanceCommand.CanExecute(null)}");
             }
         }
         // 验证实例页的 Java 候选列表

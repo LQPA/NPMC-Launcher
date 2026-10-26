@@ -97,6 +97,11 @@ public sealed class MainWindowViewModel : ObservableObject
             () => HasResourcePacksDirectory, OnOpenError);
         OpenShaderPacksFolderCommand = new AsyncRelayCommand(OpenShaderPacksFolder,
             () => HasShaderPacksDirectory, OnOpenError);
+            OpenSavesFolderCommand = new AsyncRelayCommand(OpenSavesFolder,
+                () => HasSavesDirectory, OnOpenError);
+            OpenDatapacksFolderCommand = new AsyncRelayCommand(OpenDatapacksFolder,
+                () => HasDatapacksEntry, OnOpenError);
+
         OpenContentFolderCommand = new AsyncRelayCommand(OpenContentFolder,
             () => IsContentList && SelectedInstance is not null, OnOpenError);
 
@@ -439,6 +444,14 @@ public sealed class MainWindowViewModel : ObservableObject
             // 换实例 → 重新判断该实例能不能用模组/光影
             if (value is { } selectedInstance) _ = RefreshCapabilitiesAsync(selectedInstance);
 
+            // 先同步清空 Java 那一行再异步填充：否则会短暂显示上一个实例的 Java（"慢一拍"）
+            _javaChoicesReady = false;
+            JavaChoices.Clear();
+            _selectedJavaChoice = null;
+            OnPropertyChanged(nameof(SelectedJavaChoice));
+            JavaRequirementText = "";
+            JavaHint = "正在读取该实例需要的 Java…";
+
             // 换实例 → 重新列出可用的 Java（概览页那一行要用）
             _ = LoadJavaChoicesAsync(value);
         }
@@ -509,6 +522,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         ApplyTabAvailability();
         RaiseFolderVisibilityChanged();
+        RaiseCommandStates();   // 入口的 CanExecute 也依赖能力，必须一并刷新
     }
 
     private void ApplyTabAvailability()
