@@ -88,7 +88,7 @@
       <!-- ================= 右侧：标题 / 页签 / 主体 / 操作 ================= -->
       <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="24,20">
 
-        <StackPanel Grid.Row="0" Spacing="3" IsVisible="{Binding HasSelection}">
+        <StackPanel Grid.Row="0" Spacing="3" IsVisible="{Binding ShowInstanceHeader}">
           <TextBlock Text="{Binding SelectedInstance.Name}" FontSize="24" FontWeight="SemiBold"
                      Foreground="#F2F3F5" TextTrimming="CharacterEllipsis" />
           <TextBlock Text="{Binding SelectedInstance.SummaryText}" FontSize="12" Foreground="#B4BCC8" />
@@ -99,7 +99,7 @@
                  ItemsSource="{Binding ContentTabs}"
                  SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
                  Background="Transparent" BorderThickness="0" Padding="0"
-                 IsVisible="{Binding HasSelection}">
+                 IsVisible="{Binding ShowInstanceHeader}">
           <ListBox.ItemsPanel>
             <ItemsPanelTemplate>
               <StackPanel Orientation="Horizontal" Spacing="2" />

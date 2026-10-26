@@ -423,6 +423,7 @@ public sealed class MainWindowViewModel : ObservableObject
             if (!SetProperty(ref _selectedInstance, value)) return;
 
             OnPropertyChanged(nameof(HasSelection));
+            OnPropertyChanged(nameof(ShowInstanceHeader));
             OnPropertyChanged(nameof(ShowOverview));
             OnPropertyChanged(nameof(ShowContentList));
             OnPropertyChanged(nameof(ShowLog));
@@ -987,11 +988,11 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <summary>当前是否在模组页签（"检查更新"只对模组有意义）。</summary>
     public bool IsModsTab => SelectedTab.ContentKind == ContentKind.Mod;
 
-    public bool ShowOverview => HasSelection && IsOverview;
+    public bool ShowOverview => IsInstancePage && HasSelection && IsOverview;
 
     public bool ShowContentList =>
-        HasSelection && IsContentList && (!IsDataPackTab || IsManagingDataPacks);
-    public bool ShowLog => HasSelection && IsLogTab;
+        IsInstancePage && HasSelection && IsContentList && (!IsDataPackTab || IsManagingDataPacks);
+    public bool ShowLog => IsInstancePage && HasSelection && IsLogTab;
 
     /// <summary>内容列表本身（含搜索面板）只在"能看到列表"时显示。</summary>
     public bool ShowContentRows => ShowContentList && !IsContentEmpty;
@@ -1085,36 +1086,38 @@ public sealed class MainWindowViewModel : ObservableObject
     /// <summary>重新扫描当前页签对应的目录。公开是为了让无头诊断（--dump-instances）也能走同一条路径。</summary>
     public async Task RefreshContentAsync()
     {
-        // 用版本号丢弃过期结果：快速切换实例/页签时，先发出的扫描可能后返回
-        var version = ++_contentScanVersion;
         var instance = SelectedInstance;
         var kind = SelectedTab.ContentKind;
 
         await RefreshCountsAsync(instance);
 
-        if (instance is null || kind is not { } contentKind)
+        var directory = kind is { } contentKind ? ResolveContentDirectory(contentKind) : null;
+
+        if (instance is null || kind is not { } resolvedKind || directory is null)
         {
-            if (version == _contentScanVersion)
-            {
-                Content.Clear();
-                OnPropertyChanged(nameof(IsContentEmpty));
-                RaiseCommandStates();
-            }
+            // 注意：这里**不**递增版本号。
+            // 否则"切页签到存档（还没进入世界）"的这次刷新会把稍后那次
+            // 真正带世界的扫描结果判为过期并丢弃，列表就永远是空的。
+            Content.Clear();
+            OnPropertyChanged(nameof(IsContentEmpty));
+            RaiseCommandStates();
             return;
         }
+
+        // 只有"确实要扫描"时才取版本号：最后一次有效扫描获胜
+        var version = ++_contentScanVersion;
 
         IReadOnlyList<ContentEntry> entries;
         try
         {
-            var directory = ResolveContentDirectory(contentKind);
-            if (directory is null) return;   // 数据包：还没选世界
-            entries = await Task.Run(() => ContentScanner.Scan(directory, contentKind));
+            entries = await Task.Run(() => ContentScanner.Scan(directory, resolvedKind));
         }
         catch (Exception ex)
         {
             Status = $"读取内容失败：{ex.Message}";
             return;
         }
+
 
         if (version != _contentScanVersion) return;
 
@@ -1129,7 +1132,7 @@ public sealed class MainWindowViewModel : ObservableObject
         // 徽标/R·B·A/图标都不依赖"检查更新"：先用缓存，再后台识别一次。
         // 资源包与光影同样适用 —— 它们也能按哈希被认领，只是不按加载器过滤。
         if (Content.Count > 0)
-            _ = LoadContentMetadataAsync(instance, contentKind, Content.ToList());
+            _ = LoadContentMetadataAsync(instance, resolvedKind, Content.ToList());
     }
 
     /// <summary>刷新左侧实例行的数量、三个页签的数量，以及概览处目录入口的可见性。</summary>
@@ -2453,6 +2456,13 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsDownloadsPage => _navPage == NavPage.Downloads;
 
+    /// <summary>当前是否在实例页（实例的标题与内容页签只在这个页面显示）。</summary>
+    public bool IsInstancePage => _navPage == NavPage.Instances;
+
+    /// <summary>实例页的标题与内容页签：只有"在实例页且选中了实例"时出现。</summary>
+    public bool ShowInstanceHeader => IsInstancePage && HasSelection;
+
+
     public string InstancesNavBackground => IsInstancesPage ? "#2B3A55" : "Transparent";
 
     public string DownloadsNavBackground => IsDownloadsPage ? "#2B3A55" : "Transparent";
@@ -2715,6 +2725,11 @@ public sealed class MainWindowViewModel : ObservableObject
 
         OnPropertyChanged(nameof(IsInstancesPage));
         OnPropertyChanged(nameof(IsDownloadsPage));
+        OnPropertyChanged(nameof(IsInstancePage));
+        OnPropertyChanged(nameof(ShowInstanceHeader));
+        OnPropertyChanged(nameof(ShowOverview));
+        OnPropertyChanged(nameof(ShowContentList));
+        OnPropertyChanged(nameof(ShowLog));
         OnPropertyChanged(nameof(InstancesNavBackground));
         OnPropertyChanged(nameof(DownloadsNavBackground));
         OnPropertyChanged(nameof(InstancesNavForeground));

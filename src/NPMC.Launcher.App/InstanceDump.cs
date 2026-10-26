@@ -579,6 +579,30 @@ internal static class InstanceDump
                 viewModel.LoadWorldsForTest();
             }
         }
+        // 验证"切页签立刻点数据包"这种紧邻操作（以前会把有效扫描判为过期）
+        if (args.Any(arg => string.Equals(arg, "--exercise-datapack-race", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[数据包竞态]");
+
+            foreach (var candidate in viewModel.Instances)
+            {
+                viewModel.SelectedInstance = candidate;
+                Thread.Sleep(800);
+
+                var tab = viewModel.ContentTabs.FirstOrDefault(item => item.ContentKind == ContentKind.DataPack);
+                if (tab is null) continue;
+
+                // 不等待：模拟用户"点页签马上点数据包"
+                viewModel.SelectedTab = tab;
+                viewModel.Worlds.FirstOrDefault()?.ManageDataPacksCommand.Execute(null);
+
+                Thread.Sleep(2000);
+
+                lines.Add($"    {candidate.Name}：世界 {viewModel.Worlds.Count} 个，"
+                          + $"内容 {viewModel.Content.Count} 个，管理视图={viewModel.IsManagingDataPacks}");
+            }
+        }
         // 验证 Java 候选缓存：同一实例第二次切换应明显更快
         if (args.Any(arg => string.Equals(arg, "--exercise-java-cache", StringComparison.OrdinalIgnoreCase)))
         {
