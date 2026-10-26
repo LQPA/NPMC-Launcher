@@ -339,3 +339,7 @@ Forge 1.17+ 的版本 JSON 用 `${library_directory}` / `${classpath_separator}`
 
 验证（`--exercise-loader-cache 26.3`）：首次 7235 ms（联网），切走再切回 **0 ms**、
 `检查中=False`、三个加载器可用状态正确；缓存文件 `<root>\cache\loader-versions.json`。
+
+加载器下拉里的版本号前面带 **R / B / A 标识**（绿 / 琥珀 / 红，与内容列表同一套配色）：
+Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R、其余记 B。
+默认优先选最新的**正式版**，没有正式版才退回最新预发布版（NeoForge 有些版本只有 beta）。

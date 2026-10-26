@@ -1111,9 +1111,13 @@ internal static class InstanceDump
                     var neo = viewModel.ListNeoForgeVersionsAsync(minecraft).GetAwaiter().GetResult();
 
                     lines.Add($"    {minecraft}：Forge {forge.Count} 个"
-                              + (forge.Count == 0 ? "" : $"（最新 {forge[0].Loader}）")
+                              + (forge.Count == 0
+                                  ? ""
+                                  : $"（最新 [{forge[0].ChannelBadge}] {forge[0].Loader}）")
                               + $"  NeoForge {neo.Count} 个"
-                              + (neo.Count == 0 ? "" : $"（最新 {neo[0].Loader}）"));
+                              + (neo.Count == 0
+                                  ? ""
+                                  : $"（最新 [{neo[0].ChannelBadge}] {neo[0].Loader}）"));
                 }
                 catch (Exception ex)
                 {

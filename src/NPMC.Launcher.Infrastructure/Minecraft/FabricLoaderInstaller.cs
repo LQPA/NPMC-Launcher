@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Text.Json;
 using NPMC.Launcher.Core.Models;
+using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Storage;
@@ -12,6 +13,20 @@ public sealed record FabricLoaderVersion(string Version, bool Stable)
 {
     /// <summary>下拉里显示的文字：stable 标出来，避免选到预览版。</summary>
     public string DisplayText => Stable ? $"{Version}（stable）" : Version;
+
+    /// <summary>Fabric 只有 stable / 非 stable 两档：非 stable 按 Beta 标记。</summary>
+    public ReleaseChannel Channel => Stable ? ReleaseChannel.Release : ReleaseChannel.Beta;
+
+    public string ChannelBadge => Channel.Badge();
+
+    public string ChannelLabel => Channel.DisplayName();
+
+    public string ChannelColor => Channel switch
+    {
+        ReleaseChannel.Alpha => "#A93226",
+        ReleaseChannel.Beta => "#94611A",
+        _ => "#2E7D46",
+    };
 }
 
 /// <summary>安装结果。</summary>

@@ -2955,8 +2955,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         SelectedFabricLoader = FabricLoaderVersions.FirstOrDefault(loader => loader.Stable)
                                ?? FabricLoaderVersions.FirstOrDefault();
-        SelectedForgeLoader = ForgeLoaderVersions.FirstOrDefault();
-        SelectedNeoForgeLoader = NeoForgeLoaderVersions.FirstOrDefault();
+
+        // 默认选最新的**正式版**；没有正式版才退回最新的预发布版
+        SelectedForgeLoader = ForgeLoaderVersions.FirstOrDefault(loader => loader.Channel == ReleaseChannel.Release)
+                              ?? ForgeLoaderVersions.FirstOrDefault();
+
+        SelectedNeoForgeLoader = NeoForgeLoaderVersions.FirstOrDefault(loader => loader.Channel == ReleaseChannel.Release)
+                                 ?? NeoForgeLoaderVersions.FirstOrDefault();
 
         OnPropertyChanged(nameof(HasFabricLoaderVersions));
         OnPropertyChanged(nameof(HasForgeLoaderVersions));

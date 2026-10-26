@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NPMC.Launcher.App.ViewModels"
         xmlns:mc="using:NPMC.Launcher.Infrastructure.Minecraft"
+        xmlns:mods="using:NPMC.Launcher.Infrastructure.Mods"
         x:Class="NPMC.Launcher.App.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="NPMC Launcher"
@@ -709,7 +710,17 @@
                             FontSize="12" HorizontalAlignment="Stretch">
                     <ComboBox.ItemTemplate>
                       <DataTemplate x:DataType="mc:FabricLoaderVersion">
-                        <TextBlock Text="{Binding DisplayText}" FontSize="12" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <!-- R/B/A 版本标识（与内容列表同一套颜色） -->
+                          <Border Width="16" Height="16" CornerRadius="3"
+                                  Background="{Binding ChannelColor}" VerticalAlignment="Center"
+                                  ToolTip.Tip="{Binding ChannelLabel}">
+                            <TextBlock Text="{Binding ChannelBadge}" FontSize="9" FontWeight="Bold"
+                                       Foreground="#FFFFFF" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                          </Border>
+                          <TextBlock Text="{Binding DisplayText}" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
                       </DataTemplate>
                     </ComboBox.ItemTemplate>
                   </ComboBox>
@@ -719,14 +730,44 @@
                   <TextBlock Text="Forge" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                   <ComboBox Grid.Column="1" ItemsSource="{Binding ForgeLoaderVersions}"
                             SelectedItem="{Binding SelectedForgeLoader}"
-                            FontSize="12" HorizontalAlignment="Stretch" />
+                            FontSize="12" HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="mods:ForgeLoaderVersion">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Border Width="16" Height="16" CornerRadius="3"
+                                  Background="{Binding ChannelColor}" VerticalAlignment="Center"
+                                  ToolTip.Tip="{Binding ChannelLabel}">
+                            <TextBlock Text="{Binding ChannelBadge}" FontSize="9" FontWeight="Bold"
+                                       Foreground="#FFFFFF" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                          </Border>
+                          <TextBlock Text="{Binding DisplayText}" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
                 </Grid>
 
                 <Grid ColumnDefinitions="64,*" IsVisible="{Binding ShowNeoForgeVersions}">
                   <TextBlock Text="NeoForge" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                   <ComboBox Grid.Column="1" ItemsSource="{Binding NeoForgeLoaderVersions}"
                             SelectedItem="{Binding SelectedNeoForgeLoader}"
-                            FontSize="12" HorizontalAlignment="Stretch" />
+                            FontSize="12" HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="mods:ForgeLoaderVersion">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Border Width="16" Height="16" CornerRadius="3"
+                                  Background="{Binding ChannelColor}" VerticalAlignment="Center"
+                                  ToolTip.Tip="{Binding ChannelLabel}">
+                            <TextBlock Text="{Binding ChannelBadge}" FontSize="9" FontWeight="Bold"
+                                       Foreground="#FFFFFF" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                          </Border>
+                          <TextBlock Text="{Binding DisplayText}" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
                 </Grid>
 
                 <TextBlock Text="{Binding LoaderHint}" Margin="64,0,0,0" FontSize="10" Foreground="#6E7684"

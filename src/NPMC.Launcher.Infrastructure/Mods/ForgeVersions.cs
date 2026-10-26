@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using NPMC.Launcher.Core.Mods;
 
 namespace NPMC.Launcher.Infrastructure.Mods;
 
@@ -6,6 +7,34 @@ namespace NPMC.Launcher.Infrastructure.Mods;
 public sealed record ForgeLoaderVersion(string Loader, string Minecraft, string MavenVersion)
 {
     public string DisplayText => Loader;
+
+    /// <summary>
+    /// 发布通道：版本号里带 <c>-beta</c> / <c>-alpha</c> 就是预发布，否则按正式版。
+    /// NeoForge 大量版本带 <c>-beta</c>；Forge 传统版本号没有后缀，全是正式版。
+    /// </summary>
+    public ReleaseChannel Channel
+    {
+        get
+        {
+            var lower = Loader.ToLowerInvariant();
+
+            if (lower.Contains("-alpha", StringComparison.Ordinal)) return ReleaseChannel.Alpha;
+            if (lower.Contains("-beta", StringComparison.Ordinal)) return ReleaseChannel.Beta;
+            return ReleaseChannel.Release;
+        }
+    }
+
+    public string ChannelBadge => Channel.Badge();
+
+    public string ChannelLabel => Channel.DisplayName();
+
+    /// <summary>与内容列表里的 R/B/A 徽标同色：绿 / 琥珀 / 红。</summary>
+    public string ChannelColor => Channel switch
+    {
+        ReleaseChannel.Alpha => "#A93226",
+        ReleaseChannel.Beta => "#94611A",
+        _ => "#2E7D46",
+    };
 
     public override string ToString() => DisplayText;
 }
