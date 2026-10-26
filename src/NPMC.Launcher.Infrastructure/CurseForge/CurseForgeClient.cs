@@ -390,6 +390,20 @@ public sealed class CurseForgeClient
             .ToList();
     }
 
+    /// <summary>取单个文件的元数据（文件名、SHA1）。作者禁止下载时下载地址为空，但这些字段仍在。</summary>
+    public async Task<CurseForgeFile?> GetFileAsync(
+        int modId, int fileId, CancellationToken cancellationToken = default)
+    {
+        using var document = await SendAsync(
+            HttpMethod.Get, $"{ApiBase}/mods/{modId}/files/{fileId}", null, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (document is null) return null;
+        if (!document.RootElement.TryGetProperty("data", out var data)) return null;
+
+        return ParseFile(data);
+    }
+
     /// <summary>
     /// 申请下载地址。作者禁止第三方下载时 CurseForge 会返回错误，
     /// 这种情况返回 null（调用方据此提示"需前往网页下载"，而不是报错）。

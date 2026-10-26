@@ -1172,7 +1172,41 @@
                              Height="6" Margin="0,6,0,0" />
               </StackPanel>
             </Border>
-          </StackPanel>
+            <!-- 作者禁止 API 下载的模组：浏览器下载 + SHA1 校验导入 -->
+            <Border Background="#2A2618" BorderBrush="#6B5A2E" BorderThickness="1"
+                    CornerRadius="8" Padding="16" IsVisible="{Binding HasBlockedMods}">
+              <StackPanel Spacing="8">
+                <TextBlock Text="有模组只能从 CurseForge 手动下载" FontSize="12" FontWeight="SemiBold"
+                           Foreground="#E0A94A" />
+                <ItemsControl ItemsSource="{Binding BlockedMods}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:BlockedModItem">
+                      <Grid ColumnDefinitions="*,90" Margin="0,2">
+                        <StackPanel Spacing="1">
+                          <TextBlock Text="{Binding Name}" FontSize="11" Foreground="#E8EAED" />
+                          <TextBlock Text="{Binding FileName}" FontSize="9" Foreground="#6E7684" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="10"
+                                   Foreground="#B4BCC8" VerticalAlignment="Center" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="{Binding BlockedModsHint}" FontSize="10" Foreground="#949CA9"
+                           TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="打开全部下载页" Command="{Binding OpenBlockedModsCommand}"
+                          FontSize="11" Height="28" Padding="10,0"
+                          HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                  <Button Content="选择下载目录…" Click="OnPickBlockedFolderClick"
+                          FontSize="11" Height="28" Padding="10,0"
+                          HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                  <Button Content="重新检查" Command="{Binding RecheckBlockedModsCommand}"
+                          FontSize="11" Height="28" Padding="10,0"
+                          HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                </StackPanel>
+              </StackPanel>
+            </Border>          </StackPanel>
         </ScrollViewer>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">

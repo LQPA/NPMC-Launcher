@@ -151,6 +151,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         InitializeAccountCommands();
         InitializeModpackOnlineCommands();
+        InitializeBlockedModCommands();
         InstallModpackCommand = new AsyncRelayCommand(
             InstallModpackAsync,
             () => HasModpackPlan && !IsInstallingModpack);
@@ -3952,6 +3953,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var result = await CreateModpackInstaller()
                 .InstallIntoAsync(plan, layout.GameDirectory, fileProgress,
                     Math.Clamp(_startupSettings.DownloadConcurrency, 1, 16));
+
+            // 作者禁止 API 下载的文件：安装完成后显示列表并开始监听下载目录
+            ShowBlockedMods(plan, layout.GameDirectory);
 
             ModpackProgress = "";
             ModpackProgressPercent = 100;

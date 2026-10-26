@@ -1085,6 +1085,105 @@ internal static class InstanceDump
             }
         }
 
+        // CurseForge 阻塞文件：只准备、列出 blocked 列表（不安装）
+        if (args.Any(arg => string.Equals(arg, "--exercise-cf-blocked", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[CF blocked 列表]");
+
+            if (!CurseForgeClient.TryResolveApiKey(out var blockedKey, out var blockedProblem)
+                || blockedKey is null)
+            {
+                lines.Add($"    key 不可用：{blockedProblem}");
+            }
+            else
+            {
+                using var blockedHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+                var blockedCf = new CurseForgeClient(blockedHttp, blockedKey);
+                var blockedHits = blockedCf.SearchAsync("All the Mods 10", null, Array.Empty<string>(), 5, 4471)
+                    .GetAwaiter().GetResult();
+
+                var blockedTarget = blockedHits.FirstOrDefault(hit =>
+                    string.Equals(hit.Slug, "all-the-mods-10", StringComparison.OrdinalIgnoreCase));
+
+                if (blockedTarget is null)
+                {
+                    lines.Add("    没搜到 ATM10");
+                }
+                else
+                {
+                    var blockedFiles = blockedCf.GetFilesAsync(blockedTarget.ModId, "1.21.1", new[] { "neoforge" })
+                        .GetAwaiter().GetResult();
+
+                    var blockedFile = blockedFiles.FirstOrDefault(item =>
+                        item.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+
+                    if (blockedFile is not null)
+                    {
+                        var blockedPlan = viewModel.PrepareCurseForgeModpackAsync(
+                            blockedTarget.ModId, blockedFile.FileId).GetAwaiter().GetResult();
+
+                        lines.Add($"    blocked {blockedPlan.Blocked.Count} 个：");
+
+                        foreach (var item in blockedPlan.Blocked)
+                        {
+                            lines.Add($"      {item.DisplayName} / {item.FileName}");
+                            lines.Add($"        sha1={item.Sha1}");
+                            lines.Add($"        {item.PageUrl}");
+                        }
+                    }
+                }
+            }
+        }
+
+        // 被作者禁止下载的文件：模拟浏览器下载 → SHA1 校验 → 导入实例
+        if (args.Any(arg => string.Equals(arg, "--exercise-blocked", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[Blocked 模组导入]");
+
+            var tempRoot = Path.Combine(Path.GetTempPath(), "nmpc-blocked-" + Guid.NewGuid().ToString("N")[..8]);
+            var watchDir = Path.Combine(tempRoot, "Downloads");
+            var instanceDir = Path.Combine(tempRoot, "instance");
+
+            try
+            {
+                Directory.CreateDirectory(watchDir);
+                Directory.CreateDirectory(instanceDir);
+
+                var content = System.Text.Encoding.UTF8.GetBytes("nmpc blocked test " + Guid.NewGuid());
+                var sha1 = Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(content))
+                    .ToLowerInvariant();
+
+                var blocked = new NPMC.Launcher.Core.Modpacks.BlockedModFile(
+                    1, 2, "Test Mod", "test-mod", "TestMod.jar", sha1);
+
+                using var importer = new NPMC.Launcher.Infrastructure.Modpacks.BlockedModImporter(
+                    new[] { blocked }, instanceDir, message => lines.Add($"    {message}"));
+
+                importer.Watch(watchDir);
+
+                // 先放一个同名但内容不同的文件：必须被 SHA1 拒绝
+                File.WriteAllText(Path.Combine(watchDir, "TestMod.jar"), "wrong content");
+                importer.ScanNow();
+                Thread.Sleep(1500);
+
+                lines.Add($"    错误文件被拒绝：{(importer.Pending.Count == 1 ? "是" : "否")}");
+
+                File.WriteAllBytes(Path.Combine(watchDir, "TestMod.jar"), content);
+                importer.ScanNow();
+                Thread.Sleep(2500);
+
+                var destination = Path.Combine(instanceDir, "mods", "TestMod.jar");
+                lines.Add($"    正确文件导入：{(File.Exists(destination) ? "是" : "否")}");
+                lines.Add($"    待处理剩余：{importer.Pending.Count}");
+            }
+            finally
+            {
+                try { Directory.Delete(tempRoot, true); } catch { }
+            }
+        }
+
         // CurseForge：API key + ATM10 搜索 / 文件 / 下载地址（只读探测，不安装）
         if (args.Any(arg => string.Equals(arg, "--exercise-cf", StringComparison.OrdinalIgnoreCase)))
         {

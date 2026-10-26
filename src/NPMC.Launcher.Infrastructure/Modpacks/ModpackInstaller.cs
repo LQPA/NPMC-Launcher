@@ -14,7 +14,11 @@ public sealed record ModpackPlan(
     ModpackIndex Index,
     string ArchivePath,
     string OverridesRoot,
-    IReadOnlyList<string> Problems);
+    IReadOnlyList<string> Problems)
+{
+    /// <summary>只能去 CurseForge 网页手动下载的文件（带文件名与 SHA1，用于校验导入）。</summary>
+    public IReadOnlyList<BlockedModFile> Blocked { get; init; } = Array.Empty<BlockedModFile>();
+}
 
 /// <summary>安装进度：已完成 / 总数 / 当前文件（相对路径）。</summary>
 public sealed record ModpackInstallProgress(int Completed, int Total, string Path)

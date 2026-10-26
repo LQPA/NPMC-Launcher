@@ -34,6 +34,7 @@ public sealed class CurseForgeModpackPreparer
         int fileId,
         string cacheDirectory,
         IProgress<string>? progress = null,
+        bool allowModrinthFallback = false,
         CancellationToken cancellationToken = default)
     {
         progress?.Report("正在获取整合包下载地址…");
@@ -76,6 +77,7 @@ public sealed class CurseForgeModpackPreparer
 
         var files = new List<ModpackFile>();
         var problems = new List<string>();
+        var blockedFiles = new List<BlockedModFile>();
         var gate = new SemaphoreSlim(4);
         var completed = 0;
 
@@ -99,8 +101,11 @@ public sealed class CurseForgeModpackPreparer
                     return;
                 }
 
-                // 作者禁止 API 下载：试试 Modrinth 上的同名项目
-                var fallback = await TryResolveModrinthAsync(manifest, file, cancellationToken);
+                // 作者禁止 API 下载：默认列给用户手动去 CurseForge 下；
+                // 只有显式允许时才用 Modrinth 同项目替代（版本可能不一致）。
+                var fallback = allowModrinthFallback
+                    ? await TryResolveModrinthAsync(manifest, file, cancellationToken)
+                    : null;
 
                 if (fallback is { } replacement)
                 {
@@ -109,8 +114,29 @@ public sealed class CurseForgeModpackPreparer
                 }
                 else
                 {
+                    var project = await _curseForge.GetProjectAsync(file.ProjectId, cancellationToken);
+                    var metadata = await _curseForge.GetFileAsync(
+                        file.ProjectId, file.FileId, cancellationToken);
+
+                    var label = project is null
+                        ? $"{file.ProjectId}/{file.FileId}"
+                        : $"{project.Name}（{project.Slug}）";
+
                     lock (problems)
-                        problems.Add($"{file.ProjectId}/{file.FileId}：作者禁止 API 下载，Modrinth 也没有匹配项目");
+                        problems.Add($"只能从 CurseForge 手动下载：{label}");
+
+                    if (metadata is not null)
+                    {
+                        lock (blockedFiles)
+                        {
+                            blockedFiles.Add(new BlockedModFile(
+                                file.ProjectId, file.FileId,
+                                project?.Name ?? label,
+                                project?.Slug ?? "",
+                                metadata.FileName,
+                                metadata.Sha1 ?? ""));
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -142,7 +168,10 @@ public sealed class CurseForgeModpackPreparer
             files);
 
         return new ModpackPlan(
-            manifest.Name, manifest.Version, index, archivePath, extractRoot, problems);
+            manifest.Name, manifest.Version, index, archivePath, extractRoot, problems)
+        {
+            Blocked = blockedFiles,
+        };
     }
 
     /// <summary>

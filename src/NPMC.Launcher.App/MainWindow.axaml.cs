@@ -173,6 +173,30 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>选择“手动下载的模组”所在目录（默认监听系统下载目录）。</summary>
+    private async void OnPickBlockedFolderClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+
+        try
+        {
+            var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "选择下载目录",
+                AllowMultiple = false,
+            });
+
+            if (folders.Count == 0) return;
+
+            var path = folders[0].TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path)) viewModel.SetBlockedDownloadFolder(path);
+        }
+        catch (Exception ex)
+        {
+            viewModel.ReportModpackFailure($"无法打开目录选择器：{ex.GetBaseException().Message}");
+        }
+    }
+
     /// <summary>设置页：手动指定"全局默认 Java"。</summary>
     private async void OnPickSettingsJavaClick(object? sender, RoutedEventArgs e)
     {
