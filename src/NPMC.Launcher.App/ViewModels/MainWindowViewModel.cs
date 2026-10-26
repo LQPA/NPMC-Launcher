@@ -605,6 +605,9 @@ public sealed class MainWindowViewModel : ObservableObject
         await RefreshContentAsync();
     }
 
+    /// <summary>仅供诊断：外部改动了 saves 之后重新枚举。</summary>
+    public void LoadWorldsForTest() => LoadWorlds();
+
     private string? _pendingWorldDelete;
 
     /// <summary>删除世界：两次点击确认（会删掉 level.dat 与所有区块数据，不可恢复）。</summary>
@@ -3536,6 +3539,209 @@ public sealed class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             JavaHint = $"保存失败：{ex.GetBaseException().Message}";
+        }
+    }
+    /// <summary>
+    /// 拖入的统一入口：同一个"存档"页签，处在世界列表时拖进来的是**世界**，
+    /// 进到某个世界的数据包页之后拖进来的是**数据包** —— 按当前层级决定语义。
+    /// </summary>
+    public Task ImportDroppedAsync(IReadOnlyList<string> paths)
+    {
+        if (SelectedTab.ContentKind == ContentKind.DataPack && !IsManagingDataPacks)
+            return ImportWorldsAsync(paths);
+
+        return ImportFilesAsync(paths);
+    }
+    // ---- 拖入"世界存档" ----
+
+    /// <summary>
+    /// 把拖进存档列表的文件夹 / zip 变成世界。
+    ///
+    /// 判定标准只有一条：里面有 level.dat。没有就不是世界，宁可拒绝也不要往 saves 里塞垃圾。
+    /// 支持两种布局：level.dat 在根，或者包内只有一个带 level.dat 的目录。
+    /// </summary>
+    public async Task ImportWorldsAsync(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0) return;
+
+        if (SelectedInstance is not { } instance)
+        {
+            Status = "先选择一个实例。";
+            return;
+        }
+
+        var saves = instance.SavesDirectory;
+        var imported = new List<string>();
+        var problems = new List<string>();
+
+        foreach (var path in paths)
+        {
+            var name = Path.GetFileNameWithoutExtension(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            var target = Path.Combine(saves, name);
+
+            try
+            {
+                if (Directory.Exists(path))
+                {
+                    if (!File.Exists(Path.Combine(path, "level.dat")))
+                    {
+                        problems.Add($"{Path.GetFileName(path)}：不是世界（缺 level.dat）");
+                        continue;
+                    }
+
+                    if (Directory.Exists(target))
+                    {
+                        problems.Add($"{name}：已存在同名世界");
+                        continue;
+                    }
+
+                    CopyDirectory(path, target);
+                    imported.Add(name);
+                }
+                else if (File.Exists(path))
+                {
+                    var extension = Path.GetExtension(path);
+
+                    if (!string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase))
+                    {
+                        problems.Add($"{Path.GetFileName(path)}：{extension} 暂不支持（可先解压成文件夹，或压成 zip）");
+                        continue;
+                    }
+
+                    if (Directory.Exists(target))
+                    {
+                        problems.Add($"{name}：已存在同名世界");
+                        continue;
+                    }
+
+                    var outcome = ExtractWorldArchive(path, target, saves);
+
+                    if (outcome is null) imported.Add(name);
+                    else problems.Add($"{name}：{outcome}");
+                }
+            }
+            catch (Exception ex)
+            {
+                problems.Add($"{Path.GetFileName(path)}：{ex.GetBaseException().Message}");
+            }
+        }
+
+        LoadWorlds();
+
+        var parts = new List<string>();
+        if (imported.Count > 0) parts.Add($"已导入 {imported.Count} 个世界（{string.Join("、", imported.Take(3))}）");
+        if (problems.Count > 0) parts.Add($"跳过 {problems.Count} 个");
+
+        Status = parts.Count == 0 ? "没有可导入的存档。" : string.Join("，", parts);
+
+        if (problems.Count > 0)
+            LauncherLog.Write(_launcher.Root, $"导入世界跳过：{string.Join("；", problems.Take(10))}");
+        if (imported.Count > 0)
+            LauncherLog.Write(_launcher.Root, $"已导入世界到 {saves}：{string.Join("、", imported)}");
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>复制整个目录（世界可能很大，但存档通常在几十 MB 级）。</summary>
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+
+        foreach (var file in Directory.EnumerateFiles(source))
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: false);
+
+        foreach (var directory in Directory.EnumerateDirectories(source))
+            CopyDirectory(directory, Path.Combine(destination, Path.GetFileName(directory)));
+    }
+
+    /// <summary>
+    /// 解开世界压缩包。返回 null 表示成功，否则返回不能导入的原因。
+    ///
+    /// 条目路径必须落在目标目录内 —— 压缩包里写 `..\..\` 就能把文件写到别处，
+    /// 这是 zip 解压最经典的漏洞，这里逐个条目校验。
+    /// </summary>
+    private static string? ExtractWorldArchive(string archive, string target, string savesRoot)
+    {
+        var root = Path.GetFullPath(target);
+        var savesFull = Path.GetFullPath(savesRoot);
+
+        if (!root.StartsWith(savesFull, StringComparison.OrdinalIgnoreCase))
+            return "目标路径不合法";
+
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(archive);
+
+            foreach (var entry in zip.Entries)
+            {
+                if (string.IsNullOrEmpty(entry.Name)) continue;   // 目录条目
+
+                var destination = Path.GetFullPath(Path.Combine(root, entry.FullName));
+
+                if (!destination.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    return "压缩包内路径越界（含 ..）";
+
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                using (var input = entry.Open())
+                using (var output = File.Create(destination))
+                    input.CopyTo(output);
+            }
+        }
+        catch (Exception ex)
+        {
+            TryDeleteDirectory(root);
+            return $"无法解压（{ex.GetBaseException().Message}）";
+        }
+
+        // 布局一：level.dat 就在根
+        if (File.Exists(Path.Combine(root, "level.dat"))) return null;
+
+        // 布局二：包内只有一个带 level.dat 的目录
+        var candidates = Directory
+            .EnumerateDirectories(root)
+            .Where(directory => File.Exists(Path.Combine(directory, "level.dat")))
+            .ToList();
+
+        if (candidates.Count == 1)
+        {
+            var inner = candidates[0];
+
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(inner))
+                    File.Move(file, Path.Combine(root, Path.GetFileName(file)));
+
+                foreach (var directory in Directory.EnumerateDirectories(inner))
+                    Directory.Move(directory, Path.Combine(root, Path.GetFileName(directory)));
+
+                Directory.Delete(inner);
+            }
+            catch (Exception ex)
+            {
+                TryDeleteDirectory(root);
+                return $"压缩包结构异常（{ex.GetBaseException().Message}）";
+            }
+
+            return File.Exists(Path.Combine(root, "level.dat")) ? null : "不是世界（解压后没有 level.dat）";
+        }
+
+        TryDeleteDirectory(root);
+        return "不是世界（没有 level.dat）";
+    }
+
+    private static void TryDeleteDirectory(string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+        catch
+        {
+            // 清理失败不影响结论
         }
     }
     // ---- 拖入导入 ----

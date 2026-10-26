@@ -258,6 +258,9 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <TextBlock Text="可以把世界文件夹或 .zip 拖到这里导入（RAR / 7z 请先解压）"
+                           FontSize="11" Foreground="#6E7684" IsVisible="{Binding !HasWorlds}" />
+
                 <TextBlock Text="还没有世界。先在游戏里创建一个世界。" FontSize="11" Foreground="#6E7684"
                            IsVisible="{Binding !HasWorlds}" />
               </StackPanel>

@@ -144,7 +144,7 @@ public partial class MainWindow : Window
             .Select(path => path!)
             .ToList();
 
-        if (paths is { Count: > 0 }) await viewModel.ImportFilesAsync(paths);
+        if (paths is { Count: > 0 }) await viewModel.ImportDroppedAsync(paths);
 
         e.Handled = true;
     }

@@ -507,6 +507,78 @@ internal static class InstanceDump
                           + $" 删除={viewModel.DeleteInstanceCommand.CanExecute(null)}");
             }
         }
+        // 验证"拖入世界"：文件夹 / zip / 嵌套 zip / 非世界包
+        if (args.Any(arg => string.Equals(arg, "--exercise-world-import", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[导入世界]");
+
+            var instance = viewModel.Instances.FirstOrDefault(item => item.SavesDirectory.Contains("原版生存"))
+                           ?? viewModel.Instances.FirstOrDefault();
+
+            if (instance is not null)
+            {
+                viewModel.SelectedInstance = instance;
+                Thread.Sleep(1200);
+
+                var temp = Path.Combine(Path.GetTempPath(), "nmpc-world-" + Guid.NewGuid().ToString("N")[..8]);
+                Directory.CreateDirectory(temp);
+
+                // 1) 普通布局：level.dat 在根
+                var worldDir = Path.Combine(temp, "导入测试A");
+                Directory.CreateDirectory(worldDir);
+                File.WriteAllBytes(Path.Combine(worldDir, "level.dat"), new byte[] { 1, 2, 3 });
+
+                // 2) 嵌套布局：外层目录里才带 level.dat
+                var nestedOuter = Path.Combine(temp, "nested");
+                Directory.CreateDirectory(Path.Combine(nestedOuter, "导入测试B"));
+                File.WriteAllBytes(Path.Combine(nestedOuter, "导入测试B", "level.dat"), new byte[] { 4, 5, 6 });
+
+                // 3) 非世界包
+                var bad = Path.Combine(temp, "bad");
+                Directory.CreateDirectory(bad);
+                File.WriteAllText(Path.Combine(bad, "readme.txt"), "not a world");
+
+                var zipA = Path.Combine(temp, "导入测试A.zip");
+                System.IO.Compression.ZipFile.CreateFromDirectory(worldDir, zipA);
+
+                var zipB = Path.Combine(temp, "导入测试B.zip");
+                System.IO.Compression.ZipFile.CreateFromDirectory(nestedOuter, zipB);
+
+                var zipBad = Path.Combine(temp, "坏包.zip");
+                System.IO.Compression.ZipFile.CreateFromDirectory(bad, zipBad);
+
+                var before = viewModel.Worlds.Count;
+
+                // 文件夹形态
+                viewModel.ImportWorldsAsync(new[] { worldDir }).GetAwaiter().GetResult();
+                lines.Add($"    文件夹导入后：{viewModel.Worlds.Count} 个世界（{viewModel.Status}）");
+
+                // zip 形态（根布局）
+                viewModel.ImportWorldsAsync(new[] { zipA }).GetAwaiter().GetResult();
+                lines.Add($"    zip(根) 导入后：{viewModel.Worlds.Count} 个世界（{viewModel.Status}）");
+
+                // zip 形态（嵌套布局）
+                viewModel.ImportWorldsAsync(new[] { zipB }).GetAwaiter().GetResult();
+                lines.Add($"    zip(嵌套) 导入后：{viewModel.Worlds.Count} 个世界（{viewModel.Status}）");
+
+                // 非世界包应被拒绝
+                viewModel.ImportWorldsAsync(new[] { zipBad }).GetAwaiter().GetResult();
+                lines.Add($"    坏包后：{viewModel.Worlds.Count} 个世界（{viewModel.Status}）");
+
+                lines.Add($"    世界名：{string.Join("、", viewModel.Worlds.Select(world => world.Name))}");
+                lines.Add($"    净增 {viewModel.Worlds.Count - before} 个");
+
+                // 清理导入的测试世界与临时文件
+                foreach (var world in viewModel.Worlds.Where(w => w.Name.StartsWith("导入测试")).ToList())
+                {
+                    try { Directory.Delete(world.Directory, recursive: true); } catch { }
+                }
+
+                try { Directory.Delete(temp, recursive: true); } catch { }
+                viewModel.LoadWorldsForTest();
+            }
+        }
         // 验证 Java 候选缓存：同一实例第二次切换应明显更快
         if (args.Any(arg => string.Equals(arg, "--exercise-java-cache", StringComparison.OrdinalIgnoreCase)))
         {
