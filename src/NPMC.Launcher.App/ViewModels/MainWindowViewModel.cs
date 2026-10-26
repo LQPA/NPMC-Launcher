@@ -2823,9 +2823,49 @@ public sealed class MainWindowViewModel : ObservableObject
 
                 instanceVersion = fabricResult.ProfileId;
             }
-            else if (plan.Index.LoaderName is { } otherLoader)
+            else if (plan.Index.LoaderName is { } otherLoader
+                     && otherLoader.Contains("forge", StringComparison.OrdinalIgnoreCase))
             {
-                ModpackStatus = $"该整合包需要 {otherLoader}，目前只能自动安装 Fabric；"
+                // Forge：1.13 之前可以纯离线安装（解安装包即可），1.13+ 需要跑官方安装器
+                var forge = new ForgeInstaller(_downloader);
+                var forgeCache = Path.Combine(_launcher.Root, "cache", "forge");
+
+                ModpackStatus = $"正在安装 Forge {plan.Index.LoaderVersion}…";
+                ModpackProgressPercent = 0;
+                ModpackProgressIndeterminate = true;
+
+                try
+                {
+                    var forgePlan = await forge.PrepareAsync(
+                        gameVersion,
+                        plan.Index.LoaderVersion ?? "",
+                        forgeCache);
+
+                    var forgeProgress = new Progress<string>(message => ModpackProgress = message);
+                    var forgeResult = await forge.InstallAsync(_launcher, forgePlan, forgeProgress);
+
+                    instanceVersion = forgeResult.VersionId;
+
+                    ModpackProgress = "";
+                    ModpackStatus = $"Forge {plan.Index.LoaderVersion} 已安装（库 {forgeResult.LibrariesDownloaded} 个"
+                                    + (forgeResult.Failures.Count > 0 ? $"，失败 {forgeResult.Failures.Count} 个" : "")
+                                    + "）";
+                }
+                catch (NotSupportedException)
+                {
+                    ModpackStatus = $"该整合包需要 Forge {plan.Index.LoaderVersion}，"
+                                    + "但 1.13 之后的 Forge 需要运行官方安装器，暂不支持自动安装；"
+                                    + "将按原版创建，Forge 需另行安装。";
+                }
+                catch (Exception ex)
+                {
+                    ModpackStatus = $"安装 Forge 失败：{ex.GetBaseException().Message}；将按原版创建。";
+                    LauncherLog.Write(_launcher.Root, $"整合包 Forge 安装失败 → {ex.GetBaseException().Message}");
+                }
+            }
+            else if (plan.Index.LoaderName is { } unsupportedLoader)
+            {
+                ModpackStatus = $"该整合包需要 {unsupportedLoader}，目前只能自动安装 Fabric / Forge（1.13 之前）；"
                                 + "将按原版创建，加载器需另行安装。";
             }
 

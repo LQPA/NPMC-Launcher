@@ -1108,10 +1108,14 @@ internal static class Program
     /// </summary>
     private static async Task<int> LoaderAsync(string[] args)
     {
+        if (args.Length > 0 && string.Equals(args[0], "forge", StringComparison.OrdinalIgnoreCase))
+            return await ForgeLoaderAsync(args[1..]);
+
         if (args.Length == 0 || !string.Equals(args[0], "fabric", StringComparison.OrdinalIgnoreCase))
         {
-            Error("用法: npmc loader fabric --version <游戏版本> [--loader <加载器版本>] [--root <目录>]");
-            Dim("  不指定 --loader 时取最新的 stable 版本");
+            Error("用法: npmc loader <fabric|forge> --version <游戏版本> [--loader <加载器版本>] [--root <目录>]");
+            Dim("  fabric: 不指定 --loader 时取最新的 stable 版本");
+            Dim("  forge : 必须给 --loader，且目前只支持 1.13 之前的旧版安装包");
             return 1;
         }
 
@@ -1150,6 +1154,68 @@ internal static class Program
         return 0;
     }
 
+    /// <summary>安装旧版 Forge（1.13 之前）：解安装包 → 写版本 JSON → 放库。</summary>
+    private static async Task<int> ForgeLoaderAsync(string[] args)
+    {
+        var gameVersion = Opt(args, "--version") ?? Opt(args, "--mc") ?? Required(args);
+        var forgeVersion = Opt(args, "--loader");
+
+        if (string.IsNullOrWhiteSpace(forgeVersion))
+        {
+            Error("用法: npmc loader forge --version <游戏版本> --loader <forge 版本> [--root <目录>]");
+            Dim("  例如: npmc loader forge --version 1.7.10 --loader 10.13.4.1614");
+            return 1;
+        }
+
+        var paths = new LauncherPaths(ResolveRoot(args));
+        var cache = Path.Combine(paths.Root, "cache", "forge");
+
+        using var http = HttpFileDownloader.CreateClient();
+        var downloader = new HttpFileDownloader(http);
+        var installer = new ForgeInstaller(downloader);
+
+        Section($"Forge 加载器 · 游戏 {gameVersion} · 版本 {forgeVersion}");
+
+        try
+        {
+            var plan = await installer.PrepareAsync(gameVersion, forgeVersion, cache);
+
+            Info($"版本 id    {plan.Profile.VersionId}");
+            Info($"继承自     {plan.Profile.Version.InheritsFrom ?? "(无)"}");
+            Info($"库         {plan.Profile.Version.Libraries.Count} 个");
+            Info($"universal  {plan.UniversalJarPath ?? "(安装包里没有)"}");
+
+            if (!plan.Profile.CanInstallOffline)
+            {
+                Error("该 Forge 版本需要运行官方安装器（1.13+ processors），暂不支持自动安装");
+                return 1;
+            }
+
+            var progress = new Progress<string>(message => Dim(message));
+            var result = await installer.InstallAsync(paths, plan, progress);
+
+            Section("结果");
+            Ok($"已写入版本 {result.VersionId}");
+            Info($"库        下载 {result.LibrariesDownloaded} 个 / 跳过 {result.LibrariesSkipped} 个");
+            Info($"universal {result.UniversalJarPath}");
+            Info($"版本 JSON {paths.VersionJson(result.VersionId)}");
+
+            if (result.Failures.Count > 0)
+            {
+                Error($"失败 {result.Failures.Count} 个");
+                foreach (var failure in result.Failures.Take(10)) Dim(failure);
+                return 1;
+            }
+
+            Dim("用 npmc instance create <名字> --version " + result.VersionId + " 创建实例");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Error(ex.GetBaseException().Message);
+            return 1;
+        }
+    }
     // ---------------------------------------------------------------- mods
 
     private static async Task<int> ModsAsync(string[] args)

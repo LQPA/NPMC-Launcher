@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace NPMC.Launcher.Core.Models;
@@ -79,6 +79,7 @@ public sealed record LibraryDownloads
 
 public sealed record Library
 {
+    [JsonPropertyName("url")] public string? Url { get; init; }
     [JsonPropertyName("name")] public string Name { get; init; } = "";
     [JsonPropertyName("downloads")] public LibraryDownloads? Downloads { get; init; }
     [JsonPropertyName("rules")] public List<Rule>? Rules { get; init; }
