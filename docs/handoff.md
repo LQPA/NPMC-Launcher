@@ -198,6 +198,11 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
     `Dictionary<Control, ContentEntryItem>` 记住每个容器当前的行，换人时
     `ReleaseIcon` 旧行。程序化 `ScrollIntoView` 会触发 Detach，**不能代表真实滚轮**；
     内存问题要用真实鼠标滚轮或 `--exercise-memory --memory-manual` 验证。
+17. **图标不要按原尺寸解码**：Modrinth 图标常见 512×512 / 1024×1024 / 1192×1192，
+    界面最大只显示 56px。按原尺寸 `new Bitmap(stream)` 再缩到 26px，Skia 会为每张图
+    分配 1~4MB 原生内存；滚 495 行反复解码/释放，工作集能到 500MB+。
+    改用 `Bitmap.DecodeToWidth(stream, 96, HighQuality)`，同一操作峰值 339 → 241MB
+    （单文件发布 285MB），存活位图像素从 45MB 降到 **4.6MB**。详见 9.1.7。
 
 ---
 
@@ -419,6 +424,26 @@ Avalonia/Skia 的位图是原生内存，托管堆只有十几 MB 时 GC 不会�
 
 对比同一操作下的旧行为 472MB，滚轮路径已不再累积；且 `iconLeases` 始终跟可见行数一致（3–7），
 不会涨到 495。
+
+#### 真正的内存大头：原尺寸解码（2026-10-27 01:14）
+
+用户实际双击启动的实例实测 **WS 531MB / 私有 485MB / 峰值 650MB**，比探针高得多。
+dump 因完整性级别打不开，但从数据看是解码尺寸问题：界面最大 56px，图标却按 512/1024/1192
+原尺寸进内存（每张 1~4MB），滚动时反复解码/释放把 Skia 原生内存撑大。
+
+改法：`IconLoader.Decode` 改用
+`Bitmap.DecodeToWidth(stream, 96, BitmapInterpolationMode.HighQuality)`，从源头缩到 96px。
+
+| 节点（真实滚轮 300 格） | 修复前 | 修复后 |
+|---|---:|---:|
+| 滚动峰值 | 339MB（dist 338.7） | **241MB**（dist 285MB） |
+| 切概览（未 GC） | 286MB | **231MB**（dist 271.5MB） |
+| 存活位图像素 | 45MB | **4.6MB** |
+| 最大位图 | 1192×1192 | **96×96** |
+
+- `created` 仍会到 477（滚完整表），但每张只有 36KB，缓存 128 张 ≈ 4.6MB；
+  `disposed` 同步归零，切换后 `iconCache=0 / iconLeases=0 / pixel=0`。
+- 单文件 dist 比 DLL 构建高约 40MB（宿主 + 可见窗口的 Skia/UI 缓存），但不再随行数增长。
 
 ### 9.2 设置页（原先左侧导航是灰的）
 

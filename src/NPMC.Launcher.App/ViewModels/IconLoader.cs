@@ -31,6 +31,13 @@ internal sealed class IconLoader
     private readonly Action<string>? _log;
     private const int MaxEntries = 128;
 
+    /// <summary>
+    /// 解码目标宽度。界面最大只显示 56px（详情图标），高 DPI 留一点余量即可。
+    /// Modrinth 图标常见 512×512 / 1024×1024；按原尺寸解码再缩到 26px，
+    /// 会让 Skia 为每张图分配 1~4MB 原生内存，滚一遍 495 行能到几百 MB。
+    /// </summary>
+    private const int MaxDecodeWidth = 96;
+
     private readonly Dictionary<string, Bitmap?> _memory = new(StringComparer.OrdinalIgnoreCase);
     private readonly LinkedList<string> _order = new();
 
@@ -228,7 +235,8 @@ internal sealed class IconLoader
         try
         {
             using var stream = new MemoryStream(bytes);
-            var bitmap = new Bitmap(stream);
+            var bitmap = Bitmap.DecodeToWidth(
+                stream, MaxDecodeWidth, BitmapInterpolationMode.HighQuality);
             LiveBitmapTracker.Track(bitmap);
             return bitmap;
         }
