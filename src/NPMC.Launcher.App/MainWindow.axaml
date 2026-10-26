@@ -562,6 +562,19 @@
                          VerticalAlignment="Center" />
             </StackPanel>
 
+          <!-- 模组页：本地筛选 + 进入下载模式 -->
+          <Border Grid.Row="1" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                  CornerRadius="8" Padding="10" Margin="0,0,0,10"
+                  IsVisible="{Binding IsModFilterVisible}">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Text="{Binding ModFilterQuery, Mode=TwoWay}" FontSize="12"
+                       Watermark="筛选当前模组（输入即过滤，不联网）" />
+              <Button Grid.Column="1" Content="下载模组" Command="{Binding OpenModDownloadCommand}"
+                      Margin="8,0,0,0" FontSize="12" Height="30" Padding="12,0"
+                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                      ToolTip.Tip="搜索 Modrinth / CurseForge 并安装新模组" />
+            </Grid>
+          </Border>
           <!--
             搜索安装面板：只在模组页签出现。
             两步走 —— 先搜索、点「安装」解析出依赖计划，确认后才下载。
@@ -569,9 +582,14 @@
           -->
           <Border Grid.Row="1" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="10" Margin="0,0,0,10"
-                  IsVisible="{Binding ShowContentList}">
+                  IsVisible="{Binding IsSearchPanelVisible}">
             <StackPanel Spacing="8">
 
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsModDownloadMode}">
+              <Button Content="← 返回模组列表" Command="{Binding CloseModDownloadCommand}"
+                      FontSize="11" Padding="10,3" />
+              <TextBlock Text="下载新模组" FontSize="12" Foreground="#E8EAED" VerticalAlignment="Center" />
+            </StackPanel>
               <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                 <TextBox Grid.Column="0" Text="{Binding SearchQuery}"
                          Watermark="{Binding SearchPlaceholder}" FontSize="12" />
@@ -741,7 +759,7 @@
           -->
           <Border Grid.Row="2" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="8"
-                  IsVisible="{Binding ShowContentList}">
+                  IsVisible="{Binding ShowModList}">
             <ScrollViewer>
               <ItemsControl ItemsSource="{Binding Content}">
                 <ItemsControl.ItemTemplate>
@@ -879,14 +897,10 @@
         </StackPanel>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
-                    IsVisible="{Binding ShowContentList}">
+                    IsVisible="{Binding ShowModList}">
           <Button Content="打开当前文件夹" Command="{Binding OpenContentFolderCommand}" />
-          <Button Content="全部禁用" Command="{Binding DisableAllCommand}" IsVisible="{Binding ShowContentList}" />
-          <Button Content="全部启用" Command="{Binding EnableAllCommand}" IsVisible="{Binding ShowContentList}" />
-          <TextBlock Text="也可以把文件直接拖进列表导入（模组 .jar，其余 .zip）"
-                     IsVisible="{Binding IsContentList}" FontSize="11" Foreground="#6E7684"
-                     VerticalAlignment="Center" Margin="6,0,0,0" />
-
+          <Button Content="全部禁用" Command="{Binding DisableAllCommand}" />
+          <Button Content="全部启用" Command="{Binding EnableAllCommand}" />
           <!-- 检查更新只对模组有意义 -->
           <Button Content="{Binding CheckUpdatesText}" Command="{Binding CheckUpdatesCommand}"
                   IsVisible="{Binding IsModsTab}" />

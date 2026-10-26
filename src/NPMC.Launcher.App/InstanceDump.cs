@@ -1171,6 +1171,53 @@ internal static class InstanceDump
             }
         }
 
+        // 模组页：本地筛选 + 下载模式
+        if (args.Any(arg => string.Equals(arg, "--exercise-mod-view", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[模组页视图]");
+
+            var modInstance = viewModel.Instances.FirstOrDefault(item => item.HasModpackInfo)
+                              ?? viewModel.Instances.FirstOrDefault();
+
+            if (modInstance is not null)
+            {
+                viewModel.NavigateForTest(NavPage.Instances);
+                viewModel.SelectedInstance = modInstance;
+                Thread.Sleep(1000);
+                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
+                Thread.Sleep(1000);
+
+                lines.Add($"    列表模式：筛选框={viewModel.IsModFilterVisible} 列表={viewModel.ShowModList} 搜索={viewModel.IsSearchPanelVisible}");
+
+                viewModel.OpenModDownloadCommand.Execute(null);
+                Thread.Sleep(300);
+                lines.Add($"    下载模式：筛选框={viewModel.IsModFilterVisible} 列表={viewModel.ShowModList} 搜索={viewModel.IsSearchPanelVisible}");
+
+                viewModel.CloseModDownloadCommand.Execute(null);
+                Thread.Sleep(300);
+                lines.Add($"    返回列表：列表={viewModel.ShowModList} 搜索={viewModel.IsSearchPanelVisible}");
+
+                viewModel.HidePackMods = false;
+                Thread.Sleep(1500);
+                viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+                lines.Add($"    显示全部后列表 {viewModel.Content.Count} 个（隐藏={viewModel.HidePackMods}）");
+                viewModel.ModFilterQuery = "tombstone";
+                Thread.Sleep(1500);
+                viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+                Thread.Sleep(2500);
+                lines.Add($"    本地筛选 tombstone：{viewModel.Content.Count} 个");
+
+                lines.Add($"    整合包来源归属：CF={viewModel.Content.Count(item => item.IsFromCurseForge)} 个，"
+                                    + $"Modrinth={viewModel.Content.Count(item => item.IsFromModrinth)} 个，"
+                                    + $"未识别={viewModel.Content.Count(item => item.IsUnidentified)} 个");
+
+                viewModel.ModFilterQuery = "";
+                viewModel.HidePackMods = true;
+                viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+            }
+        }
+
         // 整合包实例：折叠自带模组 + 只检查手动添加的
         if (args.Any(arg => string.Equals(arg, "--exercise-pack-mods", StringComparison.OrdinalIgnoreCase)))
         {

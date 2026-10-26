@@ -152,6 +152,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         InitializeAccountCommands();
         InitializeModpackOnlineCommands();
         InitializeBlockedModCommands();
+        InitializePackModCommands();
         InstallModpackCommand = new AsyncRelayCommand(
             InstallModpackAsync,
             () => HasModpackPlan && !IsInstallingModpack);
@@ -819,6 +820,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowOverview));
         OnPropertyChanged(nameof(ShowContentPane));
         OnPropertyChanged(nameof(ShowContentList));
+        OnPropertyChanged(nameof(ShowModList));
+        OnPropertyChanged(nameof(IsSearchPanelVisible));
+        OnPropertyChanged(nameof(IsModFilterVisible));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         OnPropertyChanged(nameof(ShowLog));
     }
@@ -1244,6 +1248,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var previousKind = _selectedTab.ContentKind;
             if (!SetProperty(ref _selectedTab, value)) return;
 
+            if (value.ContentKind != ContentKind.Mod) IsModDownloadMode = false;
+
             OnPropertyChanged(nameof(IsOverview));
             OnPropertyChanged(nameof(IsContentList));
             OnPropertyChanged(nameof(IsLogTab));
@@ -1301,7 +1307,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool ShowLog => IsInstancePage && HasSelection && IsLogTab;
 
     /// <summary>空列表提示：只在这个面板里、且确实为空时显示。</summary>
-    public bool IsContentEmptyOrNotList => ShowContentList && IsContentEmpty;
+    public bool IsContentEmptyOrNotList => ShowModList && IsContentEmpty;
 
 
 
@@ -2186,6 +2192,31 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (icon is not null) item.Icon = icon;
         }
 
+        // 整合包自带的模组：直接归属整合包来源（CF / Modrinth），不再逐个联网猜来源。
+        var packNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var packSource = UpdateSource.Modrinth;
+
+        if (kind == ContentKind.Mod
+            && InstanceModpackStore.Load(instance.GameDirectory) is { } packInfo)
+        {
+            packSource = packInfo.IsCurseForge ? UpdateSource.CurseForge : UpdateSource.Modrinth;
+            packNames = packInfo.PackFiles
+                .Select(file => file.FileName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var item in items)
+            {
+                if (packNames.Contains(Path.GetFileName(item.Entry.Path)))
+                    item.SetIdentification(packSource);
+            }
+        }
+
+        var checkItems = items
+            .Where(item => !packNames.Contains(Path.GetFileName(item.Entry.Path)))
+            .ToList();
+
+        if (checkItems.Count == 0) return;
+
         // 2) 该实例的该页签首次打开时，后台识别一次（只认领，不查版本）
         if (!_autoIdentifiedInstances.Add($"{instance.Id}:{kind}")) return;
 
@@ -2198,7 +2229,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var gameVersion = await ResolveGameVersionAsync(instance);
 
             var report = await _updateService.CheckAsync(
-                items.Select(item => item.Entry.Path).ToList(),
+                checkItems.Select(item => item.Entry.Path).ToList(),
                 gameVersion,
                 loaders,
                 includeProjectVersions: false);
@@ -2215,7 +2246,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? new Dictionary<string, ModrinthProject>()
                 : (IReadOnlyDictionary<string, ModrinthProject>)await _modrinth.GetProjectsAsync(projectIds);
 
-            foreach (var item in items)
+            foreach (var item in checkItems)
             {
                 if (!byPath.TryGetValue(item.Entry.Path, out var local)) continue;
 
@@ -3396,6 +3427,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                                 && _selectedDownloadVersion is not null
                                 && EffectiveInstanceName.Length > 0
                                 && !DownloadConflictsWithExisting;
+
+    /// <summary>供诊断用：切到指定页面。</summary>
+    public void NavigateForTest(NavPage page) => Navigate(page);
 
     private void Navigate(NavPage page)
     {
