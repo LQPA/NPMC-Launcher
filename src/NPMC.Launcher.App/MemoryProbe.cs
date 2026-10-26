@@ -119,7 +119,20 @@ internal static class MemoryProbe
                 Snapshot("atm10-mods-all+gc", forceCollect: true);
 
                 // 模拟"滚完整张列表"：每次跳 20 行，让虚拟化真正回收/重建行容器。
-                if (WantsVisibleWindow(args) && rows > 0)
+                // --memory-manual 时不代替用户滚动，留 20 秒给外部真实鼠标滚轮。
+                var manual = args.Any(arg => string.Equals(arg, "--memory-manual", StringComparison.OrdinalIgnoreCase));
+
+                if (manual)
+                {
+                    Write("# 请用真实鼠标滚轮在列表区滚动（20 秒，每秒记一次快照）…");
+                    for (var second = 1; second <= 20; second++)
+                    {
+                        await Task.Delay(1000);
+                        Snapshot($"manual-{second:00}");
+                    }
+                }
+
+                if (WantsVisibleWindow(args) && rows > 0 && !manual)
                 {
                     Write("# 程序化滚动整张列表（不是鼠标操作；每次滚一屏，模拟真实浏览）…");
 

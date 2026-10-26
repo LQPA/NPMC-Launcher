@@ -785,7 +785,8 @@
                   <DataTemplate x:DataType="vm:ContentEntryItem">
                     <Grid ColumnDefinitions="60,30,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5"
                           AttachedToVisualTree="OnContentRowAttached"
-                          DetachedFromVisualTree="OnContentRowDetached">
+                          DetachedFromVisualTree="OnContentRowDetached"
+                          DataContextChanged="OnContentRowDataContextChanged">
 
                       <!--
                         项目图标 + 识别徽标。

@@ -190,6 +190,14 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
     也会再抬一次）。**签名不改变完整性级别**，只签名不抬标签仍然双击没反应。
     实测：Low 时 `[Process]::Start(UseShellExecute=true)` 挂起；抬到 Medium 后
     111ms 就启动并出现窗口。
+16. **虚拟化行容器复用 ≠ DetachedFromVisualTree**：鼠标滚轮滚动时，Avalonia 的
+    `VirtualizingStackPanel` 常常只是把同一个 `ListBoxItem` 的 `DataContext` 换成新行，
+    并不触发 `DetachedFromVisualTree`。只监听 Attach/Detach 会让旧行的 `Icon` 和
+    IconLoader 租约一直挂着（495 行全滚一遍 → 472MB，切页才掉 45MB）。
+    必须同时监听 `DataContextChanged`，并用
+    `Dictionary<Control, ContentEntryItem>` 记住每个容器当前的行，换人时
+    `ReleaseIcon` 旧行。程序化 `ScrollIntoView` 会触发 Detach，**不能代表真实滚轮**；
+    内存问题要用真实鼠标滚轮或 `--exercise-memory --memory-manual` 验证。
 
 ---
 
@@ -388,6 +396,27 @@ Avalonia/Skia 的位图是原生内存，托管堆只有十几 MB 时 GC 不会�
   所以判断释放要看 `disposed` 和 `pixel`，不要只看 `live`。
 - 列表只 materialize 8 行；`iconCache` 上限 128、`iconLeases` 跟可见行数一致（3~8）。
 - 想再压可以把 `IconLoader.MaxEntries` 从 128 降到 64（代价是回滚时多读几次磁盘缓存）。
+
+#### 真实滚轮与程序化滚动的差异（2026-10-27 01:03）
+
+用户用真实滚轮仍复现 472MB，而探针的 `ScrollIntoView` 只有 334MB。原因：
+**虚拟化面板复用行容器时只换 `DataContext`，不一定走 Detach**，旧行的 `Icon` + 租约
+一直保留；滚完 495 行后缓存/租约里还挂着大量位图。
+
+改法：`MainWindow` 用 `Dictionary<Control, ContentEntryItem>` 记录每个容器当前显示的行，
+`AttachedToVisualTree` / `DataContextChanged` 都走同一个 `TrackContentRow`，换行时先
+`ReleaseIcon(previous)`；`DetachedFromVisualTree` 再兜底。
+
+真实鼠标滚轮实测（350 格，`--exercise-memory --memory-manual`）：
+
+| 节点 | WS | created / disposed | 缓存 / 租约 |
+|---|---:|---:|---:|
+| 滚到列表底部 | 276–286MB（峰值 296） | 550 / 419 | 128 / 3–7 |
+| 切 26.1.2 概览（未 GC） | **239MB** | 550 / **550** | 0 / 0 |
+| 同上 + GC | 236MB | 550 / 550 | 0 / 0 |
+
+对比同一操作下的旧行为 472MB，滚轮路径已不再累积；且 `iconLeases` 始终跟可见行数一致（3–7），
+不会涨到 495。
 
 ### 9.2 设置页（原先左侧导航是灰的）
 

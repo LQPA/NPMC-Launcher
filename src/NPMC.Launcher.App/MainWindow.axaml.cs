@@ -155,17 +155,47 @@ public partial class MainWindow : Window
     // 列表本身是虚拟化的，所以只在行挂到可视树时取图标、离开时丢掉引用，
     // 滚动时由 IconLoader 的 LRU 缓存兜住最近用过的图标。
 
+    // 行容器会被虚拟化面板复用：滚动时可能只换 DataContext，不触发 Detach。
+    // 所以每个 Control 记住自己当前显示的是哪个 item，换人/离开时都要归还租约。
+    private readonly Dictionary<Control, ContentEntryItem> _contentRowItems = new();
+
     private void OnContentRowAttached(object? sender, VisualTreeAttachmentEventArgs e)
     {
-        if (sender is not Control { DataContext: ContentEntryItem item }) return;
-        item.IsRowVisible = true;
-        if (Vm is { } viewModel) _ = viewModel.EnsureIconAsync(item);
+        if (sender is Control control) TrackContentRow(control, control.DataContext as ContentEntryItem);
     }
 
     private void OnContentRowDetached(object? sender, VisualTreeAttachmentEventArgs e)
     {
-        if (sender is Control { DataContext: ContentEntryItem item } && Vm is { } viewModel)
-            viewModel.ReleaseIcon(item);
+        if (sender is not Control control) return;
+
+        if (_contentRowItems.Remove(control, out var tracked))
+        {
+            Vm?.ReleaseIcon(tracked);
+            return;
+        }
+
+        if (control.DataContext is ContentEntryItem item) Vm?.ReleaseIcon(item);
+    }
+
+    private void OnContentRowDataContextChanged(object? sender, EventArgs e)
+    {
+        if (sender is Control control) TrackContentRow(control, control.DataContext as ContentEntryItem);
+    }
+
+    private void TrackContentRow(Control control, ContentEntryItem? item)
+    {
+        if (_contentRowItems.TryGetValue(control, out var previous) && !ReferenceEquals(previous, item))
+            Vm?.ReleaseIcon(previous);
+
+        if (item is null)
+        {
+            _contentRowItems.Remove(control);
+            return;
+        }
+
+        _contentRowItems[control] = item;
+        item.IsRowVisible = true;
+        if (Vm is { } viewModel) _ = viewModel.EnsureIconAsync(item);
     }
 
     /// <summary>
