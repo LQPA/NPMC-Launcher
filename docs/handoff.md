@@ -329,10 +329,10 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 
 #### 改法二：行租约 + 确定性 Dispose（限制原生内存）
 
-只做懒加载还不够。用户的录屏里内存从 108MB 一路涨到 **484MB**，切回概览也不降；
-那段视频跑的是 `dist\NPMC.Launcher.App.exe`（2026-10-27 00:14 发布，早于本轮修复）。
-但即使换成"只在行可见时加载"，**滚动整张列表**仍会不断解码新图标：
-缓存淘汰/行离开只是丢引用，Avalonia/Skia 的位图是原生内存，托管堆只有十几 MB 时 GC 不会跑，
+只做懒加载还不够。用户的录屏里内存从 108MB 一路涨到 **484MB**，切回概览也不降。
+当时 `dist` 还是 00:14 的旧包（旧代码一次性解码 495 个图标）；即使跑的是先前的懒加载构建，
+也有同样的洞：**滚动整张列表**仍会不断解码新图标，缓存淘汰/行离开只是丢引用，
+Avalonia/Skia 的位图是原生内存，托管堆只有十几 MB 时 GC 不会跑，
 所以工作集继续涨 —— 必须显式释放。
 
 - `IconLoader` 增加**行租约**：`AcquireAsync(url)` 给内容行用，行离开可视树 `Release(url)`。
@@ -359,6 +359,9 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 
 - 滚动期间工作集在 286–293MB 之间**平台化**，不再随行数线性上涨；滚回顶部重新创建了 194 张，但旧的全部被 Dispose。
 - 切换实例后工作集**当场从 290MB 降到 246MB**（缓存里 128 张全部 Dispose），不需要等 GC；GC 只再收掉包装对象。
+- 单文件 `dist\NPMC.Launcher.App.exe` 复测（同一套操作，`--memory-visible`）：
+  基线 232MB → 滚动峰值 325MB → 切概览 **283MB（未 GC）** → 强制 GC 276MB。
+  比 DLL 构建整体高 15~30MB（单文件宿主 + 可见窗口的 Skia/UI 缓存），但同样不再随 495 行线性上涨。
 - 表里的 `live` 是弱引用还活着的 Bitmap 包装对象，已 Dispose 的也要等 GC 才消失，
   所以判断释放要看 `disposed` 和 `pixel`，不要只看 `live`。
 - 列表只 materialize 8 行；`iconCache` 上限 128、`iconLeases` 跟可见行数一致（3~8）。
