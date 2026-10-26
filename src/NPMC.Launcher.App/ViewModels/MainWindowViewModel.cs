@@ -61,6 +61,7 @@ public sealed class MainWindowViewModel : ObservableObject
             new("模组", DetailTabKind.Content, ContentKind.Mod),
             new("资源包", DetailTabKind.Content, ContentKind.ResourcePack),
             new("光影", DetailTabKind.Content, ContentKind.ShaderPack),
+            new("数据包", DetailTabKind.Content, ContentKind.DataPack),
             new("日志", DetailTabKind.Log),
         };
         _selectedTab = ContentTabs[0];
@@ -97,10 +98,14 @@ public sealed class MainWindowViewModel : ObservableObject
             () => HasResourcePacksDirectory, OnOpenError);
         OpenShaderPacksFolderCommand = new AsyncRelayCommand(OpenShaderPacksFolder,
             () => HasShaderPacksDirectory, OnOpenError);
-            OpenSavesFolderCommand = new AsyncRelayCommand(OpenSavesFolder,
-                () => HasSavesDirectory, OnOpenError);
-            OpenDatapacksFolderCommand = new AsyncRelayCommand(OpenDatapacksFolder,
-                () => HasDatapacksEntry, OnOpenError);
+        ManageDataPacksCommand = new AsyncRelayCommand(ManageDataPacksAsync,
+            () => SelectedWorld is not null, OnOpenError);
+        BackToWorldsCommand = new RelayCommand(BackToWorlds);
+
+        OpenSavesFolderCommand = new AsyncRelayCommand(OpenSavesFolder,
+            () => HasSavesDirectory, OnOpenError);
+        OpenDatapacksFolderCommand = new AsyncRelayCommand(OpenDatapacksFolder,
+            () => HasDatapacksEntry, OnOpenError);
 
         OpenContentFolderCommand = new AsyncRelayCommand(OpenContentFolder,
             () => IsContentList && SelectedInstance is not null, OnOpenError);
@@ -474,6 +479,127 @@ public sealed class MainWindowViewModel : ObservableObject
 
     private string _gameVersion = "";
 
+    // ---- 数据包（按世界）----
+
+    /// <summary>该实例可用的世界（saves 下的目录）。</summary>
+    public ObservableCollection<WorldItem> Worlds { get; } = new();
+
+    private WorldItem? _selectedWorld;
+
+    public WorldItem? SelectedWorld
+    {
+        get => _selectedWorld;
+        set
+        {
+            if (!SetProperty(ref _selectedWorld, value)) return;
+
+            // 换了世界，数据包列表就变了
+            if (SelectedTab.ContentKind == ContentKind.DataPack) _ = RefreshContentAsync();
+        }
+    }
+
+    public bool HasWorlds => Worlds.Count > 0;
+
+    /// <summary>正在管理哪个世界的数据包；为 null 时显示世界列表。</summary>
+    public WorldItem? DataPackWorld { get; private set; }
+
+    public bool IsManagingDataPacks => DataPackWorld is not null;
+
+    /// <summary>存档页签的"世界列表"视图（还没进入某个世界时）。</summary>
+    public bool ShowWorldPicker => IsDataPackTab && !IsManagingDataPacks;
+
+    public ICommand ManageDataPacksCommand { get; }
+    public ICommand BackToWorldsCommand { get; }
+
+    /// <summary>进入某个世界的数据包管理页。</summary>
+    private async Task ManageDataPacksAsync()
+    {
+        if (SelectedWorld is not { } world) return;
+
+        DataPackWorld = world;
+        RaiseWorldViewChanged();
+
+        Status = $"正在管理「{world.Name}」的数据包";
+        await RefreshContentAsync();
+    }
+
+    /// <summary>返回存档（世界列表）。</summary>
+    private void BackToWorlds()
+    {
+        DataPackWorld = null;
+        RaiseWorldViewChanged();
+
+        Content.Clear();
+        OnPropertyChanged(nameof(IsContentEmpty));
+        RaiseCommandStates();
+
+        Status = "已返回存档列表";
+    }
+
+    private void RaiseWorldViewChanged()
+    {
+        OnPropertyChanged(nameof(DataPackWorld));
+        OnPropertyChanged(nameof(IsManagingDataPacks));
+        OnPropertyChanged(nameof(ShowWorldPicker));
+        OnPropertyChanged(nameof(ShowContentList));
+        OnPropertyChanged(nameof(ContentEmptyHint));
+    }
+
+    /// <summary>数据包是 1.13 才有的功能。</summary>
+    private bool _supportsDataPacks;
+
+    public bool IsDataPackTab => SelectedTab.ContentKind == ContentKind.DataPack;
+
+    /// <summary>重新枚举世界（数据包页签要用）。</summary>
+    private void LoadWorlds()
+    {
+        Worlds.Clear();
+
+        if (SelectedInstance is { } instance && Directory.Exists(instance.SavesDirectory))
+        {
+            try
+            {
+                foreach (var directory in new DirectoryInfo(instance.SavesDirectory)
+                             .EnumerateDirectories()
+                             .OrderByDescending(item => item.LastWriteTimeUtc))
+                {
+                    // 只认真正的世界：有 level.dat
+                    if (!File.Exists(Path.Combine(directory.FullName, "level.dat"))) continue;
+
+                    Worlds.Add(new WorldItem(directory.Name, directory.FullName, directory.LastWriteTime));
+                }
+            }
+            catch
+            {
+                // 读不了就当没有世界
+            }
+        }
+
+        if (_selectedWorld is null || !Worlds.Any(world => world.Directory == _selectedWorld.Directory))
+            _selectedWorld = Worlds.FirstOrDefault();
+
+        OnPropertyChanged(nameof(SelectedWorld));
+        OnPropertyChanged(nameof(HasWorlds));
+        OnPropertyChanged(nameof(ContentEmptyHint));
+    }
+
+    /// <summary>
+    /// 内容类型对应的实际目录。
+    ///
+    /// 数据包是 <c>saves/&lt;世界&gt;/datapacks</c>，所以这里要落到当前选中的世界上；
+    /// 其余类型就是实例目录下的固定子目录。
+    /// </summary>
+    private string? ResolveContentDirectory(ContentKind kind)
+    {
+        if (SelectedInstance is not { } instance) return null;
+
+        if (!kind.IsPerWorld()) return instance.DirectoryFor(kind);
+
+        return DataPackWorld is { } world
+            ? Path.Combine(world.Directory, kind.DirectoryName())
+            : null;
+    }
+
     /// <summary>
     /// 真正用于查询模组平台的游戏版本号。
     /// 加载器实例的 VersionId 是 fabric-loader-0.20.1-1.20.1，而平台只认 1.20.1。
@@ -519,6 +645,9 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasModLoader));
         OnPropertyChanged(nameof(DetectedLoadersText));
         OnPropertyChanged(nameof(HasShaderSupport));
+        _supportsDataPacks = Version.TryParse(NormalizeGameVersion(_gameVersion), out var dataPackVersion)
+                              && dataPackVersion >= new Version(1, 13);
+        if (SelectedInstance is { } worldInstance) LoadWorlds();
 
         ApplyTabAvailability();
         RaiseFolderVisibilityChanged();
@@ -542,6 +671,12 @@ public sealed class MainWindowViewModel : ObservableObject
                     _hasShaderSupport,
                     "该实例缺少光影支持（Iris 或 OptiFine），原版客户端不会读取 shaderpacks。"
                     + "安装 Iris 后即可使用。"),
+
+                ContentKind.DataPack => (
+                    _supportsDataPacks && HasWorlds,
+                    _supportsDataPacks
+                        ? "还没有世界。先在游戏里创建一个世界，数据包是按世界安装的。"
+                        : "该版本（1.13 之前）没有数据包功能，因此不提供数据包管理。"),
 
                 _ => (true, ""),
             };
@@ -746,6 +881,13 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(IsContentList));
             OnPropertyChanged(nameof(IsLogTab));
             OnPropertyChanged(nameof(IsModsTab));
+            OnPropertyChanged(nameof(IsDataPackTab));
+            if (value.ContentKind == ContentKind.DataPack)
+            {
+                DataPackWorld = null;
+                LoadWorlds();
+                RaiseWorldViewChanged();
+            }
             OnPropertyChanged(nameof(ShowOverview));
             OnPropertyChanged(nameof(ShowContentList));
             OnPropertyChanged(nameof(ShowLog));
@@ -783,9 +925,15 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool ShowOverview => HasSelection && IsOverview;
 
-    public bool ShowContentList => HasSelection && IsContentList;
-
+    public bool ShowContentList =>
+        HasSelection && IsContentList && (!IsDataPackTab || IsManagingDataPacks);
     public bool ShowLog => HasSelection && IsLogTab;
+
+    /// <summary>内容列表本身（含搜索面板）只在"能看到列表"时显示。</summary>
+    public bool ShowContentRows => ShowContentList && !IsContentEmpty;
+
+    /// <summary>空列表提示。</summary>
+    public bool ShowContentEmptyHint => ShowContentList && IsContentEmpty;
 
     public ObservableCollection<ContentEntryItem> Content { get; } = new();
 
@@ -796,6 +944,7 @@ public sealed class MainWindowViewModel : ObservableObject
         ContentKind.Mod => "mods 文件夹是空的。把 .jar 放进这个文件夹（或将来自动安装），就会出现在这里。",
         ContentKind.ResourcePack => "resourcepacks 文件夹是空的。支持 .zip 和文件夹两种形式。",
         ContentKind.ShaderPack => "shaderpacks 文件夹是空的。光影通常需要配合 Iris / OptiFine 使用。",
+        ContentKind.DataPack => "这个世界还没有数据包。可以从下方搜索安装，或把 .zip 放进该世界的 datapacks 文件夹。",
         _ => "",
     };
 
@@ -893,7 +1042,8 @@ public sealed class MainWindowViewModel : ObservableObject
         IReadOnlyList<ContentEntry> entries;
         try
         {
-            var directory = instance.DirectoryFor(contentKind);
+            var directory = ResolveContentDirectory(contentKind);
+            if (directory is null) return;   // 数据包：还没选世界
             entries = await Task.Run(() => ContentScanner.Scan(directory, contentKind));
         }
         catch (Exception ex)
@@ -932,7 +1082,8 @@ public sealed class MainWindowViewModel : ObservableObject
                 continue;
             }
 
-            var directory = instance.DirectoryFor(kind);
+            var directory = ResolveContentDirectory(kind);
+            if (directory is null) return;   // 数据包：还没选世界
             tab.Count = await Task.Run(() => ContentScanner.Scan(directory, kind).Count);
         }
     }
@@ -948,7 +1099,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
         try
         {
-            var directory = instance.DirectoryFor(kind);
+            var directory = ResolveContentDirectory(kind);
+            if (directory is null) return;   // 数据包：还没选世界
             var updated = await Task.Run(() => _contentManager.Toggle(item.Entry, directory));
 
             // 就地更新这一行：绝不重建集合，否则 ListBox 会丢失选中项（高亮乱跳）
@@ -972,7 +1124,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
         try
         {
-            var directory = instance.DirectoryFor(kind);
+            var directory = ResolveContentDirectory(kind);
+            if (directory is null) return;   // 数据包：还没选世界
             var movedTo = await Task.Run(() => _contentManager.Delete(item.Entry, directory));
 
             Content.Remove(item);
@@ -994,7 +1147,8 @@ public sealed class MainWindowViewModel : ObservableObject
         if (SelectedInstance is null || SelectedTab.ContentKind is not { } kind) return;
 
         var instance = SelectedInstance;
-        var directory = instance.DirectoryFor(kind);
+        var directory = ResolveContentDirectory(kind);
+            if (directory is null) return;   // 数据包：还没选世界
         var targets = Content.Where(item => item.IsEnabled != enable).ToList();
         var changed = 0;
 
@@ -3349,7 +3503,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private Task OpenContentFolder()
         => SelectedInstance is null || SelectedTab.ContentKind is not { } kind
             ? Task.CompletedTask
-            : OpenDirectoryAsync(SelectedInstance.DirectoryFor(kind));
+            : OpenDirectoryAsync(ResolveContentDirectory(kind));
 
     private async Task OpenDirectoryAsync(string directory)
     {

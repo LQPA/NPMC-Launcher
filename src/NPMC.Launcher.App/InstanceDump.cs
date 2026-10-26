@@ -507,6 +507,44 @@ internal static class InstanceDump
                           + $" 删除={viewModel.DeleteInstanceCommand.CanExecute(null)}");
             }
         }
+        // 验证数据包页签（按世界）
+        if (args.Any(arg => string.Equals(arg, "--exercise-datapacks", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[数据包]");
+
+            foreach (var candidate in viewModel.Instances)
+            {
+                viewModel.SelectedInstance = candidate;
+                Thread.Sleep(1500);
+
+                var tab = viewModel.ContentTabs.FirstOrDefault(item => item.ContentKind == ContentKind.DataPack);
+                lines.Add($"    {candidate.Name}（{candidate.VersionId}）");
+                lines.Add($"      数据包页签 可用={tab?.IsEnabled}  提示={tab?.TabTip ?? "-"}");
+                lines.Add($"      世界 {viewModel.Worlds.Count} 个，当前 {viewModel.SelectedWorld?.Name ?? "(未选)"}");
+
+                if (tab is { IsEnabled: true })
+                {
+                    viewModel.SelectedTab = tab;
+                    Thread.Sleep(1200);
+
+                    lines.Add($"      世界列表视图={viewModel.ShowWorldPicker}  管理视图={viewModel.IsManagingDataPacks}");
+
+                    // 进入数据包管理
+                    viewModel.ManageDataPacksCommand.Execute(null);
+                    Thread.Sleep(1500);
+
+                    lines.Add($"      → 管理后：{viewModel.DataPackWorld?.Name}  列表视图={viewModel.ShowWorldPicker}");
+                    lines.Add($"      → 目录 {viewModel.SelectedWorld?.Directory}\\datapacks");
+                    lines.Add($"      → 内容 {viewModel.Content.Count} 个  空提示={viewModel.ShowContentEmptyHint}");
+
+                    // 返回世界列表
+                    viewModel.BackToWorldsCommand.Execute(null);
+                    Thread.Sleep(300);
+                    lines.Add($"      → 返回后：世界列表视图={viewModel.ShowWorldPicker} 管理视图={viewModel.IsManagingDataPacks} 内容 {viewModel.Content.Count} 个");
+                }
+            }
+        }
         // 验证实例页的 Java 候选列表
         if (args.Any(arg => string.Equals(arg, "--exercise-java", StringComparison.OrdinalIgnoreCase)))
         {

@@ -230,17 +230,43 @@
         </ScrollViewer>
 
         <!-- 内容列表 -->
-        <Grid Grid.Row="2" Margin="0,14,0,0" RowDefinitions="Auto,*"
-              IsVisible="{Binding ShowContentList}">
+          <Grid Grid.Row="2" Margin="0,14,0,0" RowDefinitions="Auto,Auto,*"
+                IsVisible="{Binding IsContentList}">
+            <!-- 数据包按世界存放：先选世界，下面的列表与安装都作用于它 -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10"
+                        IsVisible="{Binding ShowWorldPicker}">
+              <ComboBox ItemsSource="{Binding Worlds}" SelectedItem="{Binding SelectedWorld}"
+                        Width="340" FontSize="12">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:WorldItem">
+                    <TextBlock Text="{Binding DisplayText}" FontSize="12" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <Button Content="管理数据包" Command="{Binding ManageDataPacksCommand}"
+                      FontSize="12" />
+              <Button Content="打开存档目录" Command="{Binding OpenSavesFolderCommand}"
+                      FontSize="12" />
+            </StackPanel>
+
+            <!-- 进入某个世界后：左上角可返回存档列表 -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="0,0,0,10"
+                        IsVisible="{Binding IsManagingDataPacks}">
+              <Button Content="← 返回存档" Command="{Binding BackToWorldsCommand}" FontSize="12" />
+              <TextBlock Text="{Binding DataPackWorld.Name}" FontSize="13" Foreground="#E8EAED"
+                         VerticalAlignment="Center" />
+              <TextBlock Text="（数据包按世界生效）" FontSize="11" Foreground="#6E7684"
+                         VerticalAlignment="Center" />
+            </StackPanel>
 
           <!--
             搜索安装面板：只在模组页签出现。
             两步走 —— 先搜索、点「安装」解析出依赖计划，确认后才下载。
             直接把下载按钮做在搜索结果上会让用户不知道会额外装什么（Fabric API 之类）。
           -->
-          <Border Grid.Row="0" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+          <Border Grid.Row="1" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="10" Margin="0,0,0,10"
-                  IsVisible="{Binding IsContentList}">
+                  IsVisible="{Binding ShowContentList}">
             <StackPanel Spacing="8">
 
               <Grid ColumnDefinitions="*,Auto,Auto,Auto">
@@ -410,9 +436,9 @@
             （每行自己带按钮），而 ListBox 的选中态会给行铺一层蓝色，
             把次要文字压得看不清。去掉选中态也就顺便消掉了这一类高亮问题。
           -->
-          <Border Grid.Row="1" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+          <Border Grid.Row="2" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="8"
-                  IsVisible="{Binding !IsContentEmpty}">
+                  IsVisible="{Binding ShowContentRows}">
             <ScrollViewer>
               <ItemsControl ItemsSource="{Binding Content}">
                 <ItemsControl.ItemTemplate>
@@ -495,7 +521,7 @@
           </Border>
 
           <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
-                      Spacing="8" Margin="24" IsVisible="{Binding IsContentEmpty}">
+                      Spacing="8" Margin="24" IsVisible="{Binding ShowContentEmptyHint}">
             <TextBlock Text="{Binding ContentEmptyHint}" FontSize="12" Foreground="#949CA9"
                        TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" LineHeight="19" />
           </StackPanel>

@@ -1,4 +1,4 @@
-namespace NPMC.Launcher.Core.Content;
+﻿namespace NPMC.Launcher.Core.Content;
 
 /// <summary>可管理的内容类型。</summary>
 public enum ContentKind
@@ -6,6 +6,9 @@ public enum ContentKind
     Mod = 0,
     ResourcePack = 1,
     ShaderPack = 2,
+
+    /// <summary>数据包：1.13 起才有，且**按世界**生效（saves/&lt;世界&gt;/datapacks）。</summary>
+    DataPack = 3,
 }
 
 public static class ContentKindExtensions
@@ -16,6 +19,7 @@ public static class ContentKindExtensions
         ContentKind.Mod => "mods",
         ContentKind.ResourcePack => "resourcepacks",
         ContentKind.ShaderPack => "shaderpacks",
+            ContentKind.DataPack => "datapacks",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
@@ -25,6 +29,7 @@ public static class ContentKindExtensions
         ContentKind.Mod => "模组",
         ContentKind.ResourcePack => "资源包",
         ContentKind.ShaderPack => "光影",
+            ContentKind.DataPack => "数据包",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
@@ -34,6 +39,7 @@ public static class ContentKindExtensions
         ContentKind.Mod => "mod",
         ContentKind.ResourcePack => "resourcepack",
         ContentKind.ShaderPack => "shader",
+            ContentKind.DataPack => "datapack",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
@@ -46,6 +52,7 @@ public static class ContentKindExtensions
         ContentKind.Mod => 6,
         ContentKind.ResourcePack => 12,
         ContentKind.ShaderPack => null,
+            ContentKind.DataPack => null,
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
@@ -57,6 +64,20 @@ public static class ContentKindExtensions
     /// </summary>
     public static bool UsesLoaderFilter(this ContentKind kind) => kind == ContentKind.Mod;
 
+    /// <summary>
+    /// 是否"按世界"存放。
+    ///
+    /// 数据包是 <c>saves/&lt;世界&gt;/datapacks</c>，所以界面上必须先选世界，
+    /// 不能像模组那样直接对着实例根目录操作。
+    /// </summary>
+    public static bool IsPerWorld(this ContentKind kind) => kind == ContentKind.DataPack;
+
+    /// <summary>该类型从哪个版本开始存在（数据包是 1.13）。</summary>
+    public static Version? MinimumGameVersion(this ContentKind kind) => kind switch
+    {
+        ContentKind.DataPack => new Version(1, 13),
+        _ => null,
+    };
     /// <summary>该类型是否可能带依赖（只有模组会）。</summary>
     public static bool HasDependencies(this ContentKind kind) => kind == ContentKind.Mod;
 }
