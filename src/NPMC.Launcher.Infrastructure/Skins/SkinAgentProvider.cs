@@ -11,38 +11,32 @@ namespace NPMC.Launcher.Infrastructure.Skins;
 /// <summary>
 /// 离线皮肤 javaagent 的启动参数与部署。
 ///
-/// 做法：启动时把自带的 agent（已内含 ASM）解到 &lt;root&gt;\cache\agent\，
-/// 再用 <c>-javaagent:...</c> 传账号与皮肤路径。agent 会：
-///   - 在 127.0.0.1 起一个只有当前账号的皮肤 API；
-///   - 只把 minecraft.api.session.host 指过去（auth/account/services 保持官方，在线功能不受影响）；
-///   - 把 authlib 的 getTextures 换成直接返回本地皮肤，绕开 Mojang 签名校验。
+/// 两个 jar：
+///   - modern（Java 17+）：authlib 4~7，1.16~1.20.1 / 1.21.6 / 26.1.2；
+///   - legacy（Java 8）：authlib 1~3，1.7.10~1.15.x，只替换老的 getTextures。
 ///
-/// 只对 authlib 4.x~7.x（大致 1.16~1.20.x）启用；更老的没有这些入口，
-/// 更新的 authlib 10.x 已不再读这些属性，暂不处理。
+/// agent 会：起本地皮肤 API、只把 session host 指到本地（4~7）、
+/// 替换取皮肤入口返回本地 PNG，绕开 Mojang 签名校验。
+/// 只加 JVM 参数，不动实例目录、不装模组。
 /// </summary>
 public static class SkinAgentProvider
 {
-    private const string ResourceName = "NPMC.Launcher.Infrastructure.SkinAgent.jar";
+    private const string ModernResource = "NPMC.Launcher.Infrastructure.SkinAgent.jar";
+    private const string LegacyResource = "NPMC.Launcher.Infrastructure.SkinAgent.Legacy.jar";
 
-    private static readonly Lazy<byte[]> AgentBytes = new(() =>
-    {
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(ResourceName);
-
-        if (stream is null) return Array.Empty<byte>();
-
-        using var memory = new MemoryStream();
-        stream.CopyTo(memory);
-        return memory.ToArray();
-    });
+    private static readonly Lazy<byte[]> ModernBytes = new(() => ReadResource(ModernResource));
+    private static readonly Lazy<byte[]> LegacyBytes = new(() => ReadResource(LegacyResource));
 
     /// <summary>给启动计划准备 <c>-javaagent:</c> 参数；不适用时返回 null。</summary>
     public static string? TryCreateArgument(
         LauncherPaths launcher, VersionJson version, PlayerAccount? account, string? clientJarPath)
     {
         if (account is null) return null;
-        if (!SupportsSessionHostOverride(version)) return null;
+        if (!SupportsSkinAgent(version)) return null;
 
-        // Steve / Alex 从客户端 jar 里取官方默认皮肤；自定义 / 同名正版用账号里缓存的 PNG
+        var major = AuthlibMajor(version) ?? 0;
+        var modern = major >= 4;
+
         var resolved = account.Skin switch
         {
             AccountSkin.Steve => ExtractDefaultSkin(launcher, clientJarPath, "wide", "steve", "classic"),
@@ -56,11 +50,10 @@ public static class SkinAgentProvider
 
         if (resolved is not { } skin) return null;
 
-        var jar = EnsureAgentJar(launcher);
+        var jar = EnsureAgentJar(launcher, modern);
         if (jar is null) return null;
 
         var port = FindFreePort();
-
         if (port is null) return null;
 
         var logDirectory = Path.Combine(launcher.Root, "logs");
@@ -70,6 +63,38 @@ public static class SkinAgentProvider
 
         return $"-javaagent:{jar}=port={port};name={account.Username};uuid={account.Uuid}"
                + $";skin={skin.Item1};model={skin.Item2};log={log}";
+    }
+
+    /// <summary>agent 支持的 authlib 主版本：1~7。</summary>
+    public static bool SupportsSkinAgent(VersionJson version)
+    {
+        var major = AuthlibMajor(version);
+        return major is >= 1 and <= 7;
+    }
+
+    /// <summary>authlib 4~7 会读 minecraft.api.*.host；更老/更新的版本不读。</summary>
+    public static bool SupportsSessionHostOverride(VersionJson version)
+        => AuthlibMajor(version) is >= 4 and <= 7;
+
+    /// <summary>从版本 libraries 里取 com.mojang:authlib 的主版本号。</summary>
+    public static int? AuthlibMajor(VersionJson version)
+    {
+        foreach (var library in version.Libraries)
+        {
+            var name = library.Name;
+            if (!name.StartsWith("com.mojang:authlib:", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var parts = name.Split(':');
+            if (parts.Length < 3) return null;
+
+            var versionText = parts[2];
+            var dot = versionText.IndexOf('.');
+            var majorText = dot > 0 ? versionText[..dot] : versionText;
+
+            return int.TryParse(majorText, out var major) ? major : null;
+        }
+
+        return null;
     }
 
     /// <summary>从客户端 jar 的 assets 里取出官方默认皮肤（Steve=wide，Alex=slim）。</summary>
@@ -87,7 +112,7 @@ public static class SkinAgentProvider
         {
             Directory.CreateDirectory(directory);
 
-            using var archive = System.IO.Compression.ZipFile.OpenRead(clientJarPath);
+            using var archive = ZipFile.OpenRead(clientJarPath);
             var entry = archive.GetEntry($"assets/minecraft/textures/entity/player/{folder}/{name}.png");
 
             if (entry is null) return null;
@@ -101,36 +126,15 @@ public static class SkinAgentProvider
         }
     }
 
-    /// <summary>authlib 4.x~7.x 会读 minecraft.api.*.host；其它版本跳过。</summary>
-    public static bool SupportsSessionHostOverride(VersionJson version)
+    private static string? EnsureAgentJar(LauncherPaths launcher, bool modern)
     {
-        foreach (var library in version.Libraries)
-        {
-            var name = library.Name;
-            if (!name.StartsWith("com.mojang:authlib:", StringComparison.OrdinalIgnoreCase)) continue;
-
-            var parts = name.Split(':');
-            if (parts.Length < 3) return false;
-
-            var versionText = parts[2];
-            var dot = versionText.IndexOf('.');
-            var majorText = dot > 0 ? versionText[..dot] : versionText;
-
-            return int.TryParse(majorText, out var major) && major is >= 4 and <= 7;
-        }
-
-        return false;
-    }
-
-    private static string? EnsureAgentJar(LauncherPaths launcher)
-    {
-        var bytes = AgentBytes.Value;
+        var bytes = modern ? ModernBytes.Value : LegacyBytes.Value;
         if (bytes.Length == 0) return null;
 
         var directory = Path.Combine(launcher.Root, "cache", "agent");
         Directory.CreateDirectory(directory);
 
-        var path = Path.Combine(directory, "nmpc-skin-agent.jar");
+        var path = Path.Combine(directory, modern ? "nmpc-skin-agent.jar" : "nmpc-skin-agent-legacy.jar");
 
         try
         {
@@ -144,6 +148,16 @@ public static class SkinAgentProvider
         }
 
         return path;
+    }
+
+    private static byte[] ReadResource(string name)
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
+        if (stream is null) return Array.Empty<byte>();
+
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        return memory.ToArray();
     }
 
     private static int? FindFreePort()

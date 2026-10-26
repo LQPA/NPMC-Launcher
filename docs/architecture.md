@@ -398,11 +398,13 @@ CLI 是 `npmc settings show` / `npmc settings set <键> <值>`。
 | `tools/skin-agent/src/nmpc/skin/*.java` | 本地皮肤 API、环境注入、`getTextures` 替换 |
 
 - 只劫持 `minecraft.api.session.host`，auth/account/services 保持官方，在线功能不受影响。
-- 用 ASM 替换 authlib `getTextures`，避免离线纹理的签名校验；纹理 URL 以 PNG 内容的 SHA-1 命名，
+- 用 ASM 替换取皮肤入口（authlib 1~4 的 `getTextures`、6/7 的 `unpackTextures` 与
+  `SkinManager.get`），避免离线纹理的签名校验；纹理 URL 以 PNG 内容的 SHA-1 命名，
   防止客户端按 URL 文件名缓存到旧皮肤。
 - Steve/Alex 从客户端 jar 的 `assets/.../player/{wide,slim}/` 取默认皮肤；自定义/同名正版用
   `accounts.json` 里缓存的 PNG。
-- 仅 authlib 4~7 支持（约 1.16~1.20.x）；效果只在客户端，服务器其他玩家仍需皮肤站/模组。
+- 两个 jar：legacy（Java 8，authlib 1~3，约 1.7.10~1.15.x）与 modern（Java 17+，authlib 4~7）；
+  26.3 的 authlib 10 暂不支持。效果只在客户端，服务器其他玩家仍需皮肤站/模组。
 
 ## 9. 正版登录（受外部阻塞）
 

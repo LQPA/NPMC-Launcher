@@ -448,8 +448,22 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
 - Steve / Alex 不依赖账号里的 PNG：直接从客户端 jar 的
   `assets/minecraft/textures/entity/player/{wide,slim}/{steve,alex}.png` 取默认皮肤
   （Alex 用 slim 模型）。
-- 适用版本：按版本 libraries 里的 `com.mojang:authlib` 主版本判断，**4~7（约 1.16~1.20.x）**；
-  1.7.10（authlib 1.5.x）与 26.3（authlib 10.x）跳过。账号没有皮肤时也跳过。
+- 适用版本：按版本 libraries 里的 `com.mojang:authlib` 主版本判断，**1~7**：
+  - `authlib 1~3`（约 1.7.10~1.15.x）→ **legacy jar**（Java 8 编译，只替换老的 `getTextures`）；
+  - `authlib 4~7`（1.16~1.20.1 / 1.21.6 / 26.1.2）→ modern jar（Java 17 编译）。
+  实测 1.7.10（authlib 1.5.21）、1.20.1（4.0.43）、26.1.2（7.0.63）都生效；
+  26.3（authlib 10）暂不支持。账号没有皮肤时跳过。
+- **26.1.2 / authlib 7 的额外两个坑**（都已处理）：
+  1. 客户端类用 Java 25 编译（class file major 69），ASM 9.6 会报
+     `Unsupported class file major version 69`，已换 ASM 9.11；
+  2. `GameProfile` 变成 record（`id()/name()/properties()`），且 properties 是
+     **ImmutableMultimap**，改不了；同时 `SkinManager.get(profile)` 在
+     `packedTextures == null` 时直接返回空、根本不会走 `unpackTextures`。
+     所以对 26.1.2 直接替换 `SkinManager.get(GameProfile)`：本地账号调用它自己的
+     `registerTextures(uuid, textures)`，多人里其它玩家返回空（各自默认皮肤）。
+- legacy（1.7.10）没有 `minecraft.api.*` 属性可读，但它的
+  `YggdrasilMinecraftSessionService.getTextures(profile, requireSecure)` 是现成的，
+  直接替换即可；agent 仍会设置四个属性（旧版本忽略）。
 - 实测（1.20.1 / 原版生存 / 账号 LQPA_）：agent 日志出现
   `textures served … /textures/781ebc…png model=slim` 且客户端下载了该 PNG，
   游戏内皮肤与纤细手臂都正确；换成 Notch 皮肤也正常。
