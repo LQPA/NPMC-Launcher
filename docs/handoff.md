@@ -207,6 +207,10 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
     即使 Attach/DataContextChanged 都处理了，Detach 也不保证及时到达；只要每个容器都贴着
     `Icon`，内存就会随容器数增长。VM 里用 LRU 把"带图标的行"封顶在 96 个，
     容器记录用 `ConditionalWeakTable`，不要用强引用字典。详见 9.1.7。
+19. **不要整文件读 jar 算哈希**：CurseForge 指纹用的 `MurmurHash2` 原来 `ReadAllBytes`
+    + 再复制过滤数组，495 个模组会产生 352MB 的 LOH 垃圾（dump 里 32 个 10MB 数组、gcroot 为 0），
+    GC 不常收 → 打开模组页瞬间 500MB+、切页不降。改成流式两遍、零整文件分配。
+    这类"只有配置了 API key 才触发"的路径，探针必须带上同样的环境变量才能复现。
 
 ---
 
@@ -467,6 +471,35 @@ dump 因完整性级别打不开，但从数据看是解码尺寸问题：界面
 |---|---:|---:|---:|---:|
 | 495 行全部请求 | **221MB** | **96**（封顶） | 96 | 4.5MB |
 | 切 26.1.2 概览 | **213MB** | 0 | 0 | 0（disposed 325/325） |
+
+#### 最后的大头：整文件 Murmur 指纹（2026-10-27 01:33）
+
+用户手动启动的 01:27 实例，打开模组页时 **2 秒内 176 → 497 → 615MB**，切页不降。
+dump 里：
+
+- **32 个 10MB 级 `System.Byte[]`，合计 352MB**，`gcroot` 查不到根 —— 全是**未回收的 LOH 垃圾**；
+- 行图标只有 159 个（96×96），不是图标问题；
+- 进程是软件渲染（dump 里没有 `GlSkiaGpu`），也不是 GPU 纹理。
+
+根因：`MurmurHash2.ComputeFileAsync` 用 `File.ReadAllBytes` 读整个 jar，`Compute` 又复制一份
+过滤后的数组；CurseForge 指纹要跑 495 个模组，每次 2×文件大小的大对象进 LOH，
+GC 不常收，于是几百 MB 挂在那里。**只有配置了 CurseForge key 的实例才会触发**，
+所以之前的探针（没有 key）复现不出来。
+
+改法：`MurmurHash2` 改成**流式两遍**（第一遍数过滤后长度，第二遍边读边算），
+不再分配整文件数组，也不再复制过滤副本。自测的 Murmur 用例 300/300 通过。
+
+修复后（同一实例 + `CURSEFORGE_API_KEY` + 真实滚轮 300 格）：
+
+| 指标 | 修复前 | 修复后（dist） |
+|---|---:|---:|
+| 滚动峰值 WS | 497–615MB | 222–247MB |
+| 切概览 WS | 557MB | 234MB |
+| **任务管理器“内存”（私有工作集）** | 448MB | **约 110MB** |
+| 托管堆 | 375MB | 约 39MB |
+
+`Win32_PerfFormattedData_PerfProc_Process.WorkingSetPrivate` 实测 113,192KB ≈ **110MB**，
+低于用户要求的 200MB。
 
 ### 9.2 设置页（原先左侧导航是灰的）
 

@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace NPMC.Launcher.Core.Mods;
 
 /// <summary>
@@ -7,9 +9,9 @@ namespace NPMC.Launcher.Core.Mods;
 /// 而且计算前要**跳过所有空白字符**（空格、制表、换行、回车、换页、垂直制表）。
 /// 这是社区通行的定义，CurseForge 的 /v1/fingerprints 端点就按它匹配。
 ///
-/// 注意：这里为了可读性先把文件读进内存再过滤。
-/// 模组 jar 通常只有几 MB，这个代价可以接受；若将来要指纹化整合包级别的大文件，
-/// 应改成流式增量计算。
+/// 文件版本**流式两遍**计算：第一遍数过滤后的字节数，第二遍边读边混入。
+/// 以前是 `File.ReadAllBytes` + 再复制一份过滤数组；495 个模组会把几百 MB
+/// 的大对象塞进 LOH，GC 不常收，表现就是"打开模组页突然涨到 500MB、切页不降"。
 /// </summary>
 public static class MurmurHash2
 {
@@ -49,16 +51,17 @@ public static class MurmurHash2
     {
         if (filter == WhitespaceFilter.None) return ComputeHashed(data, seed);
 
-        var filtered = new byte[data.Length];
-        var count = 0;
+        // 先数过滤后的长度（Murmur2 的初始 h 依赖长度），再逐字节混入，不分配副本。
+        var length = 0;
+        foreach (var value in data)
+            if (!ShouldSkip(value, filter)) length++;
+
+        var state = new Hasher(seed, length);
 
         foreach (var value in data)
-        {
-            if (ShouldSkip(value, filter)) continue;
-            filtered[count++] = value;
-        }
+            if (!ShouldSkip(value, filter)) state.Push(value);
 
-        return ComputeHashed(filtered.AsSpan(0, count), seed);
+        return state.Finish();
     }
 
     public static async Task<uint> ComputeFileAsync(
@@ -67,8 +70,101 @@ public static class MurmurHash2
         uint seed = DefaultSeed,
         CancellationToken cancellationToken = default)
     {
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        return Compute(bytes, filter, seed);
+        var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+
+        try
+        {
+            // 第一遍：过滤后的长度
+            var length = 0;
+            await using (var stream = Open(path))
+            {
+                while (true)
+                {
+                    var read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    if (read <= 0) break;
+
+                    for (var i = 0; i < read; i++)
+                        if (!ShouldSkip(buffer[i], filter)) length++;
+                }
+            }
+
+            // 第二遍：边读边算
+            var state = new Hasher(seed, length);
+            await using (var stream = Open(path))
+            {
+                while (true)
+                {
+                    var read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    if (read <= 0) break;
+
+                    for (var i = 0; i < read; i++)
+                    {
+                        var value = buffer[i];
+                        if (!ShouldSkip(value, filter)) state.Push(value);
+                    }
+                }
+            }
+
+            return state.Finish();
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static FileStream Open(string path) => new(
+        path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, useAsync: true);
+
+    private struct Hasher
+    {
+        private uint _h;
+        private uint _block;
+        private int _count;
+
+        public Hasher(uint seed, int length)
+        {
+            _h = seed ^ (uint)length;
+            _block = 0;
+            _count = 0;
+        }
+
+        public void Push(byte value)
+        {
+            _block |= (uint)value << (8 * _count);
+
+            if (++_count != 4) return;
+
+            var k = _block;
+            k *= M;
+            k ^= k >> R;
+            k *= M;
+
+            _h *= M;
+            _h ^= k;
+
+            _block = 0;
+            _count = 0;
+        }
+
+        public uint Finish()
+        {
+            var h = _h;
+
+            if (_count >= 3) h ^= ((_block >> 16) & 0xFF) << 16;
+            if (_count >= 2) h ^= ((_block >> 8) & 0xFF) << 8;
+            if (_count >= 1)
+            {
+                h ^= _block & 0xFF;
+                h *= M;
+            }
+
+            h ^= h >> 13;
+            h *= M;
+            h ^= h >> 15;
+
+            return h;
+        }
     }
 
     private static uint ComputeHashed(ReadOnlySpan<byte> bytes, uint seed)

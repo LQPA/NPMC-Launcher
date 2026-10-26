@@ -20,8 +20,27 @@ internal static class Program
     }
 
     /// <summary>Avalonia 设计器会按名字找这个方法，签名不要改。</summary>
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>()
-        .UsePlatformDetect()
-        .WithInterFont()
-        .LogToTrace();
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        var builder = AppBuilder.Configure<App>()
+            .UsePlatformDetect()
+            .WithInterFont()
+            .LogToTrace();
+
+        // 默认软件渲染：
+        // GPU 渲染会给每张图标位图建纹理，滚一遍 495 个模组时工作集能到 500MB+
+        // （实测 GPU 515MB / 软件渲染 174MB，图标像素其实只有 4.6MB）。
+        // 启动器界面很简单，软件渲染完全够用；需要对比 GPU 时设 NPMC_GPU_RENDERING=1。
+        var forceGpu = Environment.GetEnvironmentVariable("NPMC_GPU_RENDERING") is "1" or "true" or "TRUE";
+
+        if (!forceGpu)
+        {
+            builder = builder.With(new Win32PlatformOptions
+            {
+                RenderingMode = new[] { Win32RenderingMode.Software },
+            });
+        }
+
+        return builder;
+    }
 }
