@@ -233,7 +233,7 @@
 
         <!-- 内容列表 -->
           <Grid Grid.Row="2" Margin="0,14,0,0" RowDefinitions="Auto,Auto,*,Auto"
-                IsVisible="{Binding IsContentList}"
+                IsVisible="{Binding ShowContentPane}"
                 DragDrop.AllowDrop="True" DragDrop.DragOver="OnContentDragOver" DragDrop.Drop="OnContentDrop">
             <!-- 存档列表：每个世界一行，操作直接挂在行上 -->
             <ScrollViewer Grid.Row="0" Grid.RowSpan="3" IsVisible="{Binding ShowWorldPicker}">
@@ -458,7 +458,7 @@
           -->
           <Border Grid.Row="2" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="8"
-                  IsVisible="{Binding ShowContentRows}">
+                  IsVisible="{Binding ShowContentList}">
             <ScrollViewer>
               <ItemsControl ItemsSource="{Binding Content}">
                 <ItemsControl.ItemTemplate>
@@ -541,7 +541,7 @@
           </Border>
 
           <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
-                      Spacing="8" Margin="24" IsVisible="{Binding ShowContentEmptyHint}">
+                      Spacing="8" Margin="24" IsVisible="{Binding IsContentEmptyOrNotList}">
             <TextBlock Text="{Binding ContentEmptyHint}" FontSize="12" Foreground="#949CA9"
                        TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" LineHeight="19" />
           </StackPanel>

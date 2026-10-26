@@ -426,6 +426,8 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(ShowInstanceHeader));
             OnPropertyChanged(nameof(ShowOverview));
             OnPropertyChanged(nameof(ShowContentList));
+        OnPropertyChanged(nameof(ShowContentPane));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
             OnPropertyChanged(nameof(ShowLog));
 
             // 概览页的可编辑字段都从 SelectedInstance 取值，切换实例时必须重读
@@ -532,6 +534,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
         Content.Clear();
         OnPropertyChanged(nameof(IsContentEmpty));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         RaiseCommandStates();
 
         Status = "已返回存档列表";
@@ -543,6 +546,8 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsManagingDataPacks));
         OnPropertyChanged(nameof(ShowWorldPicker));
         OnPropertyChanged(nameof(ShowContentList));
+        OnPropertyChanged(nameof(ShowContentPane));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         OnPropertyChanged(nameof(ContentEmptyHint));
     }
 
@@ -955,6 +960,8 @@ public sealed class MainWindowViewModel : ObservableObject
             }
             OnPropertyChanged(nameof(ShowOverview));
             OnPropertyChanged(nameof(ShowContentList));
+        OnPropertyChanged(nameof(ShowContentPane));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
             OnPropertyChanged(nameof(ShowLog));
             OnPropertyChanged(nameof(ContentEmptyHint));
             OnPropertyChanged(nameof(SearchPlaceholder));
@@ -989,16 +996,17 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool IsModsTab => SelectedTab.ContentKind == ContentKind.Mod;
 
     public bool ShowOverview => IsInstancePage && HasSelection && IsOverview;
+    /// <summary>内容面板整体：实例页 + 选中实例 + 内容类页签。切页面/切页签/换实例都会通知。</summary>
+    public bool ShowContentPane => IsInstancePage && HasSelection && IsContentList;
 
     public bool ShowContentList =>
         IsInstancePage && HasSelection && IsContentList && (!IsDataPackTab || IsManagingDataPacks);
     public bool ShowLog => IsInstancePage && HasSelection && IsLogTab;
 
-    /// <summary>内容列表本身（含搜索面板）只在"能看到列表"时显示。</summary>
-    public bool ShowContentRows => ShowContentList && !IsContentEmpty;
+    /// <summary>空列表提示：只在这个面板里、且确实为空时显示。</summary>
+    public bool IsContentEmptyOrNotList => ShowContentList && IsContentEmpty;
 
-    /// <summary>空列表提示。</summary>
-    public bool ShowContentEmptyHint => ShowContentList && IsContentEmpty;
+
 
     public ObservableCollection<ContentEntryItem> Content { get; } = new();
 
@@ -1100,6 +1108,7 @@ public sealed class MainWindowViewModel : ObservableObject
             // 真正带世界的扫描结果判为过期并丢弃，列表就永远是空的。
             Content.Clear();
             OnPropertyChanged(nameof(IsContentEmpty));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
             RaiseCommandStates();
             return;
         }
@@ -1127,6 +1136,7 @@ public sealed class MainWindowViewModel : ObservableObject
             Content.Add(new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync));
 
         OnPropertyChanged(nameof(IsContentEmpty));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         RaiseCommandStates();
 
         // 徽标/R·B·A/图标都不依赖"检查更新"：先用缓存，再后台识别一次。
@@ -1197,6 +1207,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             Content.Remove(item);
             OnPropertyChanged(nameof(IsContentEmpty));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
 
             Status = $"已移入回收站：{Path.GetFileName(movedTo)}（可从 .trash 恢复）";
         }
@@ -2729,6 +2740,8 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowInstanceHeader));
         OnPropertyChanged(nameof(ShowOverview));
         OnPropertyChanged(nameof(ShowContentList));
+        OnPropertyChanged(nameof(ShowContentPane));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         OnPropertyChanged(nameof(ShowLog));
         OnPropertyChanged(nameof(InstancesNavBackground));
         OnPropertyChanged(nameof(DownloadsNavBackground));

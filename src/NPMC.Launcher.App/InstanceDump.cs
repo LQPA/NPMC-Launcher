@@ -603,6 +603,46 @@ internal static class InstanceDump
                           + $"内容 {viewModel.Content.Count} 个，管理视图={viewModel.IsManagingDataPacks}");
             }
         }
+        // 验证可见性随导航/页签变化（这些属性以前是"派生但没通知"）
+        if (args.Any(arg => string.Equals(arg, "--exercise-nav", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[可见性]");
+
+            var target = viewModel.Instances.FirstOrDefault(item => item.Name == "26.1.2")
+                         ?? viewModel.Instances.FirstOrDefault();
+
+            if (target is not null)
+            {
+                viewModel.SelectedInstance = target;
+                Thread.Sleep(900);
+
+                void Dump(string tag) => lines.Add(
+                    $"    {tag}：面板={viewModel.ShowContentPane} 头部={viewModel.ShowInstanceHeader} "
+                    + $"概览={viewModel.ShowOverview} 列表={viewModel.ShowContentList} 空提示={viewModel.IsContentEmptyOrNotList}");
+
+                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
+                Thread.Sleep(600);
+                Dump("模组页签");
+
+                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.DataPack);
+                Thread.Sleep(600);
+
+                Dump("存档页签（世界列表）");
+
+                viewModel.Worlds.FirstOrDefault()?.ManageDataPacksCommand.Execute(null);
+                Thread.Sleep(1500);
+                Dump($"存档页签（数据包，{viewModel.Content.Count} 项）");
+
+                viewModel.ShowDownloadsCommand.Execute(null);
+                Thread.Sleep(600);
+                Dump("下载页");
+
+                viewModel.ShowInstancesCommand.Execute(null);
+                Thread.Sleep(600);
+                Dump("回到实例页");
+            }
+        }
         // 验证 Java 候选缓存：同一实例第二次切换应明显更快
         if (args.Any(arg => string.Equals(arg, "--exercise-java-cache", StringComparison.OrdinalIgnoreCase)))
         {
@@ -664,7 +704,7 @@ internal static class InstanceDump
 
                     lines.Add($"      → 管理后：{viewModel.DataPackWorld?.Name}  列表视图={viewModel.ShowWorldPicker}");
                     lines.Add($"      → 目录 {viewModel.DataPackWorld?.Directory}\\datapacks");
-                    lines.Add($"      → 内容 {viewModel.Content.Count} 个  空提示={viewModel.ShowContentEmptyHint}");
+                    lines.Add($"      → 内容 {viewModel.Content.Count} 个  空提示={viewModel.IsContentEmpty}");
 
                     // 返回世界列表
                     viewModel.BackToWorldsCommand.Execute(null);
