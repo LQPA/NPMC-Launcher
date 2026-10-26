@@ -309,6 +309,10 @@ foreach (var a in plan.ToProcessArguments()) psi.ArgumentList.Add(a);
   必须拒绝删除。CLI 里 `instance remove --delete-files` 会检查它，并且再校验目标路径
   确实位于 `instances\` 之下。
 - **`instances.json` 可手改**：缩进 + 枚举写成字符串 + 中文不转义（`UnsafeRelaxedJsonEscaping`）。
+- **列表顺序 = `SortIndex` → 名称**：`SortIndex` 由界面拖动写入（0..n-1），旧数据全为 0 时
+  等价于"按名称排序"；新建实例在已有显式顺序时取 `max+1` 排到最后。
+  拖动的实现细节（ListBoxItem 会吃掉 PointerPressed、必须用 Tunnel 接管；
+  用实时 `ObservableCollection.Move` 而不是 OLE 拖放）见 handoff 10.6。
 
 ### 目录访问入口
 

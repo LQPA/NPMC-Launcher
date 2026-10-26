@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
+using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Launch;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
@@ -954,6 +955,59 @@ internal static class InstanceDump
         viewModel.ShowModpacksModeCommand.Execute(null);
         lines.Add($"[导航] 下载/整合包 版本区块={viewModel.IsVersionsMode} "
                   + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
+
+        // 实例排序与改名：验证 VM → instances.json → 重新读取 的往返
+        if (args.Any(arg => string.Equals(arg, "--exercise-instance-order", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[实例顺序与改名]");
+
+            var store = new JsonInstanceStore(new LauncherPaths(root));
+            var originalIds = viewModel.Instances.Select(item => item.Id).ToList();
+            var originalNames = viewModel.Instances.ToDictionary(item => item.Id, item => item.Name);
+
+            if (viewModel.Instances.Count >= 2)
+            {
+                var topItem = viewModel.Instances[0];
+                var bottomItem = viewModel.Instances[^1];
+
+                viewModel.MoveInstance(bottomItem.Id, topItem.Id);
+                Thread.Sleep(800);
+
+                lines.Add($"    拖动 {bottomItem.Name} 到第 1 位 → "
+                          + string.Join(" | ", viewModel.Instances.Select(item => item.Name)));
+
+                var reloaded = new MainWindowViewModel(new LauncherPaths(root));
+                reloaded.LoadAsync().GetAwaiter().GetResult();
+                lines.Add($"    重新读取 → {string.Join(" | ", reloaded.Instances.Select(item => item.Name))}");
+            }
+
+            // 改名往返：只改显示名，Id 不变
+            var target = viewModel.SelectedInstance ?? viewModel.Instances.FirstOrDefault();
+            if (target is not null)
+            {
+                var beforeId = target.Id;
+                viewModel.RenameText = "改名测试";
+                viewModel.ConfirmRenameCommand.Execute(null);
+                Thread.Sleep(800);
+
+                lines.Add($"    改名 → {target.Name}（Id 不变={target.Id == beforeId}）");
+
+                var reloaded = new MainWindowViewModel(new LauncherPaths(root));
+                reloaded.LoadAsync().GetAwaiter().GetResult();
+                var again = reloaded.Instances.FirstOrDefault(item => item.Id == beforeId);
+                lines.Add($"    重新读取 → {again?.Name ?? "(丢失)"}");
+
+                // 还原：顺序与名字都写回原值，诊断不该留下痕迹
+                var catalog = new InstanceCatalog(store.LoadAsync().GetAwaiter().GetResult());
+                catalog.Reorder(originalIds);
+
+                foreach (var (id, name) in originalNames) catalog.Rename(id, name);
+
+                store.SaveAsync(catalog.Instances).GetAwaiter().GetResult();
+                lines.Add($"    已还原：{string.Join(" | ", originalNames.Values)}");
+            }
+        }
 
         // 加载器检查的缓存与"切回不再卡住"：首次联网耗时 vs 切回命中缓存耗时
         if (args.Any(arg => string.Equals(arg, "--exercise-loader-cache", StringComparison.OrdinalIgnoreCase)))

@@ -139,6 +139,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             DeleteInstanceAsync,
             () => SelectedInstance is not null && !IsGameRunning);
 
+        BeginRenameCommand = new RelayCommand(BeginRename, () => SelectedInstance is not null);
+        ConfirmRenameCommand = new AsyncRelayCommand(ConfirmRenameAsync);
+        CancelRenameCommand = new RelayCommand(CancelRename);
+
         OpenDetailInBrowserCommand = new RelayCommand(OpenDetailInBrowser);
 
         ShowVersionsModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Versions));
@@ -258,6 +262,135 @@ public sealed partial class MainWindowViewModel : ObservableObject
             $"{loaderName} 的官方安装器需要 Java {requiredMajor}（{component}）："
             + $"{problem ?? "找不到可用的 java.exe"}。"
             + "请先在「设置 → 预下载 Java 运行时」里装好对应运行时，再重新下载安装。");
+    }
+
+    // ---- 改名与排序 ----
+
+    private bool _isRenaming;
+    private string _renameText = "";
+
+    /// <summary>概览页标题是否处于"改名"编辑态。</summary>
+    public bool IsRenaming
+    {
+        get => _isRenaming;
+        private set => SetProperty(ref _isRenaming, value);
+    }
+
+    public string RenameText
+    {
+        get => _renameText;
+        set => SetProperty(ref _renameText, value);
+    }
+
+    public ICommand BeginRenameCommand { get; }
+    public ICommand ConfirmRenameCommand { get; }
+    public ICommand CancelRenameCommand { get; }
+
+    private void BeginRename()
+    {
+        if (SelectedInstance is not { } instance) return;
+
+        RenameText = instance.Name;
+        IsRenaming = true;
+    }
+
+    private void CancelRename()
+    {
+        IsRenaming = false;
+        Status = "已取消重命名";
+    }
+
+    /// <summary>
+    /// 只改显示名，不动实例 Id（Id 就是目录名，改了会牵动 versions/存档路径），
+    /// 也不重建列表 —— 就地更新这一行，选中项与拖拽顺序都不受影响。
+    /// </summary>
+    private async Task ConfirmRenameAsync()
+    {
+        if (SelectedInstance is not { } instance) return;
+
+        var name = RenameText.Trim();
+
+        if (name.Length == 0)
+        {
+            Status = "实例名不能为空";
+            return;
+        }
+
+        if (string.Equals(name, instance.Name, StringComparison.Ordinal))
+        {
+            IsRenaming = false;
+            return;
+        }
+
+        if (Instances.Any(item =>
+                item.Id != instance.Id
+                && string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            Status = $"已有同名实例「{name}」，换一个名字";
+            return;
+        }
+
+        try
+        {
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+
+            var updated = catalog.Rename(instance.Id, name);
+            if (updated is null)
+            {
+                Status = "实例已不存在，改名失败";
+                return;
+            }
+
+            await store.SaveAsync(catalog.Instances);
+
+            instance.ApplyName(updated.Name);
+            IsRenaming = false;
+            Status = $"已重命名为「{updated.Name}」";
+        }
+        catch (Exception ex)
+        {
+            Status = $"改名失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    /// <summary>
+    /// 拖动排序：把 <paramref name="movedId"/> 挪到 <paramref name="targetId"/> 的位置。
+    /// 用 ObservableCollection.Move 而不是 Clear+Add —— 后者会让 ListBox 丢掉选中项。
+    /// </summary>
+    public void MoveInstance(string movedId, string targetId)
+    {
+        if (string.Equals(movedId, targetId, StringComparison.OrdinalIgnoreCase)) return;
+
+        var from = Instances.ToList().FindIndex(item =>
+            string.Equals(item.Id, movedId, StringComparison.OrdinalIgnoreCase));
+        var to = Instances.ToList().FindIndex(item =>
+            string.Equals(item.Id, targetId, StringComparison.OrdinalIgnoreCase));
+
+        if (from < 0 || to < 0 || from == to) return;
+
+        var moved = Instances[from];
+        Instances.Move(from, to);
+
+        Status = $"已移动「{moved.Name}」";
+        _ = PersistInstanceOrderAsync(Instances.Select(item => item.Id).ToList());
+    }
+
+    private async Task PersistInstanceOrderAsync(IReadOnlyList<string> orderedIds)
+    {
+        try
+        {
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+
+            catalog.Reorder(orderedIds);
+            await store.SaveAsync(catalog.Instances);
+        }
+        catch (Exception ex)
+        {
+            Status = $"保存实例顺序失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"保存实例顺序失败 → {ex.GetBaseException().Message}");
+        }
     }
 
     // ---- 删除实例 ----
@@ -497,6 +630,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             _deleteConfirmPending = false;
             DeleteInstanceText = "删除实例";
+            IsRenaming = false;
 
             // 换实例 → 重新判断该实例能不能用模组/光影
             if (value is { } selectedInstance) _ = RefreshCapabilitiesAsync(selectedInstance);
@@ -4518,6 +4652,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         (OpenShaderPacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenContentFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DeleteInstanceCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (BeginRenameCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (OpenSavesFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenDatapacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DisableAllCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();

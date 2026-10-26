@@ -62,7 +62,8 @@
       <!-- ================= 实例列表 ================= -->
       <Grid Grid.Column="1" Background="#1B1D23" IsVisible="{Binding IsInstancesPage}">
 
-        <ListBox ItemsSource="{Binding Instances}"
+        <ListBox x:Name="InstanceList"
+                 ItemsSource="{Binding Instances}"
                  SelectedItem="{Binding SelectedInstance, Mode=TwoWay}"
                  Background="Transparent" BorderThickness="0" Padding="8"
                  IsVisible="{Binding !IsEmpty}">
@@ -92,8 +93,23 @@
       <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="24,20">
 
         <StackPanel Grid.Row="0" Spacing="3" IsVisible="{Binding ShowInstanceHeader}">
-          <TextBlock Text="{Binding SelectedInstance.Name}" FontSize="24" FontWeight="SemiBold"
-                     Foreground="#F2F3F5" TextTrimming="CharacterEllipsis" />
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Text="{Binding SelectedInstance.Name}" FontSize="24" FontWeight="SemiBold"
+                       Foreground="#F2F3F5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                       IsVisible="{Binding !IsRenaming}" />
+            <Button Grid.Column="1" Content="重命名" Command="{Binding BeginRenameCommand}"
+                    FontSize="11" Padding="10,3" VerticalAlignment="Center"
+                    IsVisible="{Binding !IsRenaming}" />
+
+            <!-- 改名：只改显示名，不动实例目录 -->
+            <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8"
+                        IsVisible="{Binding IsRenaming}" VerticalAlignment="Center">
+              <TextBox Text="{Binding RenameText, Mode=TwoWay}" Width="340" FontSize="13"
+                       VerticalAlignment="Center" />
+              <Button Content="保存" Command="{Binding ConfirmRenameCommand}" FontSize="12" />
+              <Button Content="取消" Command="{Binding CancelRenameCommand}" FontSize="12" />
+            </StackPanel>
+          </Grid>
           <TextBlock Text="{Binding SelectedInstance.SummaryText}" FontSize="12" Foreground="#B4BCC8" />
         </StackPanel>
 

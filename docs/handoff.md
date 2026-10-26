@@ -34,7 +34,7 @@ tools/sign-local.ps1              本地签名
 
 | 领域 | 状态 |
 |---|---|
-| 实例管理 | 创建 / 改名 / 删除（两次点击确认）/ 版本隔离 / 独立内存与窗口尺寸 |
+| 实例管理 | 创建 / 重命名（概览页，只改显示名）/ 删除（两次点击确认）/ **按住拖动排序**（顺序写入 instances.json）/ 版本隔离 / 独立内存与窗口尺寸 |
 | 版本下载 | 官方 + BMCLAPI 镜像；版本类型筛选（仅正式 / 正式+快照 / 全部 / 仅愚人节） |
 | Java | 本地运行时自动发现 / 系统 JDK / 自定义路径；**启动时按需自动下载**对应版本；候选列表按实例缓存（706ms → 151ms） |
 | Fabric | 安装、加载器版本选择、按 intermediary 检测版本是否受支持 |
@@ -130,6 +130,7 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 | `--exercise-datapack-race` | 紧邻点击（切页签立即点数据包）是否还能扫到内容 |
 | `--exercise-nav` | 面板/头部/列表/空提示/日志的可见性随导航变化，**并核对 PropertyChanged 是否真的发出** |
 | `--exercise-global-settings` | 设置页：字段 ↔ `settings.json` ↔ 启动计划（默认 Java）；改完**还原原设置** |
+| `--exercise-instance-order` | 拖动排序与改名：VM → `instances.json` → 重新读取，最后还原原值 |
 | `--exercise-loader-cache [mc]` | 加载器检查：首次联网耗时 vs 切回命中缓存耗时（顺带验证不会卡在"正在检查"） |
 | `--exercise-download-loader <mc> [fabric|forge|neoforge] [loader]` | 走界面同一条路：下载本体 → 装加载器 → 建实例 |
 | `--exercise-forge-versions` | Forge / NeoForge 加载器清单（两个 maven 的 metadata，只读不下载） |
@@ -343,3 +344,20 @@ Forge 1.17+ 的版本 JSON 用 `${library_directory}` / `${classpath_separator}`
 加载器下拉里的版本号前面带 **R / B / A 标识**（绿 / 琥珀 / 红，与内容列表同一套配色）：
 Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R、其余记 B。
 默认优先选最新的**正式版**，没有正式版才退回最新预发布版（NeoForge 有些版本只有 beta）。
+
+### 10.6 实例拖动排序与重命名（2026-10-26 晚）
+
+- **排序**：`LauncherInstance.SortIndex` 持久化在 `instances.json`；列表顺序 = SortIndex → 名称。
+  旧数据没有这个字段（全是 0）→ 仍然等价于按名称排序；一旦拖动过，所有实例写入 0..n-1。
+  新建实例在有显式顺序时排到最后（`max+1`），没拖过时仍然是名称排序。
+- **拖动实现的两个坑**：
+  1. `ListBoxItem` 会在 `PointerPressed` 里选中并把事件标记为已处理，**普通 XAML 的
+     `PointerPressed=` 收不到** —— 必须 `InstanceList.AddHandler(..., RoutingStrategies.Tunnel)`；
+  2. 不要用 OLE `DragDrop.DoDragDrop`：拖动过程中做"指针落在哪一行就 Move 到哪一行"的实时排序，
+     半路松手也会停在当前位置，而且不依赖系统拖放循环。
+  用 `ObservableCollection.Move` 而不是 Clear+Add，否则 ListBox 会丢选中项。
+- **重命名**：概览页标题右侧「重命名」→ 行内编辑（保存/取消）。只改 `Name`，
+  **不动 Id**（Id 就是实例目录名）；重名会被拦住；就地 `ApplyName` 不重建列表。
+- 验证：`--exercise-instance-order` 走 VM → 落盘 → 重新读取的往返并还原；
+  合成鼠标拖动实测把第 2 项拖到第 1 项，`instances.json` 的 SortIndex 变为 0/1/2；
+  改名往返后 Id 不变、重新读取名字正确，已还原。

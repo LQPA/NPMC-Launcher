@@ -141,6 +141,15 @@ public sealed class InstanceListItem : ObservableObject
         OnPropertyChanged(nameof(SummaryText));
     }
 
+    /// <summary>就地改名：不重建列表，选中项与拖拽顺序都不受影响。</summary>
+    public void ApplyName(string name)
+    {
+        _model = _model with { Name = name };
+
+        OnPropertyChanged(nameof(Model));
+        OnPropertyChanged(nameof(Name));
+    }
+
     /// <summary>重新统计各内容目录与存档数。启用/禁用/删除后调用。</summary>
     public void RefreshContentCounts()
     {

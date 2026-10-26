@@ -246,6 +246,38 @@ public class InstanceCatalogTests
     }
 
     [Fact]
+    public void Reorder_keeps_given_order_and_writes_sort_index()
+    {
+        var catalog = new InstanceCatalog(new[]
+        {
+            LauncherInstance.Create("a", "Alpha", "1.20.1"),
+            LauncherInstance.Create("b", "Bravo", "1.20.1"),
+            LauncherInstance.Create("c", "Charlie", "1.20.1"),
+        });
+
+        catalog.Reorder(new[] { "c", "a" });
+
+        // 没列到的 b 保留在最后，避免调用方漏传导致实例"消失"
+        Assert.Equal(new[] { "c", "a", "b" }, catalog.Instances.Select(i => i.Id));
+        Assert.Equal(new[] { 0, 1, 2 }, catalog.Instances.Select(i => i.SortIndex));
+    }
+
+    [Fact]
+    public void Add_after_reorder_appends_to_the_end()
+    {
+        var catalog = new InstanceCatalog(new[]
+        {
+            LauncherInstance.Create("a", "Alpha", "1.20.1"),
+            LauncherInstance.Create("b", "Bravo", "1.20.1"),
+        });
+
+        catalog.Reorder(new[] { "b", "a" });
+        catalog.Add("Charlie", "1.20.1");
+
+        Assert.Equal("Charlie", catalog.Instances[^1].Name);
+    }
+
+    [Fact]
     public void Validate_detects_duplicate_and_illegal_ids()
     {
         var catalog = new InstanceCatalog(new[]

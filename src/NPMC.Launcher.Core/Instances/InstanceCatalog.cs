@@ -11,9 +11,13 @@ public sealed class InstanceCatalog
     public InstanceCatalog(IEnumerable<LauncherInstance>? instances = null)
         => _instances = (instances ?? Enumerable.Empty<LauncherInstance>()).ToList();
 
-    /// <summary>按名称排序的实例列表。</summary>
+    /// <summary>
+    /// 实例列表：先按用户拖出来的 <see cref="LauncherInstance.SortIndex"/>，
+    /// 再按名称。旧数据全是 0，因此仍然等价于"按名称排序"。
+    /// </summary>
     public IReadOnlyList<LauncherInstance> Instances => _instances
-        .OrderBy(i => i.Name, StringComparer.CurrentCultureIgnoreCase)
+        .OrderBy(i => i.SortIndex)
+        .ThenBy(i => i.Name, StringComparer.CurrentCultureIgnoreCase)
         .ToList();
 
     public int Count => _instances.Count;
@@ -31,9 +35,37 @@ public sealed class InstanceCatalog
         if (string.IsNullOrWhiteSpace(versionId)) throw new ArgumentException("必须指定游戏版本。", nameof(versionId));
 
         var id = InstanceId.MakeUnique(name, _instances.Select(i => i.Id));
-        var instance = LauncherInstance.Create(id, name.Trim(), versionId.Trim(), isolation, settings);
+
+        // 已经拖过顺序的集合：新实例排到最后；没拖过就保持 0（继续按名称排）
+        var maxSort = _instances.Count == 0 ? 0 : _instances.Max(i => i.SortIndex);
+        var sortIndex = maxSort > 0 ? maxSort + 1 : 0;
+
+        var instance = LauncherInstance.Create(
+            id, name.Trim(), versionId.Trim(), isolation, settings, sortIndex);
+
         _instances.Add(instance);
         return instance;
+    }
+
+    /// <summary>
+    /// 按给定 id 顺序重排，并写入 0..n-1 的 SortIndex（随后持久化 instances.json 的数组顺序）。
+    /// 没列到的实例保持原有相对顺序排到最后，避免因为调用方漏传而丢实例。
+    /// </summary>
+    public void Reorder(IReadOnlyList<string> orderedIds)
+    {
+        var remaining = _instances.ToDictionary(i => i.Id, StringComparer.OrdinalIgnoreCase);
+        var ordered = new List<LauncherInstance>(_instances.Count);
+
+        foreach (var id in orderedIds)
+            if (remaining.Remove(id, out var instance)) ordered.Add(instance);
+
+        ordered.AddRange(_instances.Where(i => remaining.ContainsKey(i.Id)));
+
+        for (var index = 0; index < ordered.Count; index++)
+            ordered[index] = ordered[index] with { SortIndex = index };
+
+        _instances.Clear();
+        _instances.AddRange(ordered);
     }
 
     public bool Remove(string id)

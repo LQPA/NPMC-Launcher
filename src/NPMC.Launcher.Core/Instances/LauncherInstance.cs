@@ -56,18 +56,27 @@ public sealed record LauncherInstance
 
     public InstanceSettings Settings { get; init; } = new();
 
+    /// <summary>
+    /// 列表里的排序位置（用户拖动调整）。
+    /// 旧数据没有这个字段 → 全是 0 → 仍然按名称排序，行为和以前一致；
+    /// 一旦拖动过，所有实例都会被写入 0..n-1 的显式顺序。
+    /// </summary>
+    public int SortIndex { get; init; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
     public static LauncherInstance Create(
         string id, string name, string versionId,
         IsolationLevel isolation = IsolationLevel.Version,
-        InstanceSettings? settings = null) => new()
+        InstanceSettings? settings = null,
+        int sortIndex = 0) => new()
         {
             Id = id,
             Name = name,
             VersionId = versionId,
             Isolation = isolation,
             Settings = settings ?? new InstanceSettings(),
+            SortIndex = sortIndex,
             CreatedAt = DateTimeOffset.UtcNow,
         };
 }

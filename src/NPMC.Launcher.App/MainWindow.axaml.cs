@@ -1,7 +1,9 @@
-﻿using Avalonia.Controls;
+﻿using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Paths;
 
@@ -17,6 +19,15 @@ public partial class MainWindow : Window
     public MainWindow(string root)
     {
         InitializeComponent();
+
+        // ListBoxItem 自己会在 PointerPressed 里选中并把事件标记为已处理，
+        // 所以拖动排序要在隧道（Tunnel）阶段接管，否则收不到。
+        InstanceList.AddHandler(
+            InputElement.PointerPressedEvent, OnInstancePointerPressed, RoutingStrategies.Tunnel);
+        InstanceList.AddHandler(
+            InputElement.PointerMovedEvent, OnInstancePointerMoved, RoutingStrategies.Tunnel);
+        InstanceList.AddHandler(
+            InputElement.PointerReleasedEvent, OnInstancePointerReleased, RoutingStrategies.Tunnel);
 
         var viewModel = new MainWindowViewModel(new LauncherPaths(root))
         {
@@ -34,6 +45,76 @@ public partial class MainWindow : Window
         // LoadAsync 内部已捕获全部异常并写进 Status，因此这里不需要额外的异常处理
         _ = viewModel.LoadAsync();
     }
+
+    // ---- 实例列表：按住拖动排序 ----
+
+    private Point _instanceDragStart;
+    private InstanceListItem? _instanceDragCandidate;
+    private bool _isDraggingInstance;
+
+    private void OnInstancePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+
+        _instanceDragCandidate = (e.Source as Control)?.DataContext as InstanceListItem;
+        _instanceDragStart = e.GetPosition(InstanceList);
+        _isDraggingInstance = false;
+    }
+
+    private void OnInstancePointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_instanceDragCandidate is not { } candidate) return;
+
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            _instanceDragCandidate = null;
+            _isDraggingInstance = false;
+            return;
+        }
+
+        var position = e.GetPosition(InstanceList);
+
+        // 4px 阈值：避免"点一下选中"被当成拖动
+        if (!_isDraggingInstance
+            && Math.Abs(position.X - _instanceDragStart.X) < 4
+            && Math.Abs(position.Y - _instanceDragStart.Y) < 4)
+        {
+            return;
+        }
+
+        _isDraggingInstance = true;
+
+        // 不做 OLE 拖放：直接按指针落在哪一行就挪到哪一行（每一步都是实时的）。
+        // 这样拖到一半松手也会停在当前位置，且不依赖系统拖放循环。
+        var target = FindInstanceAt(position);
+        if (target is null || target.Id == candidate.Id) return;
+
+        Vm?.MoveInstance(candidate.Id, target.Id);
+    }
+
+    private void OnInstancePointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _instanceDragCandidate = null;
+        _isDraggingInstance = false;
+    }
+
+    /// <summary>指针下面的那一行（用可视树里的 ListBoxItem 命中，比按行高估算可靠）。</summary>
+    private InstanceListItem? FindInstanceAt(Point position)
+    {
+        foreach (var item in InstanceList.GetVisualDescendants().OfType<ListBoxItem>())
+        {
+            var origin = item.TranslatePoint(new Point(0, 0), InstanceList);
+            if (origin is null) continue;
+
+            var bounds = new Rect(origin.Value, item.Bounds.Size);
+            if (bounds.Contains(position) && item.DataContext is InstanceListItem instance)
+                return instance;
+        }
+
+        return null;
+    }
+
+    private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
 
     /// <summary>
     /// 页签选中项兜底。
