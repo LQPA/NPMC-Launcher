@@ -507,6 +507,36 @@ internal static class InstanceDump
                           + $" 删除={viewModel.DeleteInstanceCommand.CanExecute(null)}");
             }
         }
+        // 验证 Java 候选缓存：同一实例第二次切换应明显更快
+        if (args.Any(arg => string.Equals(arg, "--exercise-java-cache", StringComparison.OrdinalIgnoreCase)))
+        {
+            var cacheA = viewModel.Instances.FirstOrDefault();
+            var cacheB = viewModel.Instances.Skip(1).FirstOrDefault();
+
+            if (cacheA is not null && cacheB is not null)
+            {
+                bool Ready() => viewModel.JavaChoices.Count > 0 && viewModel.SelectedJavaChoice is not null;
+
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                viewModel.SelectedInstance = cacheA;
+                for (var i = 0; i < 100 && !Ready(); i++) Thread.Sleep(50);
+                var firstMs = watch.ElapsedMilliseconds;
+
+                viewModel.SelectedInstance = cacheB;
+                Thread.Sleep(1500);
+
+                watch.Restart();
+                viewModel.SelectedInstance = cacheA;
+                Thread.Sleep(150);
+                var secondMs = watch.ElapsedMilliseconds;
+
+                lines.Add("");
+                lines.Add("[Java 缓存]");
+                lines.Add($"    首次进入 {cacheA.Name}：{firstMs} ms");
+                lines.Add($"    再次进入 {cacheA.Name}：{secondMs} ms（150ms 后已就绪 = 命中缓存）");
+                lines.Add($"    候选项 {viewModel.JavaChoices.Count} 个，选中 {viewModel.SelectedJavaChoice?.Label}");
+            }
+        }
         // 验证数据包页签（按世界）
         if (args.Any(arg => string.Equals(arg, "--exercise-datapacks", StringComparison.OrdinalIgnoreCase)))
         {

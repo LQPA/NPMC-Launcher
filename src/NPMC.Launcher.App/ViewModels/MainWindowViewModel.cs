@@ -990,6 +990,8 @@ public sealed class MainWindowViewModel : ObservableObject
         HasSelection && IsContentList && (!IsDataPackTab || IsManagingDataPacks);
     public bool ShowLog => HasSelection && IsLogTab;
 
+    /// <summary>内容页签底部操作行：内容列表与存档页签都要显示。</summary>
+    public bool ShowContentActions => ShowContentList || IsDataPackTab;
     /// <summary>内容列表本身（含搜索面板）只在"能看到列表"时显示。</summary>
     public bool ShowContentRows => ShowContentList && !IsContentEmpty;
 
@@ -3302,11 +3304,66 @@ public sealed class MainWindowViewModel : ObservableObject
     /// </summary>
     private int _javaChoicesToken;
 
+    /// <summary>一个实例的 Java 候选缓存：切来切去不必每次都读版本、跑 java -version。</summary>
+    private sealed record CachedJavaChoices(
+        IReadOnlyList<JavaChoice> Choices,
+        string Requirement,
+        int RequiredMajor);
+
+    /// <summary>
+    /// 按"实例 + 运行时数量"做键：装了新运行时会自动失效，
+    /// 而普通的实例切换直接命中缓存。
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CachedJavaChoices> JavaChoiceCache = new(StringComparer.Ordinal);
+
+    private string BuildJavaChoiceCacheKey(InstanceListItem? instance)
+    {
+        var runtimeCount = Directory.Exists(_launcher.Runtime)
+            ? Directory.GetDirectories(_launcher.Runtime).Length
+            : 0;
+
+        return $"{instance?.Id ?? "(none)"}|{runtimeCount}";
+    }
+
+    /// <summary>按实例设置挑出当前应该选中的那一项。</summary>
+    private JavaChoice? MatchCurrentJavaChoice(InstanceListItem? instance)
+    {
+        if (JavaChoices.Count == 0) return null;
+
+        return JavaChoices.FirstOrDefault(choice =>
+                   instance?.JavaPath is { } path
+                   && choice.Path is not null
+                   && JavaLocator.Normalize(choice.Path) == JavaLocator.Normalize(path))
+               ?? JavaChoices.FirstOrDefault(choice =>
+                   instance?.JavaComponent is { } component
+                   && string.Equals(choice.Component, component, StringComparison.OrdinalIgnoreCase))
+               ?? JavaChoices[0];
+    }
+
     private async Task LoadJavaChoicesAsync(InstanceListItem? instance)
     {
         // 这个方法会被多处触发（选中实例、刷新内容、加载完成）。
         // 直接往 JavaChoices 里填会让并发的几次调用互相叠加，出现重复项；
         // 因此先建本地列表，最后用序号确认"我仍是最新的一次"再整体替换。
+        var cacheKey = BuildJavaChoiceCacheKey(instance);
+
+        // 命中缓存：直接套用，不再读版本 JSON、也不再跑 java -version
+        if (JavaChoiceCache.TryGetValue(cacheKey, out var cachedChoices))
+        {
+            JavaChoices.Clear();
+            foreach (var choice in cachedChoices.Choices) JavaChoices.Add(choice);
+
+            JavaRequirementText = cachedChoices.Requirement;
+            _requiredJavaForInstance = cachedChoices.RequiredMajor;
+
+            var cachedSelection = MatchCurrentJavaChoice(instance);
+            _selectedJavaChoice = cachedSelection;
+            OnPropertyChanged(nameof(SelectedJavaChoice));
+            UpdateJavaHint(cachedSelection);
+            _javaChoicesReady = true;
+            return;
+        }
+
         var token = ++_javaChoicesToken;
         _javaChoicesReady = false;
         var built = new List<JavaChoice> { new() { Label = "自动（用该版本要求的 Java）" } };
@@ -3390,6 +3447,9 @@ public sealed class MainWindowViewModel : ObservableObject
             _selectedJavaChoice = current;
             OnPropertyChanged(nameof(SelectedJavaChoice));
             UpdateJavaHint(current);
+
+            JavaChoiceCache[cacheKey] = new CachedJavaChoices(
+                JavaChoices.ToList(), JavaRequirementText, _requiredJavaForInstance);
             _javaChoicesReady = true;
         }
         catch (Exception ex)
