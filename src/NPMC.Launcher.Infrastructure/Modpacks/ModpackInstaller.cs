@@ -145,11 +145,17 @@ public sealed class ModpackInstaller
         return new ModpackPlan(index.Name, versionLabel, index, archivePath, extractRoot, problems);
     }
 
-    /// <summary>把清单里的文件与覆盖层写入实例目录。</summary>
+    /// <summary>
+    /// 把清单里的文件与覆盖层写入实例目录。
+    ///
+    /// 下载是并发的（默认 8 路）：CF 整合包动辄 400+ 个文件，串行下载会让整包安装
+    /// 慢到不可用；已存在且没有 SHA1 校验的文件直接跳过，便于中断后续装。
+    /// </summary>
     public async Task<ModpackInstallResult> InstallIntoAsync(
         ModpackPlan plan,
         string instanceDirectory,
         IProgress<ModpackInstallProgress>? progress = null,
+        int concurrency = 8,
         CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(instanceDirectory);
@@ -157,32 +163,57 @@ public sealed class ModpackInstaller
         var downloaded = 0;
         var skipped = 0;
         var failures = new List<string>();
+        var gate = new SemaphoreSlim(Math.Clamp(concurrency, 1, 16));
+        var completed = 0;
+        var total = plan.Index.Files.Count;
 
-        for (var i = 0; i < plan.Index.Files.Count; i++)
+        var tasks = plan.Index.Files.Select(async file =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var file = plan.Index.Files[i];
-            var destination = SafeCombine(instanceDirectory, file.Path);
-
-            progress?.Report(new ModpackInstallProgress(i + 1, plan.Index.Files.Count, file.Path));
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var destination = SafeCombine(instanceDirectory, file.Path);
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
 
+                // 没有 SHA1 的条目（CurseForge 整合包都没有）用"文件已存在且非空"当作已完成，
+                // 这样中断后重跑不会把已经下好的几百个模组再下一遍。
+                if (string.IsNullOrWhiteSpace(file.Sha1)
+                    && File.Exists(destination)
+                    && new FileInfo(destination).Length > 0)
+                {
+                    Interlocked.Increment(ref skipped);
+                    return;
+                }
+
                 var outcome = await _downloader
-                    .EnsureFromAsync(file.Downloads, destination, string.IsNullOrWhiteSpace(file.Sha1) ? null : file.Sha1)
+                    .EnsureFromAsync(file.Downloads, destination,
+                        string.IsNullOrWhiteSpace(file.Sha1) ? null : file.Sha1,
+                        cancellationToken)
                     .ConfigureAwait(false);
 
-                if (outcome.Downloaded) downloaded++;
-                else skipped++;
+                if (outcome.Downloaded) Interlocked.Increment(ref downloaded);
+                else Interlocked.Increment(ref skipped);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                failures.Add($"{file.Path}：{ex.GetBaseException().Message}");
+                lock (failures) failures.Add($"{file.Path}：{ex.GetBaseException().Message}");
             }
-        }
+            finally
+            {
+                var done = Interlocked.Increment(ref completed);
+                progress?.Report(new ModpackInstallProgress(done, total, file.Path));
+                gate.Release();
+            }
+        });
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
 
         // 覆盖层最后放：它可能包含与清单同名的配置，应该以整合包作者的版本为准
         var overrides = CopyDirectory(plan.OverridesRoot, instanceDirectory);

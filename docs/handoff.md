@@ -57,7 +57,7 @@ tools/sign-local.ps1              本地签名
 
 | 优先级 | 事项 | 备注 |
 |---|---|---|
-| 中 | CurseForge 整合包 | 需要 `CURSEFORGE_API_KEY`（目前未配置）；且 CF 是 `manifest.json` + 逐文件申请下载地址，不能复用 `.mrpack` 解析 |
+| 中 | CurseForge 整合包 | 后端已通（manifest 解析 + 逐文件 download-url + 8 路并发），ATM10 8.3 实测装好；还差下载页的 CF 搜索/版本列表 UI |
 | 中 | CLI 迁移到 `MinecraftInstaller` | 现在 CLI 有自己一份 install 实现（natives 就是两边都要改才暴露的） |
 | 低 | 界面多语言 | 文案还没抽出来；`Language` 目前只影响 Modrinth 描述翻译。设置页只写了一行说明，别做成"能选但没用"的下拉 |
 | 低 | CurseForge 数据包分类 | classId 未核实，宁可不提供也不猜 |
@@ -246,6 +246,26 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
   不再读 `Worlds.Count` —— 停在日志页时世界列表根本没加载，读它会清成 0。
 
 `--exercise-tab-counts` 覆盖双向切换（A→日志→B、B→日志→A），逐项对比页签数字与实例实际数量。
+
+### 9.1.2 CurseForge 整合包（ATM10 实测，2026-10-26 晚）
+
+- key 来源：`CURSEFORGE_API_KEY` 环境变量（User 级即可）或 `%APPDATA%\\NPMC-Launcher\\curseforge.key`；
+  已开着的进程读不到之后 setx 的变量，要重启。
+- CF 整合包是 `manifest.json`（minecraft.version / modLoaders / files[{projectID,fileID}]）+ `overrides/`，
+  **没有**下载地址、文件名、SHA1；每个文件要用 `/v1/mods/{id}/files/{fileId}/download-url` 换 URL，
+  URL 末段就是文件名。
+- 实现：`Core/Modpacks/CurseForgeModpackManifest`（解析）、
+  `Infrastructure/Modpacks/CurseForgeModpackPreparer`（下载 zip、解覆盖层、并发换 URL），
+  然后合成一份 Modrinth 风格索引，**复用**现有 `ModpackInstaller` / 加载器 / 建实例流程。
+- ATM10 8.3 实测：1.21.1 + NeoForge 21.1.259，493 个模组、覆盖层 3467 个；
+  最终 489 个 jar（493 条清单里有 4 条同名/非 jar）。
+- 两个坑：
+  1. 首次 NeoForge 安装失败时旧代码会"按原版创建"继续装模组 → 实例版本记成 1.21.1，
+     模组全不生效。现在**加载器失败直接中止**，不再建半成品实例。
+  2. 中断后重跑会优先复用同名实例，并把 `VersionId` 更新成新的加载器版本（之前会留在 1.21.1）。
+- 下载速度：`InstallIntoAsync` 原来串行，CF 493 个文件慢到不可用；改成默认 8 路并发
+  （取 `settings.DownloadConcurrency`，钳制 1~16），无 SHA1 的文件"存在且非空"即跳过。
+  实测从 288 → 488 个模组约 2 分钟；全部已存在的 493 个文件重跑 47 秒。
 
 ### 9.2 设置页（原先左侧导航是灰的）
 

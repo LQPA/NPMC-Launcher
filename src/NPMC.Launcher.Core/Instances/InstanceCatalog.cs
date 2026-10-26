@@ -107,6 +107,15 @@ public sealed class InstanceCatalog
         return _instances[index];
     }
 
+    /// <summary>修正实例绑定的版本（整合包重跑时加载器版本可能更新）。</summary>
+    public LauncherInstance? UpdateVersionId(string id, string versionId)
+    {
+        var index = _instances.FindIndex(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (index < 0) return null;
+
+        _instances[index] = _instances[index] with { VersionId = versionId };
+        return _instances[index];
+    }
     public LauncherInstance? UpdateSettings(string id, InstanceSettings settings)
     {
         var index = _instances.FindIndex(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));

@@ -3879,24 +3879,48 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 catch (Exception ex)
                 {
-                    ModpackStatus = $"安装 {loaderLabel} 失败：{ex.GetBaseException().Message}；将按原版创建。"
+                    // 加载器装不上时不能继续按原版建实例：模组会因为缺少加载器全部不生效，
+                    // 用户看到的是"装完了但游戏里什么都没有"。
+                    ModpackStatus = $"安装 {loaderLabel} 失败：{ex.GetBaseException().Message}"
                                     + "（1.13+ 的 Forge / NeoForge 需要 Java 与官方安装器）";
                     LauncherLog.Write(_launcher.Root, $"整合包 {loaderLabel} 安装失败 → {ex.GetBaseException().Message}");
+                    return;
                 }
             }
             else if (plan.Index.LoaderName is { } unsupportedLoader)
             {
-                ModpackStatus = $"该整合包需要 {unsupportedLoader}，目前只能自动安装 Fabric / Forge；"
-                                + "将按原版创建，加载器需另行安装。";
+                ModpackStatus = $"该整合包需要 {unsupportedLoader}，目前只能自动安装 Fabric / Forge / NeoForge。";
+                return;
             }
 
-            // 建实例（名字重名时自动加序号）
+            // 同一个整合包重跑（比如上次下载中断）时复用已有实例，避免建出「ATM10 (2)」
             var store = new JsonInstanceStore(_launcher);
             var catalog = new InstanceCatalog(await store.LoadAsync());
 
-            var name = UniqueName(catalog, plan.Name);
-            var instance = catalog.Add(name, instanceVersion, settings: NewInstanceSettings());
-            await store.SaveAsync(catalog.Instances);
+            var existing = catalog.Instances.FirstOrDefault(item =>
+                string.Equals(item.Name, plan.Name, StringComparison.OrdinalIgnoreCase));
+
+            LauncherInstance instance;
+
+            if (existing is not null)
+            {
+                instance = existing;
+
+                // 上次可能失败在加载器那一步，实例记的是原版版本号；这次装好了要改回来
+                if (!string.Equals(existing.VersionId, instanceVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    instance = catalog.UpdateVersionId(existing.Id, instanceVersion) ?? existing;
+                    await store.SaveAsync(catalog.Instances);
+                }
+
+                ModpackStatus = $"检测到已有实例「{instance.Name}」，继续写入文件…";
+            }
+            else
+            {
+                var name = UniqueName(catalog, plan.Name);
+                instance = catalog.Add(name, instanceVersion, settings: NewInstanceSettings());
+                await store.SaveAsync(catalog.Instances);
+            }
 
             ModpackStatus = $"正在写入整合包文件（{plan.Index.Files.Count} 个）…";
             ModpackProgressPercent = 0;
@@ -3915,7 +3939,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             });
 
             var result = await CreateModpackInstaller()
-                .InstallIntoAsync(plan, layout.GameDirectory, fileProgress);
+                .InstallIntoAsync(plan, layout.GameDirectory, fileProgress,
+                    Math.Clamp(_startupSettings.DownloadConcurrency, 1, 16));
 
             ModpackProgress = "";
             ModpackProgressPercent = 100;

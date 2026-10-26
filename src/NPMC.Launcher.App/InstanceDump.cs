@@ -1010,6 +1010,75 @@ internal static class InstanceDump
             }
         }
 
+        // CurseForge 整合包完整安装：搜索 ATM10 → 准备 → 走现有安装流程（下载 1.21.1 + NeoForge + 499 模组）
+        if (args.Any(arg => string.Equals(arg, "--exercise-cf-install", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[CurseForge 整合包安装]");
+            var cfProgressLog = Path.Combine(root, "cfinstall-progress.log");
+            void CfLog(string message) => File.AppendAllText(cfProgressLog, $"{DateTime.Now:HH:mm:ss} {message}{Environment.NewLine}");
+            CfLog("start");
+
+            if (!CurseForgeClient.TryResolveApiKey(out var cfInstallKey, out var cfInstallProblem)
+                || cfInstallKey is null)
+            {
+                lines.Add($"    key 不可用：{cfInstallProblem}");
+            }
+            else
+            {
+                using var cfHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+                var cf = new CurseForgeClient(cfHttp, cfInstallKey);
+
+                var hits = cf.SearchAsync("All the Mods 10", null, Array.Empty<string>(), 5, 4471)
+                    .GetAwaiter().GetResult();
+
+                var target = hits.FirstOrDefault(hit =>
+                                 string.Equals(hit.Slug, "all-the-mods-10", StringComparison.OrdinalIgnoreCase))
+                             ?? hits.FirstOrDefault();
+
+                if (target is null)
+                {
+                    lines.Add("    没搜到 ATM10");
+                }
+                else
+                {
+                    var files = cf.GetFilesAsync(target.ModId, "1.21.1", new[] { "neoforge" })
+                        .GetAwaiter().GetResult();
+
+                    var file = files.FirstOrDefault(item =>
+                        item.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+
+                    if (file is null)
+                    {
+                        lines.Add("    ATM10 没有 zip 文件");
+                    }
+                    else
+                    {
+                        lines.Add($"    {target.DisplayName} / {file.FileName}（{file.FileId}）");
+
+                        try
+                        {
+                            var plan = viewModel.PrepareCurseForgeModpackAsync(target.ModId, file.FileId)
+                                .GetAwaiter().GetResult();
+
+                            lines.Add($"    准备完成：{plan.Name} {plan.VersionLabel}"
+                                      + $" / {plan.Index.GameVersion} / {plan.Index.LoaderText}"
+                                      + $" / {plan.Index.Files.Count} 个模组");
+
+                            CfLog("install");
+                            viewModel.InstallPreparedModpackAsync().GetAwaiter().GetResult();
+                            CfLog("installed");
+                            lines.Add($"    安装结果：{viewModel.ModpackStatus}");
+                        }
+                        catch (Exception ex)
+                        {
+                            lines.Add($"    安装失败：{ex.GetBaseException().Message}");
+                        }
+                    }
+                }
+            }
+        }
+
         // CurseForge：API key + ATM10 搜索 / 文件 / 下载地址（只读探测，不安装）
         if (args.Any(arg => string.Equals(arg, "--exercise-cf", StringComparison.OrdinalIgnoreCase)))
         {

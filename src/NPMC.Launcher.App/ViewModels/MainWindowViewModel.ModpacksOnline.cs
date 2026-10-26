@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using NPMC.Launcher.Core.Mods;
+using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Modpacks;
 
 namespace NPMC.Launcher.App.ViewModels;
@@ -209,6 +210,31 @@ public sealed partial class MainWindowViewModel
         await InstallModpackAsync();
     }
 
+    /// <summary>诊断/安装用：按 CurseForge 项目 + 文件准备整合包（下载 zip、解析 manifest、换下载地址）。</summary>
+    public async Task<ModpackPlan> PrepareCurseForgeModpackAsync(
+        int modId, int fileId, IProgress<string>? progress = null)
+    {
+        if (!CurseForgeClient.TryResolveApiKey(out var key, out var problem) || key is null)
+            throw new InvalidOperationException(
+                problem ?? "缺少 CurseForge API key（CURSEFORGE_API_KEY 或 %APPDATA%\\NPMC-Launcher\\curseforge.key）");
+
+        var preparer = new CurseForgeModpackPreparer(_downloader, new CurseForgeClient(_http, key));
+
+        var plan = await preparer.PrepareAsync(
+            modId, fileId, Path.Combine(_launcher.Root, "cache", "cfpacks"), progress);
+
+        _modpackPlan = plan;
+
+        OnPropertyChanged(nameof(HasModpackPlan));
+        OnPropertyChanged(nameof(ModpackTitle));
+        OnPropertyChanged(nameof(ModpackSummary));
+        (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+
+        return plan;
+    }
+
+    /// <summary>诊断用：安装已经准备好的整合包（走与界面相同的安装流程）。</summary>
+    public Task InstallPreparedModpackAsync() => InstallModpackAsync();
     /// <summary>诊断用：只下载并解析，不安装。</summary>
     public Task<ModpackPlan> PrepareOnlineModpackAsync(string slug, string versionId)
         => CreateModpackInstaller().PrepareAsync(
