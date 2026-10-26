@@ -93,6 +93,22 @@ if (-not (Test-Path $exe)) {
     throw "发布完成但找不到 $exe"
 }
 
+# ---- 完整性级别 ----
+# 本仓库所在的 D:\Agents 是 Low 完整性，发布出来的 exe 会继承 Low 标签。
+# Explorer 双击走 ShellExecute，对 Low 完整性的 exe 会静默卡住（任务管理器里连进程都没有），
+# 而 cmd 的 start / CreateProcess 能正常启动。这里显式抬到 Medium（自己的文件，不需要管理员）。
+try {
+    & icacls $exe /setintegritylevel Medium | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls 退出码 $LASTEXITCODE" }
+
+    $label = (& icacls $exe | Select-String 'Mandatory Label' | Select-Object -First 1).Line
+    Write-Host "完整性  : $($label.Trim())" -ForegroundColor DarkGray
+}
+catch {
+    Write-Host "! 无法把 exe 抬到 Medium 完整性：$($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "! 双击 exe 可能没有反应；请改用仓库根目录的 launch.cmd（dotnet 宿主）启动。" -ForegroundColor Yellow
+}
+
 $size = (Get-Item $exe).Length / 1MB
 Write-Host ""
 Write-Host "完成：$exe  ($([math]::Round($size,1)) MB)" -ForegroundColor Green

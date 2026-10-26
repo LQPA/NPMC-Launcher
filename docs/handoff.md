@@ -182,6 +182,14 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
     `CLR20r3 ... System.NullReferenceException`。`OnFrameworkInitializationCompleted`
     里先 `var args = desktop.Args ?? Array.Empty<string>();`，探针方法也接受 nullable。
     改完要同时测 **带参数** 和 **不带参数** 两条启动路径。
+15. **发布出来的 exe 是 Low 完整性 → Explorer 双击静默不启动**：`D:\Agents` 整个目录是
+    Low 完整性，`tools/publish.ps1` 产出的 exe 会继承 Low 标签。此时 **Explorer 双击
+    （ShellExecute）会卡住**：任务管理器里连进程都没有、也没有报错；`cmd /c start`
+    （CreateProcess）和 `launch.cmd` 却正常。处理：发布后执行
+    `icacls <exe> /setintegritylevel Medium`（`publish.ps1` 已自动做，`sign-local.ps1`
+    也会再抬一次）。**签名不改变完整性级别**，只签名不抬标签仍然双击没反应。
+    实测：Low 时 `[Process]::Start(UseShellExecute=true)` 挂起；抬到 Medium 后
+    111ms 就启动并出现窗口。
 
 ---
 
@@ -368,9 +376,14 @@ Avalonia/Skia 的位图是原生内存，托管堆只有十几 MB 时 GC 不会�
 - 单文件 `dist\NPMC.Launcher.App.exe` 复测（同一套操作，`--memory-visible`）：
   基线 232MB → 滚动峰值 325MB → 切概览 **283MB（未 GC）** → 强制 GC 276MB。
   比 DLL 构建整体高 15~30MB（单文件宿主 + 可见窗口的 Skia/UI 缓存），但同样不再随 495 行线性上涨。
-- 发布后用户报"exe 运行后没有窗口"：根因是 `desktop.Args` 在无参数启动时为 null，
-  `MemoryProbe.IsRequested(desktop.Args)` 抛 NRE（见第 6 节第 14 条）。已修并重新发布，
-  带参数 / 不带参数两条路径都实测能出窗口。
+- 发布后用户报"exe 运行后没有窗口"：先后有两个根因。
+  1) `desktop.Args` 在无参数启动时为 null，`MemoryProbe.IsRequested(desktop.Args)` 抛 NRE
+     （见第 6 节第 14 条）；
+  2) `D:\Agents` 是 Low 完整性，exe 继承 Low 后 Explorer 双击（ShellExecute）会静默卡住，
+     `cmd /c start` 却正常（见第 6 节第 15 条）。
+  两处都已修：`publish.ps1` / `sign-local.ps1` 发布后自动把 exe 抬到 Medium；
+  带参数 / 不带参数、ShellExecute / CreateProcess 四条路径都实测能出窗口。
+  若还有旧副本，直接看 `icacls <exe> | findstr Mandatory` 是否为 Medium。
 - 表里的 `live` 是弱引用还活着的 Bitmap 包装对象，已 Dispose 的也要等 GC 才消失，
   所以判断释放要看 `disposed` 和 `pixel`，不要只看 `live`。
 - 列表只 materialize 8 行；`iconCache` 上限 128、`iconLeases` 跟可见行数一致（3~8）。

@@ -115,5 +115,16 @@ else {
     Write-Host '! 签名状态不是 Valid，SmartScreen 可能仍会提示' -ForegroundColor Yellow
 }
 
+# 签名不会改变完整性级别；D:\Agents 是 Low，Explorer 双击 Low exe 会静默不启动。
+# 这里顺手抬到 Medium（自己的文件，不需要管理员）。
+try {
+    & icacls $ExePath /setintegritylevel Medium | Out-Null
+    $label = (& icacls $ExePath | Select-String 'Mandatory Label' | Select-Object -First 1).Line
+    Write-Host "完整性  $($label.Trim())" -ForegroundColor DarkGray
+}
+catch {
+    Write-Host '! 无法提升完整性级别；双击可能无反应，请用 launch.cmd' -ForegroundColor Yellow
+}
+
 Write-Host ''
 Write-Host '注意：每次重新构建后 exe 会变，需要重新运行本脚本签名。'
