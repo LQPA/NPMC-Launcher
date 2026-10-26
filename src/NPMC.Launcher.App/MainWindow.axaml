@@ -95,9 +95,10 @@
         </StackPanel>
 
         <!-- 页签（用横向 ListBox，选中样式由主题提供，不需要写转换器） -->
-        <ListBox Grid.Row="1" Margin="0,14,0,0"
+        <ListBox Grid.Row="1" Margin="0,14,0,0" x:Name="TabStrip"
                  ItemsSource="{Binding ContentTabs}"
                  SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+                 SelectionChanged="OnTabSelectionChanged"
                  Background="Transparent" BorderThickness="0" Padding="0"
                  IsVisible="{Binding ShowInstanceHeader}">
           <ListBox.ItemsPanel>

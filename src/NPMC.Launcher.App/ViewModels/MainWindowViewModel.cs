@@ -424,11 +424,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(ShowInstanceHeader));
-            OnPropertyChanged(nameof(ShowOverview));
-            OnPropertyChanged(nameof(ShowContentList));
-        OnPropertyChanged(nameof(ShowContentPane));
-        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
-            OnPropertyChanged(nameof(ShowLog));
+            RaisePaneVisibilityChanged();
 
             // 概览页的可编辑字段都从 SelectedInstance 取值，切换实例时必须重读
             OnPropertyChanged(nameof(MemoryMb));
@@ -545,10 +541,24 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(DataPackWorld));
         OnPropertyChanged(nameof(IsManagingDataPacks));
         OnPropertyChanged(nameof(ShowWorldPicker));
-        OnPropertyChanged(nameof(ShowContentList));
-        OnPropertyChanged(nameof(ShowContentPane));
-        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         OnPropertyChanged(nameof(ContentEmptyHint));
+        RaisePaneVisibilityChanged();
+    }
+
+    /// <summary>
+    /// 面板 / 操作行 / 空提示的可见性。
+    ///
+    /// 这些都是派生属性（`=>` 现算），XAML 只在收到通知时才会重新求值。
+    /// 因此**任何**输入变化（页面、选中实例、页签、数据包视图）都必须走这里，
+    /// 否则就会留下"上了旧面板 / 两排按钮叠在一起 / 日志页签点不开"这类回归。
+    /// </summary>
+    private void RaisePaneVisibilityChanged()
+    {
+        OnPropertyChanged(nameof(ShowOverview));
+        OnPropertyChanged(nameof(ShowContentPane));
+        OnPropertyChanged(nameof(ShowContentList));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
+        OnPropertyChanged(nameof(ShowLog));
     }
 
     /// <summary>数据包是 1.13 才有的功能。</summary>
@@ -936,10 +946,13 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             if (value is null) return;
 
-            // 不可用的页签点了也不进去：把选中项推回原值，并说明原因
+            // 不可用的页签点了也不进去：只给原因，不改选中项。
+            //
+            // 控件那边的选中项已经被点成这个页签了，靠这里发 PropertyChanged 推不回去
+            // （源值没变，绑定不会回写目标值），所以回退放在 MainWindow 的
+            // SelectionChanged 里做 —— 见 OnTabSelectionChanged。
             if (!value.IsEnabled)
             {
-                OnPropertyChanged(nameof(SelectedTab));
                 Status = value.TabTip ?? "该页签当前不可用";
                 return;
             }
@@ -2738,11 +2751,7 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsDownloadsPage));
         OnPropertyChanged(nameof(IsInstancePage));
         OnPropertyChanged(nameof(ShowInstanceHeader));
-        OnPropertyChanged(nameof(ShowOverview));
-        OnPropertyChanged(nameof(ShowContentList));
-        OnPropertyChanged(nameof(ShowContentPane));
-        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
-        OnPropertyChanged(nameof(ShowLog));
+        RaisePaneVisibilityChanged();
         OnPropertyChanged(nameof(InstancesNavBackground));
         OnPropertyChanged(nameof(DownloadsNavBackground));
         OnPropertyChanged(nameof(InstancesNavForeground));

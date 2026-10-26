@@ -36,6 +36,32 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 页签选中项兜底。
+    ///
+    /// 不可用的页签（缺加载器 / 缺光影支持）由 ViewModel 拒绝切换，但 ListBox 自身已经把
+    /// 选中项改过去了；而 ViewModel 那边"源值没变"，绑定不会回写目标值，界面上就留下
+    /// "光影高亮、内容还是日志"的错位。这里在控件层把选中项拉回当前有效页签。
+    /// </summary>
+    private void OnTabSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_revertingTabSelection) return;
+        if (sender is not ListBox list || DataContext is not MainWindowViewModel viewModel) return;
+        if (list.SelectedItem is not ContentTabItem { IsEnabled: false }) return;
+
+        _revertingTabSelection = true;
+        try
+        {
+            list.SelectedItem = viewModel.SelectedTab;
+        }
+        finally
+        {
+            _revertingTabSelection = false;
+        }
+    }
+
+    private bool _revertingTabSelection;
+
+    /// <summary>
     /// 选择本地整合包。文件对话框必须由窗口提供，所以放在代码里而不是 ViewModel。
     /// </summary>
     private async void OnPickModpackClick(object? sender, RoutedEventArgs e)

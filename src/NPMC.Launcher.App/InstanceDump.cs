@@ -1,4 +1,5 @@
-﻿using NPMC.Launcher.App.ViewModels;
+﻿using System.ComponentModel;
+using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
@@ -603,7 +604,9 @@ internal static class InstanceDump
                           + $"内容 {viewModel.Content.Count} 个，管理视图={viewModel.IsManagingDataPacks}");
             }
         }
-        // 验证可见性随导航/页签变化（这些属性以前是"派生但没通知"）
+        // 验证可见性随导航/页签变化。
+        // 这些属性是派生值，XAML 只在收到 PropertyChanged 时重新求值；
+        // 只看 getter 的结果永远是对的，所以必须同时核对"通知有没有发出来"。
         if (args.Any(arg => string.Equals(arg, "--exercise-nav", StringComparison.OrdinalIgnoreCase)))
         {
             lines.Add("");
@@ -617,22 +620,68 @@ internal static class InstanceDump
                 viewModel.SelectedInstance = target;
                 Thread.Sleep(900);
 
-                void Dump(string tag) => lines.Add(
-                    $"    {tag}：面板={viewModel.ShowContentPane} 头部={viewModel.ShowInstanceHeader} "
-                    + $"概览={viewModel.ShowOverview} 列表={viewModel.ShowContentList} 空提示={viewModel.IsContentEmptyOrNotList}");
-
-                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
-                Thread.Sleep(600);
-                Dump("模组页签");
-
-                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.DataPack);
+                // 从概览出发：默认页签是概览，而前面几项诊断可能已经把页签换走了
+                viewModel.SelectedTab = viewModel.ContentTabs[0];
                 Thread.Sleep(600);
 
-                Dump("存档页签（世界列表）");
+                var announced = new HashSet<string>(StringComparer.Ordinal);
+                void OnChanged(object? sender, PropertyChangedEventArgs e) =>
+                    announced.Add(e.PropertyName ?? "");
 
-                viewModel.Worlds.FirstOrDefault()?.ManageDataPacksCommand.Execute(null);
-                Thread.Sleep(1500);
-                Dump($"存档页签（数据包，{viewModel.Content.Count} 项）");
+                viewModel.PropertyChanged += OnChanged;
+
+                var expected = new[]
+                {
+                    nameof(MainWindowViewModel.ShowOverview),
+                    nameof(MainWindowViewModel.ShowContentPane),
+                    nameof(MainWindowViewModel.ShowContentList),
+                    nameof(MainWindowViewModel.ShowLog),
+                    nameof(MainWindowViewModel.IsContentEmptyOrNotList),
+                };
+
+                void Dump(string tag, bool requireNotifications = true)
+                {
+                    lines.Add(
+                        $"    {tag}：当前页签={viewModel.SelectedTab.Title} 面板={viewModel.ShowContentPane} "
+                        + $"头部={viewModel.ShowInstanceHeader} 概览={viewModel.ShowOverview} "
+                        + $"列表={viewModel.ShowContentList} 空提示={viewModel.IsContentEmptyOrNotList} "
+                        + $"日志={viewModel.ShowLog}");
+
+                    if (!requireNotifications)
+                    {
+                        lines.Add("        通知：（页签被拒绝切换，无需核对）");
+                        announced.Clear();
+                        return;
+                    }
+
+                    var missing = expected.Where(name => !announced.Contains(name)).ToList();
+                    lines.Add($"        通知：{(missing.Count == 0 ? "齐全" : "缺 " + string.Join(" / ", missing))}");
+                    announced.Clear();
+                }
+
+                void Switch(string tag, ContentKind kind)
+                {
+                    var tab = viewModel.ContentTabs.First(item => item.ContentKind == kind);
+                    var enabled = tab.IsEnabled;
+                    viewModel.SelectedTab = tab;
+                    Thread.Sleep(700);
+                    Dump(tag, enabled);
+                }
+
+                Switch("模组页签", ContentKind.Mod);
+                Switch("资源包页签", ContentKind.ResourcePack);
+                Switch("存档页签（世界列表）", ContentKind.DataPack);
+
+                if (viewModel.Worlds.FirstOrDefault() is not null)
+                {
+                    viewModel.Worlds[0].ManageDataPacksCommand.Execute(null);
+                    Thread.Sleep(1500);
+                    Dump($"存档页签（数据包，{viewModel.Content.Count} 项）");
+                }
+
+                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.Kind == DetailTabKind.Log);
+                Thread.Sleep(700);
+                Dump("日志页签");
 
                 viewModel.ShowDownloadsCommand.Execute(null);
                 Thread.Sleep(600);
@@ -641,6 +690,8 @@ internal static class InstanceDump
                 viewModel.ShowInstancesCommand.Execute(null);
                 Thread.Sleep(600);
                 Dump("回到实例页");
+
+                viewModel.PropertyChanged -= OnChanged;
             }
         }
         // 验证 Java 候选缓存：同一实例第二次切换应明显更快
