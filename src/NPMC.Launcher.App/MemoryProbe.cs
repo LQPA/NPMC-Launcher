@@ -118,6 +118,23 @@ internal static class MemoryProbe
                 Snapshot("atm10-mods-all");
                 Snapshot("atm10-mods-all+gc", forceCollect: true);
 
+                // 模拟"495 个行容器都还活着"的极端情况：逐行强制请求图标。
+                // 行的 LRU 上限应该把带图标的行压在 96 个以内，内存不随 495 线性增长。
+                if (args.Any(arg => string.Equals(arg, "--memory-icon-stress", StringComparison.OrdinalIgnoreCase)))
+                {
+                    Write("# 极端压力：给 495 行逐行请求图标…");
+                    foreach (var item in viewModel.Content.ToList())
+                    {
+                        item.IsRowVisible = true;
+                        await viewModel.EnsureIconAsync(item);
+                    }
+
+                    await Task.Delay(1500);
+                    Write($"# 压力后带图标的行={viewModel.Content.Count(item => item.Icon is not null)}");
+                    Snapshot("icon-stress");
+                    Snapshot("icon-stress+gc", forceCollect: true);
+                }
+
                 // 模拟"滚完整张列表"：每次跳 20 行，让虚拟化真正回收/重建行容器。
                 // --memory-manual 时不代替用户滚动，留 20 秒给外部真实鼠标滚轮。
                 var manual = args.Any(arg => string.Equals(arg, "--memory-manual", StringComparison.OrdinalIgnoreCase));

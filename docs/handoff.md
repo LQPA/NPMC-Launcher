@@ -203,6 +203,10 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
     分配 1~4MB 原生内存；滚 495 行反复解码/释放，工作集能到 500MB+。
     改用 `Bitmap.DecodeToWidth(stream, 96, HighQuality)`，同一操作峰值 339 → 241MB
     （单文件发布 285MB），存活位图像素从 45MB 降到 **4.6MB**。详见 9.1.7。
+18. **行图标必须有与容器无关的硬上限**：虚拟化面板在真实滚轮操作下可能保活 400+ 个行容器，
+    即使 Attach/DataContextChanged 都处理了，Detach 也不保证及时到达；只要每个容器都贴着
+    `Icon`，内存就会随容器数增长。VM 里用 LRU 把"带图标的行"封顶在 96 个，
+    容器记录用 `ConditionalWeakTable`，不要用强引用字典。详见 9.1.7。
 
 ---
 
@@ -444,6 +448,25 @@ dump 因完整性级别打不开，但从数据看是解码尺寸问题：界面
 - `created` 仍会到 477（滚完整表），但每张只有 36KB，缓存 128 张 ≈ 4.6MB；
   `disposed` 同步归零，切换后 `iconCache=0 / iconLeases=0 / pixel=0`。
 - 单文件 dist 比 DLL 构建高约 40MB（宿主 + 可见窗口的 Skia/UI 缓存），但不再随行数增长。
+
+#### 行图标硬上限（2026-10-27 01:22）
+
+缩到 96px 后，用户那个真实实例仍能到 585MB。dump 显示：
+`Dictionary<Control, ContentEntryItem>` 里有 **432 个行容器**、**518 个 SKBitmap**，
+但抽查 `PixelSize` 是 **96×96** —— 尺寸没问题，是**容器被大量保活**，每行都还贴着自己的图标。
+
+改法（不再依赖 Detach 一定触发）：
+
+- `MainWindow` 的容器记录改成 `ConditionalWeakTable<Control, ContentEntryItem>`，不钉住回收池里的容器。
+- VM 增加**行图标 LRU 硬上限 96**：每贴一个图标就入队，超过 96 个就释放最久未使用的行
+  （还租约 + 清 `Icon`）；这样即使面板保留 495 个容器，也只有 96 行持有位图。
+
+极端压力测试（给 495 行逐行请求图标，`--memory-icon-stress`）：
+
+| 节点 | WS | 带图标行 | 租约 | 位图 |
+|---|---:|---:|---:|---:|
+| 495 行全部请求 | **221MB** | **96**（封顶） | 96 | 4.5MB |
+| 切 26.1.2 概览 | **213MB** | 0 | 0 | 0（disposed 325/325） |
 
 ### 9.2 设置页（原先左侧导航是灰的）
 
@@ -689,3 +712,29 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
 - CLI：`npmc account list/add/default/remove`；`npmc launch` 也会打印实际使用的账号。
 - 验证：`--exercise-accounts` 走"新建 → 设默认 → 绑定实例 → 解析启动账号 → 还原/删除"，
   自测新增离线 UUID（对照 Java 规则）、账号目录增删改、`LaunchContext.Offline` 等用例。
+
+---
+
+## 11. 2026-10-27：工作区完整性级别调整
+
+`D:\Agents` 整个目录原先带 `Low` 完整性标签，导致：
+
+- 发布出来的 exe 继承 Low，Explorer 双击走 ShellExecute 时会静默卡住（`cmd start` 正常）；
+- 自建 apphost、Java/Fabric 等从该目录启动的进程受 Low 限制；
+- 诊断工具（dotnet-dump）放在工作区内也会继承 Low，无法 attach 到 Medium 进程。
+
+2026-10-27 已按用户授权把 **整个 `D:\Agents` 子树**显式设置到 Medium：
+
+```powershell
+icacls 'D:\Agents' /setintegritylevel "(OI)(CI)Medium" /T /C /Q
+# 71506 个对象，Failed 0
+```
+
+- 根目录现在是 `Mandatory Label\Medium Mandatory Level:(OI)(CI)(NW)`，新文件继承 Medium。
+- `D:\Agents\NPMC-Launcher`、`.data`、`.git`、源码与 `dist\NPMC.Launcher.App.exe` 抽查均为 Medium。
+- **`Everyone:(CI)(DENY)(DC)` 保留未动**（用户明确要求）；删除子项的 ACL 限制仍在。
+- 回滚：`icacls 'D:\Agents' /setintegritylevel Low /T /C /Q`
+  （注意：会把所有子项都改回 Low，包括后来单独抬过的 exe）。
+- 影响：以后任何 **Low 完整性进程**不能再写这个工作区；当前会话是 Medium，构建/写入正常。
+  `tools/publish.ps1` / `sign-local.ps1` 里的逐文件 `icacls /setintegritylevel Medium` 保留，
+  用于把 exe 拷到其它 Low 目录时兜底。

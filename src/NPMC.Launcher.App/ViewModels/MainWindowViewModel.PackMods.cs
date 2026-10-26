@@ -118,6 +118,32 @@ public sealed partial class MainWindowViewModel
     private InstanceListItem? _modSnapshotInstance;
 
     /// <summary>
+    /// 行图标最近使用队列。虚拟化面板可能保留大量行容器（实测 432 个），
+    /// 只靠 Attach/Detach 释放不可靠；这里再给"已贴到行上的图标"一个硬上限，
+    /// 超过就按最久未使用释放，保证内存不随容器数量增长。
+    /// </summary>
+    private readonly LinkedList<ContentEntryItem> _iconRows = new();
+
+    private const int MaxIconRows = 96;
+
+    private void TrackIconRow(ContentEntryItem item)
+    {
+        var node = _iconRows.Find(item);
+        if (node is not null) _iconRows.Remove(node);
+
+        _iconRows.AddFirst(item);
+
+        while (_iconRows.Count > MaxIconRows && _iconRows.Last is { } last)
+            ReleaseIcon(last.Value);
+    }
+
+    private void UntrackIconRow(ContentEntryItem item)
+    {
+        var node = _iconRows.Find(item);
+        if (node is not null) _iconRows.Remove(node);
+    }
+
+    /// <summary>
     /// 行进入可视树时按需取图标（懒加载）。取不到就留空，不阻塞列表。
     /// 只对当前列表里的行生效：切换实例/页签后晚到的结果不会贴到新列表上。
     /// </summary>
@@ -138,6 +164,7 @@ public sealed partial class MainWindowViewModel
 
             item.Icon = icon;
             item.IconLeaseUrl = metadata.IconUrl;
+            TrackIconRow(item);
         }
         else if (icon is not null)
         {
@@ -149,6 +176,7 @@ public sealed partial class MainWindowViewModel
     internal void ReleaseIcon(ContentEntryItem item)
     {
         item.IsRowVisible = false;
+        UntrackIconRow(item);
 
         if (item.IconLeaseUrl is { } url)
         {

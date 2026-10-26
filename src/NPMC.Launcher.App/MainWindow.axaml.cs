@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -160,7 +161,8 @@ public partial class MainWindow : Window
 
     // 行容器会被虚拟化面板复用：滚动时可能只换 DataContext，不触发 Detach。
     // 所以每个 Control 记住自己当前显示的是哪个 item，换人/离开时都要归还租约。
-    private readonly Dictionary<Control, ContentEntryItem> _contentRowItems = new();
+    // 用弱键表：面板若把容器放进回收池但不触发 Detach，也不会被这个字典钉住。
+    private readonly ConditionalWeakTable<Control, ContentEntryItem> _contentRowItems = new();
 
     private void OnContentRowAttached(object? sender, VisualTreeAttachmentEventArgs e)
     {
@@ -171,8 +173,9 @@ public partial class MainWindow : Window
     {
         if (sender is not Control control) return;
 
-        if (_contentRowItems.Remove(control, out var tracked))
+        if (_contentRowItems.TryGetValue(control, out var tracked))
         {
+            _contentRowItems.Remove(control);
             Vm?.ReleaseIcon(tracked);
             return;
         }
@@ -196,7 +199,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        _contentRowItems[control] = item;
+        _contentRowItems.Remove(control);
+        _contentRowItems.Add(control, item);
         item.IsRowVisible = true;
         if (Vm is { } viewModel) _ = viewModel.EnsureIconAsync(item);
     }
