@@ -20,6 +20,9 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        // 截图里能直接看出是哪次构建，避免"开的是旧进程"这种误判
+        Title = $"NPMC Launcher · {BuildInfo.Stamp}";
+
         // ListBoxItem 自己会在 PointerPressed 里选中并把事件标记为已处理，
         // 所以拖动排序要在隧道（Tunnel）阶段接管，否则收不到。
         InstanceList.AddHandler(

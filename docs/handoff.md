@@ -325,6 +325,8 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
   `live`（仍被引用的 Bitmap 数）/ `pixel`（宽×高×4 估算）/ `iconRows` / `iconCache`。
 - 之后依次做：强制 GC → trim 工作集 → Dispose 全部存活位图，作为三组对照。
 - 正常使用也可以开 `NPMC_MEMORY_TRACE=1`，关键节点写入 `<root>\logs\memory.log`。
+- 窗口标题会带构建时间（如 `NPMC Launcher · 10-27 01:06`），用于确认跑的是哪份 exe；
+  排查时先看标题，避免把旧进程/旧副本当成新构建。
 - **无头 `--dump-instances` 量不到图标**：那套诊断不初始化渲染平台，`new Bitmap(...)` 必失败。
   现在 `IconLoader` 检测到 `Application.Current is null` 就直接跳过，不再刷 495 行解码失败日志。
 
