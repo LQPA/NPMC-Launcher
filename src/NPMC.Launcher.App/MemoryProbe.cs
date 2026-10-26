@@ -30,11 +30,11 @@ internal static class MemoryProbe
 {
     private const string Option = "--exercise-memory";
 
-    public static bool IsRequested(string[] args) =>
-        args.Any(arg => string.Equals(arg, Option, StringComparison.OrdinalIgnoreCase));
+    public static bool IsRequested(string[]? args) =>
+        args?.Any(arg => string.Equals(arg, Option, StringComparison.OrdinalIgnoreCase)) == true;
 
-    public static bool WantsVisibleWindow(string[] args) =>
-        args.Any(arg => string.Equals(arg, "--memory-visible", StringComparison.OrdinalIgnoreCase));
+    public static bool WantsVisibleWindow(string[]? args) =>
+        args?.Any(arg => string.Equals(arg, "--memory-visible", StringComparison.OrdinalIgnoreCase)) == true;
 
     public static async Task RunAsync(
         MainWindow window,
