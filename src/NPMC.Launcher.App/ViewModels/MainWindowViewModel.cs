@@ -709,6 +709,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 SyncAccountChoice(selectedInstance.Model);
                 _icons.Clear();
                 LoadBlockedModsForSelectedInstance(value);
+                ReleaseContentIcons();
             }
 
             // 先同步清空 Java 那一行再异步填充：否则会短暂显示上一个实例的 Java（"慢一拍"）
@@ -1790,7 +1791,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (version is not null) loaders = LoaderDetector.Detect(version);
 
             var report = await _updateService.CheckAsync(
-                checkItems.Select(item => item.Entry.Path).ToList(),
+                items.Select(item => item.Entry.Path).ToList(),
                 gameVersion,
                 loaders);
 
@@ -2202,16 +2203,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         foreach (var item in items)
         {
             var name = Path.GetFileName(item.Entry.Path);
+            var isPack = packNames.Contains(name);
 
-            if (packNames.Contains(name))
-            {
-                item.SetIdentification(packSource);
-                continue;
-            }
+            // 整合包自带：来源直接按整合包归属，不再联网猜；图标只用磁盘缓存里的
+            if (isPack) item.SetIdentification(packSource);
 
             if (!_contentMetadata.TryGet(item.Entry.FileName, out var remembered)) continue;
 
-            if (remembered.Identified)
+            if (!isPack && remembered.Identified)
                 item.SetIdentification(remembered.Source, remembered.Channel);
 
             if (string.IsNullOrWhiteSpace(remembered.IconUrl)) continue;
@@ -2220,11 +2219,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (icon is not null) item.Icon = icon;
         }
 
-        var checkItems = items
-            .Where(item => !packNames.Contains(Path.GetFileName(item.Entry.Path)))
-            .ToList();
-
-        if (checkItems.Count == 0) return;
+        // 图标识别：整合包自带的文件也参与（只查项目/图标，不查更新），结果落盘缓存；\n        // 切换实例时会释放图标内存，下次从磁盘缓存直接加载。\n        if (items.Count == 0) return;
 
         // 2) 该实例的该页签首次打开时，后台识别一次（只认领，不查版本）
         if (!_autoIdentifiedInstances.Add($"{instance.Id}:{kind}")) return;
@@ -2238,7 +2233,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var gameVersion = await ResolveGameVersionAsync(instance);
 
             var report = await _updateService.CheckAsync(
-                checkItems.Select(item => item.Entry.Path).ToList(),
+                items.Select(item => item.Entry.Path).ToList(),
                 gameVersion,
                 loaders,
                 includeProjectVersions: false);
@@ -2255,7 +2250,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? new Dictionary<string, ModrinthProject>()
                 : (IReadOnlyDictionary<string, ModrinthProject>)await _modrinth.GetProjectsAsync(projectIds);
 
-            foreach (var item in checkItems)
+            foreach (var item in items)
             {
                 if (!byPath.TryGetValue(item.Entry.Path, out var local)) continue;
 

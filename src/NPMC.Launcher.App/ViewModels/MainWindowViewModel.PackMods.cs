@@ -117,6 +117,14 @@ public sealed partial class MainWindowViewModel
     private readonly Dictionary<string, ContentEntryItem> _modItemCache = new(StringComparer.OrdinalIgnoreCase);
     private InstanceListItem? _modSnapshotInstance;
 
+    /// <summary>切换实例时释放图标内存：行对象还在，下次回到该实例再按需从磁盘缓存加载。</summary>
+    private void ReleaseContentIcons()
+    {
+        foreach (var item in _modItemCache.Values)
+            item.Icon = null;
+
+        _icons.Clear();
+    }
     private void RememberModSnapshot(InstanceListItem instance, IEnumerable<NPMC.Launcher.Core.Content.ContentEntry> entries)
     {
         _modSnapshotInstance = instance;
