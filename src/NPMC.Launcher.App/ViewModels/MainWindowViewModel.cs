@@ -706,6 +706,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 _ = RefreshCapabilitiesAsync(selectedInstance);
                 SyncAccountChoice(selectedInstance.Model);
+                LoadBlockedModsForSelectedInstance(value);
             }
 
             // 先同步清空 Java 那一行再异步填充：否则会短暂显示上一个实例的 Java（"慢一拍"）
@@ -3970,6 +3971,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
             LauncherLog.Write(_launcher.Root,
                 $"安装整合包 {plan.Name} → 实例 {instance.Name}：文件 {result.FilesDownloaded}，"
                 + $"覆盖层 {result.OverrideFiles}，失败 {result.Failures.Count}");
+
+            // 实例标记：来源 + 还缺哪些被作者禁止下载的模组
+            var missing = plan.Blocked
+                .Where(file => !BlockedFileMatches(layout.GameDirectory, file))
+                .ToList();
+
+            InstanceModpackStore.Save(layout.GameDirectory, new InstanceModpackInfo(
+                _modpackSource, _modpackProjectId, plan.Name, plan.VersionLabel, missing));
 
             // 回到实例页并选中它
             await LoadAsync();

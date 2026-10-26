@@ -33,6 +33,7 @@ public sealed class InstanceListItem : ObservableObject
         _layout = new InstanceLayout(launcher, instance);
 
         RefreshContentCounts();
+        RefreshModpackInfo();
     }
 
     public LauncherInstance Model => _model;
@@ -64,6 +65,30 @@ public sealed class InstanceListItem : ObservableObject
         ? "全屏"
         : $"{WindowWidth}×{WindowHeight}";
 
+    private InstanceModpackInfo? _modpackInfo;
+
+    /// <summary>该实例是否来自整合包（有 .nmpc-modpack.json 标记）。</summary>
+    public bool IsModpack => _modpackInfo is not null;
+
+    public bool HasModpackInfo => _modpackInfo is not null;
+
+    public string ModpackSummaryText => _modpackInfo?.SummaryText ?? "";
+
+    public bool HasMissingMods => _modpackInfo?.HasMissing == true;
+
+    public int MissingModsCount => _modpackInfo?.Missing.Count ?? 0;
+
+    /// <summary>安装完成 / 导入 blocked 文件后重新读取标记。</summary>
+    public void RefreshModpackInfo()
+    {
+        _modpackInfo = InstanceModpackStore.Load(_layout.GameDirectory);
+
+        OnPropertyChanged(nameof(IsModpack));
+        OnPropertyChanged(nameof(HasModpackInfo));
+        OnPropertyChanged(nameof(ModpackSummaryText));
+        OnPropertyChanged(nameof(HasMissingMods));
+        OnPropertyChanged(nameof(MissingModsCount));
+    }
     public string SummaryText => $"{VersionId} · {IsolationText} · {MemoryText}";
 
     public string CreatedText => _model.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd");

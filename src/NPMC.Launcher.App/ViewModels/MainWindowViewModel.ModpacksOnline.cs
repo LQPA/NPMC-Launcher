@@ -18,6 +18,8 @@ public sealed partial class MainWindowViewModel
     private string _modpackSearchStatus = "";
     private bool _isSearchingModpacks;
     private bool _isDownloadingModpack;
+    private string _modpackSource = "modrinth";
+    private string _modpackProjectId = "";
     private ModpackHitItem? _selectedModpackHit;
     private ModpackVersionItem? _selectedModpackVersion;
 
@@ -219,6 +221,9 @@ public sealed partial class MainWindowViewModel
         if (!CurseForgeClient.TryResolveApiKey(out var key, out var problem) || key is null)
             throw new InvalidOperationException(
                 problem ?? "缺少 CurseForge API key（CURSEFORGE_API_KEY 或 %APPDATA%\\NPMC-Launcher\\curseforge.key）");
+
+        _modpackSource = "curseforge";
+        _modpackProjectId = modId.ToString();
 
         var preparer = new CurseForgeModpackPreparer(_downloader, new CurseForgeClient(_http, key), _modrinth);
 

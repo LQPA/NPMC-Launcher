@@ -267,6 +267,16 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
   （取 `settings.DownloadConcurrency`，钳制 1~16），无 SHA1 的文件"存在且非空"即跳过。
   实测从 288 → 488 个模组约 2 分钟；全部已存在的 493 个文件重跑 47 秒。
 
+### 9.1.3 实例的整合包标记（2026-10-26 晚）
+
+- 每个整合包实例在游戏目录写 `.nmpc-modpack.json`：`Source`（curseforge/modrinth）、`ProjectId`、
+  `Name`、`Version`、`Missing`（还没补齐的 blocked 文件，含文件名 + SHA1 + 文件页 URL）。
+- 实例列表与详情标题下显示：`CurseForge 整合包 · 缺少 6 个模组`；普通实例不显示。
+- 下载页安装完成后出现 blocked 面板；关闭启动器后再回来，选中实例时概览页会重新加载同样的列表
+  （`InstanceModpackStore` + `BlockedModImporter`），可随时点「打开下载页」补文件，导入后标记与数字自动更新。
+- ATM10 实测：列表与概览显示「缺少 6 个模组」，面板 6 条；手动放入正确 SHA1 的文件后应变为 0
+  （合成测试已覆盖：错误内容被拒、正确内容导入）。
+
 ### 9.2 设置页（原先左侧导航是灰的）
 
 - 代码：`ViewModels/MainWindowViewModel.Settings.cs`（partial，设置页专用的字段/命令都在这）、

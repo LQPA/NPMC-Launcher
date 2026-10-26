@@ -80,6 +80,8 @@
                            Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
                 <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#B4BCC8" />
                 <TextBlock Text="{Binding ContentText}" FontSize="11" Foreground="#949CA9" />
+                <TextBlock Text="{Binding ModpackSummaryText}" FontSize="10" Foreground="#E0A94A"
+                           IsVisible="{Binding HasModpackInfo}" TextTrimming="CharacterEllipsis" />
               </StackPanel>
             </DataTemplate>
           </ListBox.ItemTemplate>
@@ -322,6 +324,8 @@
             </StackPanel>
           </Grid>
           <TextBlock Text="{Binding SelectedInstance.SummaryText}" FontSize="12" Foreground="#B4BCC8" />
+          <TextBlock Text="{Binding SelectedInstance.ModpackSummaryText}" FontSize="11"
+                     Foreground="#E0A94A" IsVisible="{Binding SelectedInstance.HasModpackInfo}" />
         </StackPanel>
 
         <!-- 页签（用横向 ListBox，选中样式由主题提供，不需要写转换器） -->
@@ -362,6 +366,38 @@
                   BorderBrush="#31353F" BorderThickness="1" Padding="16,14"
                   VerticalAlignment="Top">
             <StackPanel Spacing="9">
+              <!-- 已安装整合包缺少的模组：随时可去 CurseForge 手动下载 -->
+              <Border Background="#2A2618" BorderBrush="#6B5A2E" BorderThickness="1"
+                      CornerRadius="8" Padding="12" IsVisible="{Binding SelectedInstance.HasMissingMods}">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="{Binding SelectedInstance.ModpackSummaryText}" FontSize="12"
+                             FontWeight="SemiBold" Foreground="#E0A94A" />
+                  <ItemsControl ItemsSource="{Binding BlockedMods}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:BlockedModItem">
+                        <Grid ColumnDefinitions="*,90" Margin="0,1">
+                          <TextBlock Text="{Binding FileName}" FontSize="10" Foreground="#E8EAED" />
+                          <TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="10"
+                                     Foreground="#B4BCC8" VerticalAlignment="Center" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Text="{Binding BlockedModsHint}" FontSize="10" Foreground="#949CA9"
+                             TextWrapping="Wrap" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="打开下载页" Command="{Binding OpenBlockedModsCommand}"
+                            FontSize="11" Height="26" Padding="10,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                    <Button Content="选择下载目录…" Click="OnPickBlockedFolderClick"
+                            FontSize="11" Height="26" Padding="10,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                    <Button Content="重新检查" Command="{Binding RecheckBlockedModsCommand}"
+                            FontSize="11" Height="26" Padding="10,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
 
               <Grid ColumnDefinitions="96,*">
                 <TextBlock Grid.Column="0" Text="版本" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />

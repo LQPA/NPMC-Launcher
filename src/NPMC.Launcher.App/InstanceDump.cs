@@ -1085,6 +1085,29 @@ internal static class InstanceDump
             }
         }
 
+        if (args.Any(arg => string.Equals(arg, "--exercise-instance-marker", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[实例整合包标记]");
+
+            var marked = viewModel.Instances.FirstOrDefault(item => item.HasModpackInfo);
+
+            if (marked is null)
+            {
+                lines.Add("    没有带标记的实例");
+            }
+            else
+            {
+                viewModel.SelectedInstance = marked;
+                Thread.Sleep(1200);
+
+                lines.Add($"    实例：{marked.Name}");
+                lines.Add($"    标记：{marked.ModpackSummaryText}");
+                lines.Add($"    缺失：{marked.MissingModsCount} 个；面板条目 {viewModel.BlockedMods.Count} 个；显示={viewModel.HasBlockedMods}");
+                lines.Add($"    提示：{viewModel.BlockedModsHint}");
+            }
+        }
+
         // CurseForge 阻塞文件：只准备、列出 blocked 列表（不安装）
         if (args.Any(arg => string.Equals(arg, "--exercise-cf-blocked", StringComparison.OrdinalIgnoreCase)))
         {
@@ -1133,6 +1156,18 @@ internal static class InstanceDump
                         }
                     }
                 }
+            }
+        }
+
+        if (args.Any(arg => string.Equals(arg, "--exercise-modpack-badge", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[整合包标记]");
+
+            foreach (var item in viewModel.Instances)
+            {
+                lines.Add($"    {item.Name}："
+                          + (item.HasModpackInfo ? item.ModpackSummaryText : "（普通实例）"));
             }
         }
 

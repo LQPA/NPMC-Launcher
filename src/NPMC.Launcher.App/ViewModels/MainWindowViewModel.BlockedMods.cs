@@ -2,6 +2,7 @@ using Avalonia.Threading;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Windows.Input;
+using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Modpacks;
 using NPMC.Launcher.Infrastructure.Modpacks;
 
@@ -40,6 +41,7 @@ public sealed class BlockedModItem : ObservableObject
 public sealed partial class MainWindowViewModel
 {
     private BlockedModImporter? _blockedImporter;
+    private string? _blockedGameDirectory;
 
     public ObservableCollection<BlockedModItem> BlockedMods { get; } = new();
 
@@ -86,6 +88,62 @@ public sealed partial class MainWindowViewModel
         _blockedImporter?.Watch(directory);
     }
 
+    /// <summary>实例里已有的文件是否与 CurseForge 清单的 SHA1 一致。</summary>
+    internal static bool BlockedFileMatches(string gameDirectory, NPMC.Launcher.Core.Modpacks.BlockedModFile file)
+    {
+        try
+        {
+            var path = Path.Combine(gameDirectory, file.TargetFolder, file.FileName);
+            if (!File.Exists(path) || string.IsNullOrWhiteSpace(file.Sha1)) return false;
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var hash = Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(stream)).ToLowerInvariant();
+            return string.Equals(hash, file.Sha1, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+    /// <summary>选中实例时，把该实例持久化的缺失列表加载出来（安装页之外也能随时补）。</summary>
+    private void LoadBlockedModsForSelectedInstance(InstanceListItem? item)
+    {
+        _blockedImporter?.Dispose();
+        _blockedImporter = null;
+        _blockedGameDirectory = null;
+        BlockedMods.Clear();
+
+        if (item is null || !item.HasMissingMods)
+        {
+            OnPropertyChanged(nameof(HasBlockedMods));
+            BlockedModsHint = "";
+            OnPropertyChanged(nameof(BlockedModsHint));
+            return;
+        }
+
+        var info = InstanceModpackStore.Load(item.GameDirectory);
+        if (info is null || info.Missing.Count == 0)
+        {
+            OnPropertyChanged(nameof(HasBlockedMods));
+            return;
+        }
+
+        _blockedGameDirectory = item.GameDirectory;
+        _blockedImporter = new BlockedModImporter(
+            info.Missing, item.GameDirectory,
+            message => Dispatcher.UIThread.Post(() => UpdateBlockedStatus(message)));
+
+        foreach (var file in info.Missing)
+            BlockedMods.Add(new BlockedModItem(file));
+
+        OnPropertyChanged(nameof(HasBlockedMods));
+
+        var downloads = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+
+        _blockedImporter.Watch(downloads);
+        UpdateBlockedStatus($"缺少 {BlockedMods.Count} 个模组，可随时在 CurseForge 下载后自动导入");
+    }
     /// <summary>安装完成后调用：把 blocked 列表显示出来并开始监听下载目录。</summary>
     private void ShowBlockedMods(ModpackPlan plan, string instanceDirectory)
     {
@@ -116,6 +174,17 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(BlockedModsHint));
 
         if (_blockedImporter is null) return;
+
+        if (_blockedGameDirectory is { } directory && InstanceModpackStore.Load(directory) is { } info)
+        {
+            InstanceModpackStore.Save(directory, info with { Missing = _blockedImporter.Pending });
+
+            foreach (var instance in Instances)
+            {
+                if (string.Equals(instance.GameDirectory, directory, StringComparison.OrdinalIgnoreCase))
+                    instance.RefreshModpackInfo();
+            }
+        }
 
         var imported = _blockedImporter.Imported.ToList();
         foreach (var item in BlockedMods)
