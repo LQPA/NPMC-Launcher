@@ -43,12 +43,13 @@ tools/sign-local.ps1              本地签名
 | NeoForge | 与 Forge 1.13+ 同一套官方安装器（1.20.1 走 `net/neoforged/forge` 老坐标，其余走 `net/neoforged/neoforge`）；下载页可选版本 |
 | 旧版本启动 | `minecraftArguments` 旧格式、`-cp`/`-Djava.library.path` 手补、natives 解压、`${user_properties}` 等旧占位符 |
 | 内容管理 | 模组 / 资源包 / 光影 / 数据包：搜索安装（Modrinth）、启停、删除、图标、更新检查、R·B·A 通道标记 |
+| 账号 | **离线账号**：账号页（左列表 + 右详情）/ 新建 / 改用户名（重算离线 UUID）/ 删除 / 设为默认；每个实例可单独选账号；启动时写入 `--username` 与 `--uuid`；CLI `npmc account list/add/default/remove` |
 | 数据包 | 按世界管理：存档页签列世界 → 行内「数据包」进入该世界的数据包页 → 「← 返回存档」 |
 | 存档 | 世界列表（打开目录 / 数据包 / 删除）；**拖入文件夹或 zip 导入**（含嵌套布局、防 zip-slip）；**不支持 rar/7z**（明确不做） |
 | 拖入导入 | 模组 `.jar`、其余 `.zip`；同名不覆盖；扩展名按页签校验 |
 | 进度 | 下载与整合包安装的进度条 |
 | 发布 | `tools/publish.ps1`，README 说明"开发用 VBS，发布用 exe" |
-| 设置 | 下载源/镜像/回退、并发/超时、代理、默认内存、**全局默认 Java**、**预下载 Java 运行时**（Mojang 官方清单 + 进度）；改一项即存；CLI `npmc settings show/set` 同步支持 |
+| 设置 | 下载源/镜像/回退、并发/超时、代理、默认内存、**默认账号**、**全局默认 Java**、**预下载 Java 运行时**（Mojang 官方清单 + 进度）；改一项即存；CLI `npmc settings show/set` 同步支持 |
 
 ---
 
@@ -133,6 +134,7 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 | `--exercise-instance-order` | 拖动排序：VM → `instances.json` → 重新读取，最后还原原值 |
 | `--exercise-instance-rename` | 改名：显示名与目录一起改，旧目录消失/新目录出现，最后改回 |
 | `--exercise-instance-folder-sync` | 直接在磁盘上改实例文件夹名，确认刷新后 Id/名称同步，再改回 |
+| `--exercise-accounts` | 离线账号：新建 → 设默认 → 绑定实例 → 启动解析 → 还原并删除临时账号 |
 | `--exercise-loader-cache [mc]` | 加载器检查：首次联网耗时 vs 切回命中缓存耗时（顺带验证不会卡在"正在检查"） |
 | `--exercise-download-loader <mc> [fabric|forge|neoforge] [loader]` | 走界面同一条路：下载本体 → 装加载器 → 建实例 |
 | `--exercise-forge-versions` | Forge / NeoForge 加载器清单（两个 maven 的 metadata，只读不下载） |
@@ -371,3 +373,20 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
   「改名 → 旧目录消失/新目录出现 → 重新读取 → 改回原名」；`--exercise-instance-folder-sync`
   直接在磁盘上 `Directory.Move` 改文件夹名，确认启动器刷新后 Id/名称跟着变，再改回。
   合成鼠标拖动实测把第 2 项拖到第 1 项，`instances.json` 的 SortIndex 变为 0/1/2。
+
+### 10.7 离线账号（2026-10-26 晚）
+
+- 账号模型：`PlayerAccount(Id, Username, Uuid, Kind, CreatedAt)`，目前 `Kind` 只有 `Offline`；
+  微软正版与 authlib-injector 留了枚举位，等审批 / 有测试环境再接。
+- **离线 UUID 规则**：`MD5("OfflinePlayer:" + 用户名)`，再把 version 改成 3、variant 改成 RFC 4122。
+  与 Java 的 `UUID.nameUUIDFromBytes` 完全一致（实测 Steve → `5627dd98e6be3c21b8a8e92344183641`），
+  服务器/存档看到的是稳定身份。改用户名会重算 UUID。
+- 存储：`<root>\accounts.json`（可手改，原子写入）；账号页 = 左侧列表 + 右侧详情
+  （用户名 / UUID / 类型 / 创建时间 / 设为默认 / 删除；删除两次点击确认）。
+- **账号解析优先级**（启动时）：实例的 `Settings.AccountId` → 全局 `settings.json` 的
+  `DefaultAccountId` → 账号列表第一个；一个账号都没有时退回 `Player` 这个名字（不阻断启动）。
+- 实例概览新增「账号」下拉；第一项"跟随默认账号"。选择会写进该实例的 `AccountId`。
+- 注：离线账号不联网、没有令牌；`access_token` 用占位值，`user_type=legacy`。
+- CLI：`npmc account list/add/default/remove`；`npmc launch` 也会打印实际使用的账号。
+- 验证：`--exercise-accounts` 走"新建 → 设默认 → 绑定实例 → 解析启动账号 → 还原/删除"，
+  自测新增离线 UUID（对照 Java 规则）、账号目录增删改、`LaunchContext.Offline` 等用例。

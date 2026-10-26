@@ -41,6 +41,11 @@ public sealed record LauncherSettings
     /// </summary>
     public string? DefaultJavaPath { get; init; }
 
+    /// <summary>
+    /// 全局默认账号 Id（实例没有单独指定账号时使用）。留空 = 用账号列表里的第一个。
+    /// </summary>
+    public string? DefaultAccountId { get; init; }
+
     public string Language { get; init; } = "zh-CN";
 
     /// <summary>转成镜像路由设置。</summary>

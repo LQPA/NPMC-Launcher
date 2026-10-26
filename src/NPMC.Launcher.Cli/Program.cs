@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text;
+using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Launch;
@@ -45,6 +46,7 @@ internal static class Program
                 "mirror"   => await MirrorAsync(args[1..]),
                 "doctor"   => await DoctorAsync(args[1..]),
                 "settings" => await SettingsAsync(args[1..]),
+                "account"  => await AccountAsync(args[1..]),
                 "net"      => await NetAsync(args[1..]),
                 "mods"     => await ModsAsync(args[1..]),
                 "loader"   => await LoaderAsync(args[1..]),
@@ -358,11 +360,24 @@ internal static class Program
         var logConfig = version.Logging?.Client?.File is { } f ? paths.LogConfigFile(f.Id) : null;
         var settings = instance?.Settings ?? new InstanceSettings();
 
-        var context = LaunchContext.OfflineProbe() with
-        {
-            Width = settings.WindowWidth,
-            Height = settings.WindowHeight,
-        };
+        // 账号解析：实例指定 → 全局默认 → 第一个；没有账号时退回离线探针名
+        var accounts = new AccountCatalog(await new JsonAccountStore(launcher).LoadAsync());
+        var accountId = settings.AccountId ?? launcherSettings.DefaultAccountId;
+        var account = accounts.Find(accountId) ?? accounts.Accounts.FirstOrDefault();
+
+        if (account is not null) Info($"账号     {account.Username} ({account.KindText})");
+
+        var context = account is null
+            ? LaunchContext.OfflineProbe() with
+            {
+                Width = settings.WindowWidth,
+                Height = settings.WindowHeight,
+            }
+            : LaunchContext.Offline(account.Username, account.Uuid) with
+            {
+                Width = settings.WindowWidth,
+                Height = settings.WindowHeight,
+            };
 
         var plan = LaunchPlanFactory.Create(paths, versionId, version, context, os,
             memoryMb: OptInt(args, "--memory", instance?.Settings.MemoryMb ?? launcherSettings.DefaultMemoryMb),
@@ -1898,6 +1913,113 @@ internal static class Program
         return new MirrorRouter(settings.ToMirrorSettings() with { Source = source });
     }
 
+    /// <summary>离线账号：list / add / remove / default。</summary>
+    private static async Task<int> AccountAsync(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Error("用法: npmc account <list|add|remove|default> [用户名|Id] [--root <目录>]");
+            Dim("  add    创建离线账号（UUID 按用户名离线规则生成）");
+            Dim("  default 设为全局默认账号");
+            return 1;
+        }
+
+        var action = args[0].ToLowerInvariant();
+        var rest = args[1..];
+        var launcher = new LauncherPaths(ResolveRoot(rest));
+        var store = new JsonAccountStore(launcher);
+        var catalog = new AccountCatalog(await store.LoadAsync());
+        var settings = await LoadSettingsAsync(launcher);
+
+        string? Key() => rest.FirstOrDefault(arg => !arg.StartsWith("--", StringComparison.Ordinal));
+
+        PlayerAccount? Find(string? key) => key is null
+            ? null
+            : catalog.Find(key) ?? catalog.FindByUsername(key);
+
+        switch (action)
+        {
+            case "list":
+            {
+                Section("账号列表");
+
+                if (catalog.Count == 0)
+                {
+                    Warn("还没有账号。npmc account add Steve");
+                    return 0;
+                }
+
+                var defaultId = settings.DefaultAccountId is { } configured && catalog.Find(configured) is not null
+                    ? configured
+                    : catalog.Accounts[0].Id;
+
+                foreach (var account in catalog.Accounts)
+                {
+                    var mark = account.Id == defaultId ? "  [默认]" : "";
+                    Info($"{account.Username}{mark}  {account.KindText}  {account.UuidDisplay}");
+                }
+
+                return 0;
+            }
+
+            case "add":
+            {
+                var name = Key();
+
+                if (name is null)
+                {
+                    Error("用法: npmc account add <用户名>");
+                    return 1;
+                }
+
+                var account = catalog.AddOffline(name);
+                await store.SaveAsync(catalog.Accounts);
+                Info($"已创建离线账号 {account.Username} · UUID {account.UuidDisplay}");
+                return 0;
+            }
+
+            case "remove":
+            {
+                var account = Find(Key());
+
+                if (account is null)
+                {
+                    Error("找不到账号。npmc account list 看看。");
+                    return 1;
+                }
+
+                catalog.Remove(account.Id);
+                await store.SaveAsync(catalog.Accounts);
+
+                if (string.Equals(settings.DefaultAccountId, account.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    await new JsonSettingsStore(launcher).SaveAsync(settings with { DefaultAccountId = null });
+                }
+
+                Info($"已删除账号 {account.Username}");
+                return 0;
+            }
+
+            case "default":
+            {
+                var account = Find(Key());
+
+                if (account is null)
+                {
+                    Error("找不到账号。npmc account list 看看。");
+                    return 1;
+                }
+
+                await new JsonSettingsStore(launcher).SaveAsync(settings with { DefaultAccountId = account.Id });
+                Info($"默认账号 → {account.Username}");
+                return 0;
+            }
+
+            default:
+                return Unknown(args[0]);
+        }
+    }
+
     /// <summary>读全局设置；配置文件损坏时退回默认值，而不是让整个命令失败。</summary>
     private static async Task<LauncherSettings> LoadSettingsAsync(LauncherPaths paths)
     {
@@ -2086,6 +2208,16 @@ internal static class Program
               npmc settings set <键> <值>
                                                       键：source(official|bmclapi) / memory / concurrency /
                                                       mirror / fallback(true|false)
+
+            账号（离线）:
+              npmc account list
+                                                      列出账号与 UUID（[默认] 标记全局默认账号）
+              npmc account add <用户名>
+                                                      新建离线账号，UUID 按 Minecraft 离线规则生成
+              npmc account default <用户名|Id>
+                                                      设为全局默认账号
+              npmc account remove <用户名|Id>
+                                                      删除账号（引用它的实例会退回默认账号）
 
             网络:
               npmc net selftest [--version 1.20.1] [--samples 3] [--dry-run]

@@ -8,7 +8,8 @@ public enum NavPage
 {
     Instances = 0,
     Downloads = 1,
-    Settings = 2,
+    Accounts = 2,
+    Settings = 3,
 }
 
 /// <summary>下载页的两个区域。</summary>

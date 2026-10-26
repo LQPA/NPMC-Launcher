@@ -40,6 +40,7 @@ public sealed partial class MainWindowViewModel
     private JavaChoice? _settingsJavaChoice;
     private string _settingsJavaHint = "";
     private string? _settingsDefaultJavaPath;
+    private string? _settingsDefaultAccountId;
 
     private RuntimeChoiceItem? _settingsRuntime;
     private bool _isInstallingRuntime;
@@ -200,6 +201,8 @@ public sealed partial class MainWindowViewModel
     /// <summary>页面打开时懒加载：枚举 Java 要跑几次 java -version，不该拖慢启动。</summary>
     private async Task EnsureSettingsPageDataAsync()
     {
+        await EnsureAccountsLoadedAsync();
+
         if (!_settingsJavaLoaded) await LoadSettingsJavaChoicesAsync();
 
         // 运行时清单要联网，失败也不该挡住其它设置
@@ -484,6 +487,7 @@ public sealed partial class MainWindowViewModel
             _settingsProxy = settings.HttpProxy ?? "";
             _settingsDefaultMemory = settings.DefaultMemoryMb;
             _settingsDefaultJavaPath = settings.DefaultJavaPath;
+            _settingsDefaultAccountId = settings.DefaultAccountId;
 
             OnPropertyChanged(nameof(SettingsSourceIndex));
             OnPropertyChanged(nameof(SettingsMirrorEnabled));
@@ -509,6 +513,9 @@ public sealed partial class MainWindowViewModel
                 OnPropertyChanged(nameof(SettingsJavaChoice));
                 UpdateSettingsJavaHint(selected);
             }
+
+            RefreshDefaultAccountSelection();
+            RefreshAccountDefaults();
         }
         finally
         {
@@ -529,6 +536,8 @@ public sealed partial class MainWindowViewModel
         HttpProxy = string.IsNullOrWhiteSpace(_settingsProxy) ? null : _settingsProxy.Trim(),
         // Java 候选还没加载时不要用"空"覆盖掉文件里已有的值
         DefaultJavaPath = _settingsJavaLoaded ? _settingsJavaChoice?.Path : _settingsDefaultJavaPath,
+        // 账号候选还没加载时不要用"空"覆盖掉文件里已有的默认账号
+        DefaultAccountId = _settingsDefaultAccountId,
         // 语言暂时只有简体中文，保留文件里的值
         Language = _startupSettings.Language,
     };

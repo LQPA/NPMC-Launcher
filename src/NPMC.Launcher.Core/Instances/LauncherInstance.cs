@@ -39,6 +39,12 @@ public sealed record InstanceSettings
     /// <summary>覆盖 java.exe 的绝对路径。为空则用内置运行时。</summary>
     public string? JavaPath { get; init; }
 
+    /// <summary>
+    /// 这个实例启动时用哪个账号（accounts.json 里的 Id）。
+    /// 为空则用全局默认账号，再没有就用账号列表里的第一个。
+    /// </summary>
+    public string? AccountId { get; init; }
+
     public List<string> ExtraJvmArguments { get; init; } = new();
 }
 

@@ -43,6 +43,13 @@ public sealed record LaunchContext(
             LauncherVersion: "0.1.0",
             Width: 1280,
             Height: 720);
+
+    /// <summary>
+    /// 离线账号的上下文：UUID 按 Minecraft 的离线规则由用户名算出，
+    /// 这样服务器与单人存档看到的是稳定的同一个玩家身份。
+    /// </summary>
+    public static LaunchContext Offline(string playerName, string uuid) =>
+        OfflineProbe(playerName) with { Uuid = uuid };
 }
 
 /// <summary>

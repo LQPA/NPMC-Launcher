@@ -148,6 +148,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ShowVersionsModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Versions));
         ShowModpacksModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Modpacks));
         RefreshLoadersCommand = new RelayCommand(RefreshLoadersNow);
+
+        InitializeAccountCommands();
         InstallModpackCommand = new AsyncRelayCommand(
             InstallModpackAsync,
             () => HasModpackPlan && !IsInstallingModpack);
@@ -559,7 +561,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 return;
             }
 
-            prepared = GameLauncher.Prepare(_launcher, instance.Model, version, launcherSettings);
+            var account = await ResolveLaunchAccountAsync(instance.Model);
+            LaunchAccountName = account?.Username ?? "Player";
+
+            prepared = GameLauncher.Prepare(_launcher, instance.Model, version, launcherSettings, account);
         }
         catch (Exception ex)
         {
@@ -690,7 +695,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             IsRenaming = false;
 
             // 换实例 → 重新判断该实例能不能用模组/光影
-            if (value is { } selectedInstance) _ = RefreshCapabilitiesAsync(selectedInstance);
+            if (value is { } selectedInstance)
+            {
+                _ = RefreshCapabilitiesAsync(selectedInstance);
+                SyncAccountChoice(selectedInstance.Model);
+            }
 
             // 先同步清空 Java 那一行再异步填充：否则会短暂显示上一个实例的 Java（"慢一拍"）
             _javaChoicesReady = false;
@@ -1351,6 +1360,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(IsEmpty));
 
             SelectedInstance = Instances.FirstOrDefault();
+
+            // 账号页与实例概览的账号下拉都依赖账号列表，进实例页前先加载好
+            await EnsureAccountsLoadedAsync();
 
             var problems = catalog.Validate();
 
@@ -3348,12 +3360,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsSettingsPage));
         OnPropertyChanged(nameof(SettingsNavBackground));
         OnPropertyChanged(nameof(SettingsNavForeground));
+        OnPropertyChanged(nameof(IsAccountsPage));
+        OnPropertyChanged(nameof(AccountsNavBackground));
+        OnPropertyChanged(nameof(AccountsNavForeground));
 
         // 下载页两个分区的可见性/高亮也依赖"在不在下载页"，必须一起通知：
         // 只通知 IsVersionsMode 会留下"内容出来了、左侧「游戏本体」没高亮"。
         RaiseDownloadModeChanged();
 
         if (page == NavPage.Downloads) _ = LoadDownloadVersionsAsync();
+        if (page == NavPage.Accounts) _ = EnsureAccountsLoadedAsync();
         if (page == NavPage.Settings) _ = EnsureSettingsPageDataAsync();
     }
 

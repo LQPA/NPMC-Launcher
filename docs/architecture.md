@@ -364,6 +364,24 @@ CLI 是 `npmc settings show` / `npmc settings set <键> <值>`。
 
 ---
 
+## 8.5 离线账号（已实现）
+
+| 文件 | 职责 |
+|---|---|
+| `Core/Accounts/PlayerAccount.cs` | 账号模型 + 离线 UUID（MD5 + UUID v3/variant） |
+| `Core/Accounts/AccountCatalog.cs` | 增删改查、用户名唯一校验（纯逻辑，无 I/O） |
+| `Core/Abstractions/IAccountStore.cs` | 持久化抽象 |
+| `Infrastructure/Storage/JsonAccountStore.cs` | `<root>\accounts.json`，原子写入、可手改 |
+
+- **启动时的账号解析**：`instance.Settings.AccountId` → `settings.json` 的 `DefaultAccountId`
+  → 账号列表第一个；都没有时用 `Player` 兜底，不阻断启动。
+- 解析出的账号交给 `GameLauncher.Prepare(..., account)`，由
+  `LaunchContext.Offline(username, uuid)` 填入 `${auth_player_name}` / `${auth_uuid}`；
+  `user_type=legacy`、`access_token` 为占位值（离线不需要真令牌）。
+- 账号 Id 是随机 GUID（不是用户名），改用户名只重算 UUID、不破坏实例的 `AccountId` 引用；
+  删除账号时如果它正好是全局默认，会同时清空 `settings.json` 里的 `DefaultAccountId`。
+- 微软 / authlib-injector 的令牌不会写进 `accounts.json`；后续接它们时单独存受保护位置。
+
 ## 9. 正版登录（受外部阻塞）
 
 ### 完整链路

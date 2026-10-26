@@ -1085,6 +1085,63 @@ internal static class InstanceDump
             }
         }
 
+        // 离线账号：新建 → 设为默认 → 绑定实例 → 启动解析 → 还原并删除临时账号
+        if (args.Any(arg => string.Equals(arg, "--exercise-accounts", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[账号]");
+
+            var before = viewModel.Accounts.Select(item => item.Username).ToList();
+
+            viewModel.NewAccountName = "DiagAcc";
+            viewModel.CreateAccountCommand.Execute(null);
+            Thread.Sleep(700);
+
+            var created = viewModel.Accounts.FirstOrDefault(item => item.Username == "DiagAcc");
+            lines.Add($"    新建：{created?.Username ?? "(失败)"} UUID={created?.UuidDisplay ?? "-"}");
+
+            if (created is not null)
+            {
+                viewModel.SelectedAccount = created;
+                viewModel.SetDefaultAccountCommand.Execute(null);
+                Thread.Sleep(500);
+                lines.Add($"    默认：Selected={viewModel.SelectedAccountIsDefault} "
+                          + $"设置下拉={viewModel.SettingsDefaultAccountChoice?.Display ?? "-"}");
+
+                if (viewModel.SelectedInstance is { } instance)
+                {
+                    var choice = viewModel.AccountOptions.FirstOrDefault(option => option.Id == created.Id);
+                    viewModel.SelectedAccountChoice = choice;
+                    Thread.Sleep(800);
+
+                    lines.Add($"    实例 {instance.Name} 的 AccountId={instance.Model.Settings.AccountId}");
+
+                    var resolved = viewModel.ResolveLaunchAccountAsync(instance.Model).GetAwaiter().GetResult();
+                    lines.Add($"    启动解析 → {resolved?.Username ?? "null"} / {resolved?.Uuid ?? "-"}");
+                }
+
+                // 还原：实例改回"跟随默认"
+                if (viewModel.SelectedInstance is not null && viewModel.AccountOptions.Count > 0)
+                {
+                    viewModel.SelectedAccountChoice = viewModel.AccountOptions[0];
+                    Thread.Sleep(600);
+                }
+
+                // 删除临时账号（两次点击确认）
+                viewModel.SelectedAccount = viewModel.Accounts.FirstOrDefault(item => item.Username == "DiagAcc");
+                viewModel.DeleteAccountCommand.Execute(null);
+                Thread.Sleep(250);
+                viewModel.DeleteAccountCommand.Execute(null);
+                Thread.Sleep(900);
+
+                lines.Add($"    清理：剩余账号 = {string.Join("、", viewModel.Accounts.Select(item => item.Username))}"
+                          + $"（原有：{string.Join("、", before)}）");
+
+                if (viewModel.SelectedInstance is { } after)
+                    lines.Add($"    还原后实例 AccountId={after.Model.Settings.AccountId ?? "null"}");
+            }
+        }
+
         // 加载器检查的缓存与"切回不再卡住"：首次联网耗时 vs 切回命中缓存耗时
         if (args.Any(arg => string.Equals(arg, "--exercise-loader-cache", StringComparison.OrdinalIgnoreCase)))
         {

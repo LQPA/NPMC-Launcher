@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Launch;
 using NPMC.Launcher.Core.Models;
@@ -102,7 +103,8 @@ public static class GameLauncher
         LauncherPaths launcher,
         LauncherInstance? instance,
         VersionJson version,
-        LauncherSettings launcherSettings)
+        LauncherSettings launcherSettings,
+        PlayerAccount? account = null)
     {
         var layout = instance is null ? null : new InstanceLayout(launcher, instance);
         layout?.EnsureDirectories();
@@ -112,11 +114,17 @@ public static class GameLauncher
         var os = OsInfo.Windows64();
         var logConfig = version.Logging?.Client?.File is { } file ? paths.LogConfigFile(file.Id) : null;
 
-        var context = LaunchContext.OfflineProbe() with
-        {
-            Width = instanceSettings.WindowWidth,
-            Height = instanceSettings.WindowHeight,
-        };
+        var context = account is null
+            ? LaunchContext.OfflineProbe("Player") with
+            {
+                Width = instanceSettings.WindowWidth,
+                Height = instanceSettings.WindowHeight,
+            }
+            : LaunchContext.Offline(account.Username, account.Uuid) with
+            {
+                Width = instanceSettings.WindowWidth,
+                Height = instanceSettings.WindowHeight,
+            };
 
         var memory = instanceSettings.MemoryMb > 0
             ? instanceSettings.MemoryMb
