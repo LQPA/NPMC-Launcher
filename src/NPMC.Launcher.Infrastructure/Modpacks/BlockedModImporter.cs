@@ -16,7 +16,8 @@ public sealed class BlockedModImporter : IDisposable
     private readonly List<BlockedModFile> _pending;
     private readonly object _gate = new();
 
-    private FileSystemWatcher? _watcher;
+    private readonly List<FileSystemWatcher> _watchers = new();
+    private readonly List<string> _directories = new();
     private Timer? _debounce;
     private bool _disposed;
 
@@ -38,28 +39,47 @@ public sealed class BlockedModImporter : IDisposable
 
     public IReadOnlyList<BlockedModFile> Imported { get; } = new List<BlockedModFile>();
 
-    /// <summary>开始监听一个目录（通常是系统下载目录），并先扫一遍已有文件。</summary>
+    /// <summary>开始监听一个目录（可多次调用，累加监听）。</summary>
     public void Watch(string directory)
     {
-        if (_disposed || string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return;
+        if (string.IsNullOrWhiteSpace(directory)) return;
+        Watch(new[] { directory });
+    }
 
-        _watcher?.Dispose();
+    /// <summary>同时监听多个下载目录（系统 Downloads + 各浏览器自定义目录）。</summary>
+    public void Watch(IEnumerable<string> directories)
+    {
+        if (_disposed) return;
 
-        _watcher = new FileSystemWatcher(directory)
+        var added = 0;
+
+        foreach (var directory in directories.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            IncludeSubdirectories = false,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.LastWrite,
-            EnableRaisingEvents = true,
-        };
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) continue;
+            if (_directories.Contains(directory, StringComparer.OrdinalIgnoreCase)) continue;
 
-        _watcher.Created += (_, _) => ScheduleScan();
-        _watcher.Changed += (_, _) => ScheduleScan();
-        _watcher.Renamed += (_, _) => ScheduleScan();
+            var watcher = new FileSystemWatcher(directory)
+            {
+                IncludeSubdirectories = false,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.LastWrite,
+                EnableRaisingEvents = true,
+            };
+
+            watcher.Created += (_, _) => ScheduleScan();
+            watcher.Changed += (_, _) => ScheduleScan();
+            watcher.Renamed += (_, _) => ScheduleScan();
+
+            _watchers.Add(watcher);
+            _directories.Add(directory);
+            added++;
+        }
+
+        if (added == 0) return;
 
         _debounce?.Dispose();
         _debounce = new Timer(_ => Scan(), null, TimeSpan.FromMilliseconds(1200), Timeout.InfiniteTimeSpan);
 
-        _status?.Invoke($"正在监听下载目录：{directory}");
+        _status?.Invoke($"正在监听 {_directories.Count} 个下载目录：{string.Join("；", _directories)}");
     }
 
     /// <summary>立刻扫一遍目录（用于用户手动点“重新检查”）。</summary>
@@ -84,61 +104,68 @@ public sealed class BlockedModImporter : IDisposable
 
         if (pending.Count == 0) return;
 
-        var directory = _watcher?.Path;
-        if (string.IsNullOrWhiteSpace(directory)) return;
-
-        foreach (var file in Directory.EnumerateFiles(directory))
+        foreach (var directory in _directories.ToList())
         {
             if (_disposed) return;
-            if (file.Contains(".part", StringComparison.OrdinalIgnoreCase)
-                || file.Contains(".crdownload", StringComparison.OrdinalIgnoreCase))
+            if (!Directory.Exists(directory)) continue;
+
+            foreach (var file in Directory.EnumerateFiles(directory))
             {
-                continue;
-            }
-
-            string hash;
-            try
-            {
-                // 浏览器还在写：打不开就等下一轮，避免把半个文件算成哈希
-                using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
-                hash = Convert.ToHexString(SHA1.HashData(stream)).ToLowerInvariant();
-            }
-            catch
-            {
-                continue;
-            }
-
-            var match = pending.FirstOrDefault(item =>
-                string.Equals(item.Sha1, hash, StringComparison.OrdinalIgnoreCase));
-
-            if (match is null) continue;
-
-            try
-            {
-                var destination = Path.Combine(
-                    _instanceDirectory, match.TargetFolder, match.FileName);
-
-                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                File.Copy(file, destination, overwrite: true);
-
-                lock (_gate) _pending.Remove(match);
-                ((List<BlockedModFile>)Imported).Add(match);
-
-                _status?.Invoke($"已导入 {match.FileName}（SHA1 校验通过）");
-            }
-            catch (Exception ex)
-            {
-                _status?.Invoke($"导入 {match.FileName} 失败：{ex.GetBaseException().Message}");
+                if (_disposed) return;
+                ScanFile(file, pending);
             }
         }
     }
 
+    private void ScanFile(string file, List<BlockedModFile> pending)
+    {
+        if (file.Contains(".part", StringComparison.OrdinalIgnoreCase)
+            || file.Contains(".crdownload", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        string hash;
+        try
+        {
+            // 浏览器还在写：打不开就等下一轮，避免把半个文件算成哈希
+            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
+            hash = Convert.ToHexString(SHA1.HashData(stream)).ToLowerInvariant();
+        }
+        catch
+        {
+            return;
+        }
+
+        var match = pending.FirstOrDefault(item =>
+            string.Equals(item.Sha1, hash, StringComparison.OrdinalIgnoreCase));
+
+        if (match is null) return;
+
+        try
+        {
+            var destination = Path.Combine(_instanceDirectory, match.TargetFolder, match.FileName);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(file, destination, overwrite: true);
+
+            lock (_gate) _pending.Remove(match);
+            ((List<BlockedModFile>)Imported).Add(match);
+
+            _status?.Invoke($"已导入 {match.FileName}（SHA1 校验通过）");
+        }
+        catch (Exception ex)
+        {
+            _status?.Invoke($"导入 {match.FileName} 失败：{ex.GetBaseException().Message}");
+        }
+    }
     public void Dispose()
     {
         _disposed = true;
 
-        _watcher?.Dispose();
-        _watcher = null;
+        foreach (var watcher in _watchers) watcher.Dispose();
+        _watchers.Clear();
+        _directories.Clear();
 
         _debounce?.Dispose();
         _debounce = null;

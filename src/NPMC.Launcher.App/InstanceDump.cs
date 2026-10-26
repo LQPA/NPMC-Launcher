@@ -1171,6 +1171,48 @@ internal static class InstanceDump
             }
         }
 
+        // 默认浏览器的下载目录 + 多目录导入
+        if (args.Any(arg => string.Equals(arg, "--exercise-browser-dirs", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[下载目录]");
+            lines.Add($"    默认浏览器目录：{NPMC.Launcher.Infrastructure.Downloads.BrowserDownloadLocator.GetDefaultBrowserDownloadDirectory() ?? "（未识别）"}");
+            lines.Add($"    系统 Downloads：{NPMC.Launcher.Infrastructure.Downloads.BrowserDownloadLocator.GetKnownDownloadsFolder()}");
+
+            foreach (var directory in NPMC.Launcher.Infrastructure.Downloads.BrowserDownloadLocator.GetCandidateDirectories())
+                lines.Add($"    监听：{directory}");
+
+            var tempRoot = Path.Combine(Path.GetTempPath(), "nmpc-dirs-" + Guid.NewGuid().ToString("N")[..8]);
+            var firstDir = Path.Combine(tempRoot, "browser");
+            var secondDir = Path.Combine(tempRoot, "downloads");
+            var instanceDir = Path.Combine(tempRoot, "instance");
+
+            try
+            {
+                Directory.CreateDirectory(firstDir);
+                Directory.CreateDirectory(secondDir);
+                Directory.CreateDirectory(instanceDir);
+
+                var content = System.Text.Encoding.UTF8.GetBytes("multi-dir " + Guid.NewGuid());
+                var sha1 = Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(content)).ToLowerInvariant();
+
+                using var importer = new NPMC.Launcher.Infrastructure.Modpacks.BlockedModImporter(
+                    new[] { new NPMC.Launcher.Core.Modpacks.BlockedModFile(1, 2, "Multi", "multi", "Multi.jar", sha1) },
+                    instanceDir);
+
+                importer.Watch(new[] { firstDir, secondDir });
+                File.WriteAllBytes(Path.Combine(secondDir, "Multi.jar"), content);
+                importer.ScanNow();
+                Thread.Sleep(1500);
+
+                lines.Add($"    第二个目录的文件被导入：{(File.Exists(Path.Combine(instanceDir, "mods", "Multi.jar")) ? "是" : "否")}");
+            }
+            finally
+            {
+                try { Directory.Delete(tempRoot, true); } catch { }
+            }
+        }
+
         // 被作者禁止下载的文件：模拟浏览器下载 → SHA1 校验 → 导入实例
         if (args.Any(arg => string.Equals(arg, "--exercise-blocked", StringComparison.OrdinalIgnoreCase)))
         {

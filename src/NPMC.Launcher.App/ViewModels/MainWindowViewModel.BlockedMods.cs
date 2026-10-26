@@ -5,6 +5,7 @@ using System.Windows.Input;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Modpacks;
 using NPMC.Launcher.Infrastructure.Modpacks;
+using NPMC.Launcher.Infrastructure.Downloads;
 
 namespace NPMC.Launcher.App.ViewModels;
 
@@ -138,11 +139,11 @@ public sealed partial class MainWindowViewModel
 
         OnPropertyChanged(nameof(HasBlockedMods));
 
-        var downloads = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        var directories = BrowserDownloadLocator.GetCandidateDirectories();
+        _blockedImporter.Watch(directories);
 
-        _blockedImporter.Watch(downloads);
-        UpdateBlockedStatus($"缺少 {BlockedMods.Count} 个模组，可随时在 CurseForge 下载后自动导入");
+        UpdateBlockedStatus($"缺少 {BlockedMods.Count} 个模组，可随时在 CurseForge 下载后自动导入"
+                            + $"（监听 {directories.Count} 个下载目录）");
     }
     /// <summary>安装完成后调用：把 blocked 列表显示出来并开始监听下载目录。</summary>
     private void ShowBlockedMods(ModpackPlan plan, string instanceDirectory)
@@ -160,12 +161,11 @@ public sealed partial class MainWindowViewModel
 
         OnPropertyChanged(nameof(HasBlockedMods));
 
-        var downloads = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        var directories = BrowserDownloadLocator.GetCandidateDirectories();
+        _blockedImporter.Watch(directories);
 
-        _blockedImporter.Watch(downloads);
-
-        UpdateBlockedStatus($"有 {BlockedMods.Count} 个文件被作者禁止第三方下载，已开始监听 {downloads}");
+        UpdateBlockedStatus($"有 {BlockedMods.Count} 个文件被作者禁止第三方下载，"
+                            + $"已开始监听 {directories.Count} 个下载目录：{string.Join("；", directories)}");
     }
 
     private void UpdateBlockedStatus(string message)
