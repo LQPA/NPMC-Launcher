@@ -167,8 +167,9 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 
 ## 7. 未提交/未完成的事项
 
-- 工作区干净。`main` 上比远端多四个本地提交：`54913d3`（页签可见性）、`852bd96`（设置页 + 存档数字）、
-  下载页高亮修复，以及记录它们的文档提交；**没有 push**，要同步远端请显式执行。
+- 工作区干净。`main` 上比远端多五个本地提交：`54913d3`（页签可见性）、`852bd96`（设置页 + 存档数字）、
+  下载页高亮修复、`4728ab0`（Forge 1.13+ 自动安装），以及记录它们的文档提交；
+  **没有 push**，要同步远端请显式执行。
 - 会话末尾有两个回归已修（空提示行、离开页签清理），见 `56ce5a3` 说明。
 
 ---
@@ -283,6 +284,17 @@ java -jar forge-<mc>-<ver>-installer.jar --installClient <启动器根目录>
 
 入口三处都通了：**下载页勾选 Forge**（列出 `maven-metadata.xml` 里该游戏版本的全部加载器）、
 **Forge 整合包**（`.mrpack` 声明 forge 时自动装）、**CLI**（`npmc loader forge`）。
+
+实测记录（2026-10-26）：
+
+- `npmc loader forge --version 1.20.1 --loader 47.2.0` → 官方安装器跑完，写出
+  `versions/1.20.1-forge-47.2.0/`，`--exercise-launch-plan` 显示占位符无残留、`-p` 缺 0 个；
+- 用该版本建实例后真实启动，日志出现 `Forge Version Check ... Current: 47.2.0`，
+  游戏窗口正常（45 秒后由诊断结束进程）；
+- `--exercise-download-forge 1.20.1 47.2.0` 走界面同一条路（下载本体 → 装 Forge → 建实例），
+  实例名 `1.20.1-forge-47.2.0`、版本正确；
+- 下载页勾选 Forge 后：版本下拉出现（该游戏版本 13~163 个候选）、实例名自动带 `-forge-<版本>`、
+  状态行显示候选数量（截图已核对）。
 
 ### 10.3 代价与限制（别当成 bug）
 
