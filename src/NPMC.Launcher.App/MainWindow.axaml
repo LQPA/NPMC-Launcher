@@ -1,4 +1,4 @@
-﻿<Window xmlns="https://github.com/avaloniaui"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NPMC.Launcher.App.ViewModels"
         xmlns:mc="using:NPMC.Launcher.Infrastructure.Minecraft"
@@ -760,8 +760,26 @@
           <Border Grid.Row="2" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="8"
                   IsVisible="{Binding ShowModList}">
-            <ScrollViewer>
-              <ItemsControl ItemsSource="{Binding Content}">
+            <ListBox ItemsSource="{Binding Content}" Background="Transparent" BorderThickness="0"
+                     SelectionMode="Single" Padding="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <VirtualizingStackPanel />
+                  </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.Styles>
+                  <Style Selector="ListBoxItem">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Background" Value="Transparent" />
+                  </Style>
+                  <Style Selector="ListBoxItem:selected">
+                    <Setter Property="Background" Value="Transparent" />
+                  </Style>
+                  <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                    <Setter Property="Background" Value="Transparent" />
+                  </Style>
+                </ListBox.Styles>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ContentEntryItem">
                     <Grid ColumnDefinitions="60,30,*,Auto,Auto,Auto,Auto,Auto" Margin="4,5">
@@ -837,8 +855,7 @@
                     </Grid>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </ScrollViewer>
+              </ListBox>
           </Border>
 
           <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"
