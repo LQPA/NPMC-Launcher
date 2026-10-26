@@ -466,14 +466,35 @@ internal static class InstanceDump
                 viewModel.SelectedDownloadVersion = viewModel.DownloadVersions[1];
                 lines.Add($"    切到 {viewModel.SelectedDownloadVersion?.Id} → 名称 = {viewModel.DownloadInstanceName}");
 
-                viewModel.InstallFabric = false;
-                lines.Add($"    关闭 Fabric → 名称 = {viewModel.DownloadInstanceName}");
+                viewModel.SelectedLoader = LoaderKind.Vanilla;
+                lines.Add($"    切到原版 → 名称 = {viewModel.DownloadInstanceName}");
 
-                viewModel.InstallFabric = true;
-                for (var i = 0; i < 150 && viewModel.FabricLoaderVersions.Count == 0; i++) Thread.Sleep(100);
+                // 等三家加载器查完（Fabric / Forge / NeoForge 并行）
+                for (var i = 0; i < 300 && viewModel.IsCheckingLoaders; i++) Thread.Sleep(100);
 
-                lines.Add($"    Fabric 加载器 {viewModel.FabricLoaderVersions.Count} 个，选中 {viewModel.SelectedFabricLoader?.Version}");
-                lines.Add($"    名称 = {viewModel.DownloadInstanceName}");
+                lines.Add($"    可用加载器：Fabric={viewModel.CanSelectFabric} "
+                          + $"Forge={viewModel.CanSelectForge} NeoForge={viewModel.CanSelectNeoForge}");
+
+                if (viewModel.CanSelectFabric)
+                {
+                    viewModel.SelectedLoader = LoaderKind.Fabric;
+                    lines.Add($"    Fabric 加载器 {viewModel.FabricLoaderVersions.Count} 个，选中 {viewModel.SelectedFabricLoader?.Version}");
+                    lines.Add($"    名称 = {viewModel.DownloadInstanceName}");
+                }
+
+                if (viewModel.CanSelectForge)
+                {
+                    viewModel.SelectedLoader = LoaderKind.Forge;
+                    lines.Add($"    Forge 加载器 {viewModel.ForgeLoaderVersions.Count} 个，选中 {viewModel.SelectedForgeLoader?.Loader}");
+                    lines.Add($"    名称 = {viewModel.DownloadInstanceName}");
+                }
+
+                if (viewModel.CanSelectNeoForge)
+                {
+                    viewModel.SelectedLoader = LoaderKind.NeoForge;
+                    lines.Add($"    NeoForge 加载器 {viewModel.NeoForgeLoaderVersions.Count} 个，选中 {viewModel.SelectedNeoForgeLoader?.Loader}");
+                    lines.Add($"    名称 = {viewModel.DownloadInstanceName}");
+                }
 
                 // 手动改名之后不再跟随版本
                 viewModel.DownloadInstanceName = "自定义名字";
@@ -932,16 +953,25 @@ internal static class InstanceDump
         lines.Add($"[导航] 下载/整合包 版本区块={viewModel.IsVersionsMode} "
                   + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
 
-        // 走界面同一条路：下载本体 → 装 Forge → 建实例（可用 --exercise-download-forge <mc> [loader] 限定版本）
-        if (args.Any(arg => string.Equals(arg, "--exercise-download-forge", StringComparison.OrdinalIgnoreCase)))
+        // 走界面同一条路：下载本体 → 装加载器 → 建实例
+        //   --exercise-download-loader <mc> [fabric|forge|neoforge] [loaderVersion]
+        if (args.Any(arg => string.Equals(arg, "--exercise-download-loader", StringComparison.OrdinalIgnoreCase)))
         {
-            var forgeIndex = Array.FindIndex(args, arg =>
-                string.Equals(arg, "--exercise-download-forge", StringComparison.OrdinalIgnoreCase));
-            var minecraft = forgeIndex + 1 < args.Length ? args[forgeIndex + 1] : "1.20.1";
-            var wantedLoader = forgeIndex + 2 < args.Length ? args[forgeIndex + 2] : null;
+            var loaderIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-download-loader", StringComparison.OrdinalIgnoreCase));
+            var minecraft = loaderIndex + 1 < args.Length ? args[loaderIndex + 1] : "1.20.1";
+            var kindText = loaderIndex + 2 < args.Length ? args[loaderIndex + 2] : "forge";
+            var wantedLoader = loaderIndex + 3 < args.Length ? args[loaderIndex + 3] : null;
+
+            var kind = kindText.ToLowerInvariant() switch
+            {
+                "fabric" => LoaderKind.Fabric,
+                "neoforge" => LoaderKind.NeoForge,
+                _ => LoaderKind.Forge,
+            };
 
             lines.Add("");
-            lines.Add($"[下载 + Forge] {minecraft}");
+            lines.Add($"[下载 + {kind}] {minecraft}");
 
             viewModel.ShowDownloadsCommand.Execute(null);
             for (var i = 0; i < 300 && viewModel.DownloadVersions.Count == 0; i++) Thread.Sleep(100);
@@ -955,24 +985,48 @@ internal static class InstanceDump
             else
             {
                 viewModel.SelectedDownloadVersion = item;
-                viewModel.InstallFabric = false;
-                viewModel.InstallForge = true;
 
-                for (var i = 0; i < 300 && viewModel.ForgeLoaderVersions.Count == 0; i++) Thread.Sleep(100);
+                // 三家加载器并行查，等检查结束
+                for (var i = 0; i < 600 && viewModel.IsCheckingLoaders; i++) Thread.Sleep(100);
 
-                var loader = (wantedLoader is null
-                                 ? null
-                                 : viewModel.ForgeLoaderVersions.FirstOrDefault(version => version.Loader == wantedLoader))
-                             ?? viewModel.ForgeLoaderVersions.FirstOrDefault();
+                lines.Add($"    Fabric={viewModel.CanSelectFabric} Forge={viewModel.CanSelectForge} NeoForge={viewModel.CanSelectNeoForge}");
+                lines.Add($"    提示：{viewModel.LoaderHint}");
 
-                if (loader is null)
+                viewModel.SelectedLoader = kind;
+
+                var versions = kind switch
                 {
-                    lines.Add($"    Forge 加载器清单为空（{viewModel.DownloadStatus}）");
+                    LoaderKind.Fabric => viewModel.FabricLoaderVersions.Select(loader => loader.Version).ToList(),
+                    LoaderKind.NeoForge => viewModel.NeoForgeLoaderVersions.Select(loader => loader.Loader).ToList(),
+                    _ => viewModel.ForgeLoaderVersions.Select(loader => loader.Loader).ToList(),
+                };
+
+                var chosen = (wantedLoader is null ? null : versions.FirstOrDefault(v => v == wantedLoader))
+                             ?? versions.FirstOrDefault();
+
+                if (chosen is null)
+                {
+                    lines.Add($"    {kind} 加载器清单为空（{viewModel.DownloadStatus}）");
                 }
                 else
                 {
-                    viewModel.SelectedForgeLoader = loader;
-                    lines.Add($"    加载器 {loader.Loader}  实例名 {viewModel.DownloadInstanceName}");
+                    if (kind == LoaderKind.Fabric)
+                    {
+                        viewModel.SelectedFabricLoader = viewModel.FabricLoaderVersions
+                            .First(loader => loader.Version == chosen);
+                    }
+                    else if (kind == LoaderKind.NeoForge)
+                    {
+                        viewModel.SelectedNeoForgeLoader = viewModel.NeoForgeLoaderVersions
+                            .First(loader => loader.Loader == chosen);
+                    }
+                    else
+                    {
+                        viewModel.SelectedForgeLoader = viewModel.ForgeLoaderVersions
+                            .First(loader => loader.Loader == chosen);
+                    }
+
+                    lines.Add($"    加载器 {chosen}  实例名 {viewModel.DownloadInstanceName}");
 
                     viewModel.DownloadCommand.Execute(null);
 
@@ -988,23 +1042,23 @@ internal static class InstanceDump
             }
         }
 
-        // Forge 加载器清单（maven-metadata.xml）：只读清单，不下载安装包
+        // Forge / NeoForge 加载器清单（maven-metadata.xml）：只读清单，不下载安装包
         if (args.Any(arg => string.Equals(arg, "--exercise-forge-versions", StringComparison.OrdinalIgnoreCase)))
         {
             lines.Add("");
-            lines.Add("[Forge 版本清单]");
+            lines.Add("[Forge / NeoForge 版本清单]");
 
-            foreach (var minecraft in new[] { "1.20.1", "1.16.5", "1.7.10" })
+            foreach (var minecraft in new[] { "26.3", "26.1.2", "1.20.1", "1.21.6" })
             {
                 try
                 {
-                    var versions = viewModel.ListForgeVersionsAsync(minecraft).GetAwaiter().GetResult();
+                    var forge = viewModel.ListForgeVersionsAsync(minecraft).GetAwaiter().GetResult();
+                    var neo = viewModel.ListNeoForgeVersionsAsync(minecraft).GetAwaiter().GetResult();
 
-                    lines.Add($"    {minecraft}：{versions.Count} 个"
-                              + (versions.Count == 0
-                                  ? ""
-                                  : $"  最新 {versions[0].Loader}（{versions[0].MavenVersion}）"
-                                    + $"  最早 {versions[^1].Loader}（{versions[^1].MavenVersion}）"));
+                    lines.Add($"    {minecraft}：Forge {forge.Count} 个"
+                              + (forge.Count == 0 ? "" : $"（最新 {forge[0].Loader}）")
+                              + $"  NeoForge {neo.Count} 个"
+                              + (neo.Count == 0 ? "" : $"（最新 {neo[0].Loader}）"));
                 }
                 catch (Exception ex)
                 {

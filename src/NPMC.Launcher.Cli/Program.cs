@@ -1120,11 +1120,15 @@ internal static class Program
         if (args.Length > 0 && string.Equals(args[0], "forge", StringComparison.OrdinalIgnoreCase))
             return await ForgeLoaderAsync(args[1..]);
 
+        if (args.Length > 0 && string.Equals(args[0], "neoforge", StringComparison.OrdinalIgnoreCase))
+            return await ForgeLoaderAsync(args[1..], isNeoForge: true);
+
         if (args.Length == 0 || !string.Equals(args[0], "fabric", StringComparison.OrdinalIgnoreCase))
         {
-            Error("用法: npmc loader <fabric|forge> --version <游戏版本> [--loader <加载器版本>] [--root <目录>]");
-            Dim("  fabric: 不指定 --loader 时取最新的 stable 版本");
-            Dim("  forge : 必须给 --loader，且目前只支持 1.13 之前的旧版安装包");
+            Error("用法: npmc loader <fabric|forge|neoforge> --version <游戏版本> [--loader <加载器版本>] [--root <目录>]");
+            Dim("  fabric  : 不指定 --loader 时取最新的 stable 版本");
+            Dim("  forge   : 必须给 --loader；1.13+ 由官方安装器完成（需要 Java 与本机已装好的游戏本体）");
+            Dim("  neoforge: 必须给 --loader；同样跑官方安装器");
             return 1;
         }
 
@@ -1164,19 +1168,21 @@ internal static class Program
     }
 
     /// <summary>
-    /// 安装 Forge。1.12 及以前解安装包即可（纯离线）；
+    /// 安装 Forge / NeoForge。1.12 及以前（仅 Forge）解安装包即可（纯离线）；
     /// 1.13+ 由官方安装器完成（需要 Java 与已经装好的游戏本体）。
     /// </summary>
-    private static async Task<int> ForgeLoaderAsync(string[] args)
+    private static async Task<int> ForgeLoaderAsync(string[] args, bool isNeoForge = false)
     {
+        var label = isNeoForge ? "NeoForge" : "Forge";
         var gameVersion = Opt(args, "--version") ?? Opt(args, "--mc") ?? Required(args);
         var forgeVersion = Opt(args, "--loader");
 
         if (string.IsNullOrWhiteSpace(forgeVersion))
         {
-            Error("用法: npmc loader forge --version <游戏版本> --loader <forge 版本> [--root <目录>]");
+            Error($"用法: npmc loader {(isNeoForge ? "neoforge" : "forge")} --version <游戏版本> --loader <{label} 版本> [--root <目录>]");
             Dim("  例如: npmc loader forge --version 1.7.10 --loader 10.13.4.1614");
             Dim("        npmc loader forge --version 1.20.1 --loader 47.2.0");
+            Dim("        npmc loader neoforge --version 1.21.1 --loader 21.1.190");
             return 1;
         }
 
@@ -1185,13 +1191,16 @@ internal static class Program
 
         using var http = HttpFileDownloader.CreateClient();
         var downloader = new HttpFileDownloader(http);
-        var installer = new ForgeInstaller(downloader);
+        var forgeInstaller = new ForgeInstaller(downloader);
+        var neoInstaller = isNeoForge ? new NeoForgeInstaller(downloader) : null;
 
-        Section($"Forge 加载器 · 游戏 {gameVersion} · 版本 {forgeVersion}");
+        Section($"{label} 加载器 · 游戏 {gameVersion} · 版本 {forgeVersion}");
 
         try
         {
-            var plan = await installer.PrepareAsync(gameVersion, forgeVersion, cache);
+            var plan = isNeoForge
+                ? await neoInstaller!.PrepareAsync(gameVersion, forgeVersion, cache)
+                : await forgeInstaller.PrepareAsync(gameVersion, forgeVersion, cache);
 
             Info($"版本 id    {plan.Profile.VersionId}");
             Info($"继承自     {plan.Profile.Version.InheritsFrom ?? "(无)"}");
@@ -1219,7 +1228,7 @@ internal static class Program
 
                 if (javaPath is null)
                 {
-                    Error("找不到可用的 Java；可在界面设置页预下载运行时，或用 npmc runtime 安装");
+                    Error("找不到可用的 Java；可在界面「设置」页预下载运行时，或用 npmc runtime 安装");
                     return 1;
                 }
 
@@ -1227,7 +1236,9 @@ internal static class Program
             }
 
             var progress = new Progress<string>(message => Dim(message));
-            var result = await installer.InstallAsync(paths, plan, progress, javaPath: javaPath);
+            var result = isNeoForge
+                ? await neoInstaller!.InstallAsync(paths, plan, progress, javaPath: javaPath)
+                : await forgeInstaller.InstallAsync(paths, plan, progress, javaPath: javaPath);
 
             Section("结果");
             Ok($"已写入版本 {result.VersionId}");

@@ -680,12 +680,26 @@
               <StackPanel Spacing="12">
                 <TextBlock Text="安装内容" FontSize="12" Foreground="#B4BCC8" />
 
-                <CheckBox Content="同时安装 Fabric 加载器（装完才能加载模组）"
-                          IsChecked="{Binding InstallFabric}" FontSize="12" />
+                <!-- 加载器四选一：一个实例只能挂一个加载器的 profile；没有对应版本的项会置灰 -->
+                <Grid ColumnDefinitions="64,*">
+                  <TextBlock Text="模组加载器" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <RadioButton GroupName="LoaderPick" Content="原版" FontSize="12"
+                                 IsChecked="{Binding IsVanillaSelected, Mode=TwoWay}" />
+                    <RadioButton GroupName="LoaderPick" Content="Fabric" FontSize="12"
+                                 IsChecked="{Binding IsFabricSelected, Mode=TwoWay}"
+                                 IsEnabled="{Binding CanSelectFabric}" />
+                    <RadioButton GroupName="LoaderPick" Content="Forge" FontSize="12"
+                                 IsChecked="{Binding IsForgeSelected, Mode=TwoWay}"
+                                 IsEnabled="{Binding CanSelectForge}" />
+                    <RadioButton GroupName="LoaderPick" Content="NeoForge" FontSize="12"
+                                 IsChecked="{Binding IsNeoForgeSelected, Mode=TwoWay}"
+                                 IsEnabled="{Binding CanSelectNeoForge}" />
+                  </StackPanel>
+                </Grid>
 
-                <!-- 加载器版本：实例名会跟着变，两个不同加载器的实例才不会同名 -->
-                <Grid ColumnDefinitions="64,*" IsVisible="{Binding HasFabricLoaderVersions}">
-                  <TextBlock Text="加载器" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                <Grid ColumnDefinitions="64,*" IsVisible="{Binding ShowFabricVersions}">
+                  <TextBlock Text="Fabric" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                   <ComboBox Grid.Column="1" ItemsSource="{Binding FabricLoaderVersions}"
                             SelectedItem="{Binding SelectedFabricLoader}"
                             FontSize="12" HorizontalAlignment="Stretch">
@@ -697,15 +711,22 @@
                   </ComboBox>
                 </Grid>
 
-                <CheckBox Content="同时安装 Forge 加载器（1.13+ 由官方安装器完成，需要 Java）"
-                          IsChecked="{Binding InstallForge}" FontSize="12" />
-
-                <Grid ColumnDefinitions="64,*" IsVisible="{Binding HasForgeLoaderVersions}">
+                <Grid ColumnDefinitions="64,*" IsVisible="{Binding ShowForgeVersions}">
                   <TextBlock Text="Forge" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                   <ComboBox Grid.Column="1" ItemsSource="{Binding ForgeLoaderVersions}"
                             SelectedItem="{Binding SelectedForgeLoader}"
                             FontSize="12" HorizontalAlignment="Stretch" />
                 </Grid>
+
+                <Grid ColumnDefinitions="64,*" IsVisible="{Binding ShowNeoForgeVersions}">
+                  <TextBlock Text="NeoForge" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding NeoForgeLoaderVersions}"
+                            SelectedItem="{Binding SelectedNeoForgeLoader}"
+                            FontSize="12" HorizontalAlignment="Stretch" />
+                </Grid>
+
+                <TextBlock Text="{Binding LoaderHint}" Margin="64,0,0,0" FontSize="10" Foreground="#6E7684"
+                           TextWrapping="Wrap" IsVisible="{Binding HasLoaderHint}" />
 
                 <Grid ColumnDefinitions="64,*">
                   <TextBlock Text="实例名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />

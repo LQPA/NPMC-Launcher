@@ -38,7 +38,9 @@ tools/sign-local.ps1              本地签名
 | 版本下载 | 官方 + BMCLAPI 镜像；版本类型筛选（仅正式 / 正式+快照 / 全部 / 仅愚人节） |
 | Java | 本地运行时自动发现 / 系统 JDK / 自定义路径；**启动时按需自动下载**对应版本；候选列表按实例缓存（706ms → 151ms） |
 | Fabric | 安装、加载器版本选择、按 intermediary 检测版本是否受支持 |
-| Forge | ≤1.12 解安装包（内嵌 universal jar，不需要 java）；**1.13+ 跑官方安装器**（`--installClient`，安装阶段需要 Java）；下载页现在可选 Forge 版本 |
+| Fabric | 安装、加载器版本选择、按 intermediary 检测版本是否受支持（下载页加载器四选一，没有对应版本时置灰） |
+| Forge | ≤1.12 解安装包（内嵌 universal jar，不需要 java）；**1.13+ 跑官方安装器**（`--installClient`，安装阶段需要 Java）；下载页可选 Forge 版本 |
+| NeoForge | 与 Forge 1.13+ 同一套官方安装器（1.20.1 走 `net/neoforged/forge` 老坐标，其余走 `net/neoforged/neoforge`）；下载页可选版本 |
 | 旧版本启动 | `minecraftArguments` 旧格式、`-cp`/`-Djava.library.path` 手补、natives 解压、`${user_properties}` 等旧占位符 |
 | 内容管理 | 模组 / 资源包 / 光影 / 数据包：搜索安装（Modrinth）、启停、删除、图标、更新检查、R·B·A 通道标记 |
 | 数据包 | 按世界管理：存档页签列世界 → 行内「数据包」进入该世界的数据包页 → 「← 返回存档」 |
@@ -128,8 +130,8 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 | `--exercise-datapack-race` | 紧邻点击（切页签立即点数据包）是否还能扫到内容 |
 | `--exercise-nav` | 面板/头部/列表/空提示/日志的可见性随导航变化，**并核对 PropertyChanged 是否真的发出** |
 | `--exercise-global-settings` | 设置页：字段 ↔ `settings.json` ↔ 启动计划（默认 Java）；改完**还原原设置** |
-| `--exercise-forge-versions [mc]` | Forge 加载器清单（maven-metadata.xml）：数量、最新/最早（不下载安装包） |
-| `--exercise-download-forge <mc> [loader]` | 走界面同一条路：下载本体 → 装 Forge（1.13+ 官方安装器）→ 建实例 |
+| `--exercise-download-loader <mc> [fabric|forge|neoforge] [loader]` | 走界面同一条路：下载本体 → 装加载器 → 建实例 |
+| `--exercise-forge-versions` | Forge / NeoForge 加载器清单（两个 maven 的 metadata，只读不下载） |
 | `--exercise-launch-plan [实例名]` | 只组装启动计划：占位符残留、`-p`/`-cp` 里缺失的 jar、问题列表 |
 | `--exercise-world-import` | 文件夹 / zip(根) / zip(嵌套) / 坏包 四种导入 |
 | `--exercise-launch [实例名]` | 真实启动并等 45 秒，返回 PID 与日志尾部 |
@@ -167,9 +169,8 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 
 ## 7. 未提交/未完成的事项
 
-- 工作区干净。`main` 上比远端多五个本地提交：`54913d3`（页签可见性）、`852bd96`（设置页 + 存档数字）、
-  下载页高亮修复、`4728ab0`（Forge 1.13+ 自动安装），以及记录它们的文档提交；
-  **没有 push**，要同步远端请显式执行。
+- 工作区干净。`main` 上比远端多若干本地提交（页签可见性、设置页、下载页高亮、
+  Forge/NeoForge 安装、加载器四选一，以及记录它们的文档提交）；**没有 push**，要同步远端请显式执行。
 - 会话末尾有两个回归已修（空提示行、离开页签清理），见 `56ce5a3` 说明。
 
 ---
@@ -282,8 +283,9 @@ java -jar forge-<mc>-<ver>-installer.jar --installClient <启动器根目录>
 - 安装器自己下库、跑 processors、写 `versions/<新版本>/`；我们只核对产物 JSON 是否存在；
 - 版本 id 先取 `install_profile.version`，取不到再按 `versions/<mc>-forge*` 找最新的一个。
 
-入口三处都通了：**下载页勾选 Forge**（列出 `maven-metadata.xml` 里该游戏版本的全部加载器）、
-**Forge 整合包**（`.mrpack` 声明 forge 时自动装）、**CLI**（`npmc loader forge`）。
+入口三处都通了：**下载页的加载器四选一**（原版 / Fabric / Forge / NeoForge，
+当前游戏版本没有的加载器直接置灰，并在下面一行说明原因）、**整合包**（`.mrpack` 声明 loader 时自动装）、
+**CLI**（`npmc loader fabric|forge|neoforge`）。
 
 实测记录（2026-10-26）：
 
@@ -291,17 +293,26 @@ java -jar forge-<mc>-<ver>-installer.jar --installClient <启动器根目录>
   `versions/1.20.1-forge-47.2.0/`，`--exercise-launch-plan` 显示占位符无残留、`-p` 缺 0 个；
 - 用该版本建实例后真实启动，日志出现 `Forge Version Check ... Current: 47.2.0`，
   游戏窗口正常（45 秒后由诊断结束进程）；
-- `--exercise-download-forge 1.20.1 47.2.0` 走界面同一条路（下载本体 → 装 Forge → 建实例），
-  实例名 `1.20.1-forge-47.2.0`、版本正确；
-- 下载页勾选 Forge 后：版本下拉出现（该游戏版本 13~163 个候选）、实例名自动带 `-forge-<版本>`、
-  状态行显示候选数量（截图已核对）。
+- `--exercise-download-loader 26.3 neoforge 26.3.0.98` 走界面同一条路：
+  实例 `26.3-neoforge-26.3.0.98` 创建成功，启动计划占位符无残留、`-p` 缺 0 个，
+  真实启动日志出现 `NeoForge mod loading, version 26.3.0.98, for MC 26.3`；
+- 加载器可用性（实测）：26.3 → Fabric 无、Forge 13 个、NeoForge 95 个；
+  26.1.2 → Forge 23 / NeoForge 122；1.20.1 → Forge 137 / NeoForge 62（老坐标）；
+  1.21.6 → Forge 10 / NeoForge 21（只有 beta）。
+- 下载页截图核对：未选加载器时只有"原版"可选、缺版本的那项灰掉并给出原因；
+  选 Forge/NeoForge 后出现版本下拉、实例名自动带 `-forge-` / `-neoforge-`，
+  并额外提示"官方安装器、安装阶段需要 Java，可在设置页预下载"。
 
 ### 10.3 代价与限制（别当成 bug）
 
 - 安装阶段**必须有 Java**（1.13~1.16 的安装器按 Java 8 编译，1.17+ 通常要 17/21）；
-- 安装器的下载走 **Forge 官方源**，不受启动器的 BMCLAPI 镜像设置影响（要镜像得自己实现 processors）；
+  本机缺时会先自动补装，失败则报错并指到「设置 → 预下载 Java 运行时」；
+- 安装器的下载走 **Forge / NeoForge 官方源**，不受启动器的 BMCLAPI 镜像设置影响
+  （要镜像得自己实现 processors）；
 - 安装器会往根目录 `launcher_profiles.json` 注入一个带大图标的 profile，属正常副作用；
-- 每个 Forge 版本首次安装要跑几十秒到几分钟（补丁是逐类打的，输出很长，进度区会刷屏）。
+- 每个加载器版本首次安装要跑几十秒到几分钟（补丁是逐类打的，输出很长，进度区会刷屏）；
+- NeoForge 1.20.1 的版本号是 `1.20.1-47.1.x`（老坐标 `net/neoforged/forge`），
+  与后续 `21.x` / `26.x` 命名不同，`NeoForgeVersions.PrefixesFor` 里单独处理了。
 
 ### 10.4 顺带修的启动参数缺口
 

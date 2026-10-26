@@ -227,6 +227,37 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// 官方安装器（Forge / NeoForge 1.13+）要用的 Java。
+    ///
+    /// 安装阶段没 Java 是硬阻塞，所以这里：
+    ///   1. 先找该版本声明的运行时 / 同主版本的系统 Java；
+    ///   2. 找不到就自动补装；
+    ///   3. 补装也失败时，错误信息直接指到「设置 → 预下载 Java 运行时」，
+    ///      别只丢一句"缺少 Java"。
+    /// </summary>
+    private async Task<string> EnsureLoaderJavaAsync(VersionJson version, string loaderName)
+    {
+        var component = version.JavaVersion?.Component is { Length: > 0 } name ? name : "java-runtime-gamma";
+        var requiredMajor = version.JavaVersion?.MajorVersion ?? 21;
+
+        var java = ForgeInstaller.ResolveInstallerJava(_launcher, version);
+        if (java is not null) return java;
+
+        DownloadStatus = $"本机缺少 {loaderName} 安装所需的 Java {requiredMajor}（{component}），正在补装…"
+                         + "（也可以先在「设置」页预下载该运行时）";
+
+        var problem = await EnsureJavaForVersionAsync(version);
+        java = ForgeInstaller.ResolveInstallerJava(_launcher, version);
+
+        if (problem is null && java is not null) return java;
+
+        throw new InvalidOperationException(
+            $"{loaderName} 的官方安装器需要 Java {requiredMajor}（{component}）："
+            + $"{problem ?? "找不到可用的 java.exe"}。"
+            + "请先在「设置 → 预下载 Java 运行时」里装好对应运行时，再重新下载安装。");
+    }
+
     // ---- 删除实例 ----
 
     private bool _deleteConfirmPending;
@@ -2524,7 +2555,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private int _versionFilterIndex;
     private bool _isDownloading;
     // 默认不装加载器：直接玩原版是最常见的路径，加载器应当由用户主动勾选
-    private bool _installFabric;
     private bool _versionsLoaded;
     private string _downloadStatus = "尚未加载版本清单";    private string _downloadProgressText = "";
     private string _downloadInstanceName = "";
@@ -2565,17 +2595,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SyncInstanceNameFromSelection();
 
 
-            // 换了游戏版本，旧加载器列表不再适用
+            // 换了游戏版本，旧加载器清单不再适用：先清空并置灰，再异步查三家
             FabricLoaderVersions.Clear();
-            SelectedFabricLoader = null;
-            OnPropertyChanged(nameof(HasFabricLoaderVersions));
-            if (_installFabric) _ = LoadFabricLoaderVersionsAsync();
-
-            // Forge 的可用版本同样绑在游戏版本上
             ForgeLoaderVersions.Clear();
+            NeoForgeLoaderVersions.Clear();
+            SelectedFabricLoader = null;
             SelectedForgeLoader = null;
-            OnPropertyChanged(nameof(HasForgeLoaderVersions));
-            if (_installForge) _ = LoadForgeLoaderVersionsAsync();
+            SelectedNeoForgeLoader = null;
+
+            if (_selectedLoader != LoaderKind.Vanilla) _selectedLoader = LoaderKind.Vanilla;
+
+            _checkingLoaders = true;
+            NotifyLoaderAvailabilityChanged();
+            RefreshLoaderHint();
+            _ = RefreshLoadersAsync();
 
             (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
@@ -2586,15 +2619,35 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ? $"{version.TypeLabel} · 发布于 {version.ReleasedText}"
         : "请选择一个版本";
 
-    // ---- Fabric / Forge 加载器版本 ----
+    // ---- 模组加载器：原版 / Fabric / Forge / NeoForge（四选一）----
+    //
+    // 为什么是互斥单选而不是三个独立勾选：一个实例只能挂一个加载器的 profile，
+    // 勾了 Fabric 又勾 Forge 根本没有意义。当前游戏版本没有某加载器的版本时，
+    // 那一项直接置灰 —— 选都选不了，比"选了再报错"清楚。
 
-    private FabricLoaderVersion? _selectedFabricLoader;
     private bool _instanceNameEdited;
     private bool _suppressNameEdit;
 
+    private FabricLoaderVersion? _selectedFabricLoader;
+    private ForgeLoaderVersion? _selectedForgeLoader;
+    private ForgeLoaderVersion? _selectedNeoForgeLoader;
+
+    private LoaderKind _selectedLoader = LoaderKind.Vanilla;
+    private bool _checkingLoaders = true;
+    private string _loaderHint = "正在检查该版本可用的加载器…";
+
+    /// <summary>按游戏版本缓存的加载器清单：切来切去不必重复请求三家 API。</summary>
+    private readonly Dictionary<string, LoaderAvailability> _loaderCache = new(StringComparer.Ordinal);
+
     public ObservableCollection<FabricLoaderVersion> FabricLoaderVersions { get; } = new();
 
+    public ObservableCollection<ForgeLoaderVersion> ForgeLoaderVersions { get; } = new();
+
+    public ObservableCollection<ForgeLoaderVersion> NeoForgeLoaderVersions { get; } = new();
+
     public bool HasFabricLoaderVersions => FabricLoaderVersions.Count > 0;
+    public bool HasForgeLoaderVersions => ForgeLoaderVersions.Count > 0;
+    public bool HasNeoForgeLoaderVersions => NeoForgeLoaderVersions.Count > 0;
 
     public FabricLoaderVersion? SelectedFabricLoader
     {
@@ -2608,37 +2661,140 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private bool _installForge;
-    private ForgeLoaderVersion? _selectedForgeLoader;
-
-    public ObservableCollection<ForgeLoaderVersion> ForgeLoaderVersions { get; } = new();
-
-    public bool HasForgeLoaderVersions => ForgeLoaderVersions.Count > 0;
-
     public ForgeLoaderVersion? SelectedForgeLoader
     {
         get => _selectedForgeLoader;
         set
         {
             if (!SetProperty(ref _selectedForgeLoader, value)) return;
-
             SyncInstanceNameFromSelection();
         }
     }
 
-    /// <summary>默认实例名：版本号；勾了加载器时再带上加载器版本。</summary>
+    public ForgeLoaderVersion? SelectedNeoForgeLoader
+    {
+        get => _selectedNeoForgeLoader;
+        set
+        {
+            if (!SetProperty(ref _selectedNeoForgeLoader, value)) return;
+            SyncInstanceNameFromSelection();
+        }
+    }
+
+    /// <summary>当前选中的加载器。</summary>
+    public LoaderKind SelectedLoader
+    {
+        get => _selectedLoader;
+        set
+        {
+            if (_selectedLoader == value) return;
+
+            // 不可用的加载器不接受选中（界面那边也已经置灰）
+            if (value != LoaderKind.Vanilla && !IsLoaderAvailable(value)) return;
+
+            _selectedLoader = value;
+
+            OnPropertyChanged(nameof(IsVanillaSelected));
+            OnPropertyChanged(nameof(IsFabricSelected));
+            OnPropertyChanged(nameof(IsForgeSelected));
+            OnPropertyChanged(nameof(IsNeoForgeSelected));
+            OnPropertyChanged(nameof(ShowFabricVersions));
+            OnPropertyChanged(nameof(ShowForgeVersions));
+            OnPropertyChanged(nameof(ShowNeoForgeVersions));
+
+            RefreshLoaderHint();
+            SyncInstanceNameFromSelection();
+        }
+    }
+
+    public bool IsVanillaSelected
+    {
+        get => _selectedLoader == LoaderKind.Vanilla;
+        set { if (value) SelectedLoader = LoaderKind.Vanilla; }
+    }
+
+    public bool IsFabricSelected
+    {
+        get => _selectedLoader == LoaderKind.Fabric;
+        set { if (value) SelectedLoader = LoaderKind.Fabric; }
+    }
+
+    public bool IsForgeSelected
+    {
+        get => _selectedLoader == LoaderKind.Forge;
+        set { if (value) SelectedLoader = LoaderKind.Forge; }
+    }
+
+    public bool IsNeoForgeSelected
+    {
+        get => _selectedLoader == LoaderKind.NeoForge;
+        set { if (value) SelectedLoader = LoaderKind.NeoForge; }
+    }
+
+    public bool IsCheckingLoaders => _checkingLoaders;
+
+    public bool CanSelectFabric => !_checkingLoaders && HasFabricLoaderVersions;
+    public bool CanSelectForge => !_checkingLoaders && HasForgeLoaderVersions;
+    public bool CanSelectNeoForge => !_checkingLoaders && HasNeoForgeLoaderVersions;
+
+    public bool ShowFabricVersions => _selectedLoader == LoaderKind.Fabric && HasFabricLoaderVersions;
+    public bool ShowForgeVersions => _selectedLoader == LoaderKind.Forge && HasForgeLoaderVersions;
+    public bool ShowNeoForgeVersions => _selectedLoader == LoaderKind.NeoForge && HasNeoForgeLoaderVersions;
+
+    /// <summary>加载器那一行的说明：为什么某些项是灰的 / 选 Forge 系要注意 Java。</summary>
+    public string LoaderHint => _loaderHint;
+
+    public bool HasLoaderHint => !string.IsNullOrWhiteSpace(_loaderHint);
+
+    private bool IsLoaderAvailable(LoaderKind kind) => kind switch
+    {
+        LoaderKind.Fabric => HasFabricLoaderVersions,
+        LoaderKind.Forge => HasForgeLoaderVersions,
+        LoaderKind.NeoForge => HasNeoForgeLoaderVersions,
+        _ => true,
+    };
+
+    private void RefreshLoaderHint()
+    {
+        var parts = new List<string>();
+
+        if (_checkingLoaders)
+        {
+            parts.Add("正在检查该版本可用的加载器…");
+        }
+        else
+        {
+            if (!HasFabricLoaderVersions) parts.Add("Fabric：该版本没有可用版本");
+            if (!HasForgeLoaderVersions) parts.Add("Forge：该版本没有可用版本");
+            if (!HasNeoForgeLoaderVersions) parts.Add("NeoForge：该版本没有可用版本");
+        }
+
+        // Forge / NeoForge 1.13+ 要跑官方安装器，安装阶段需要 Java
+        if (_selectedLoader is LoaderKind.Forge or LoaderKind.NeoForge)
+        {
+            parts.Add("Forge / NeoForge 由官方安装器安装，安装阶段需要 Java；"
+                      + "本机缺少时会先自动补装，也可以在「设置」页预下载对应运行时");
+        }
+
+        _loaderHint = string.Join("　·　", parts);
+
+        OnPropertyChanged(nameof(LoaderHint));
+        OnPropertyChanged(nameof(HasLoaderHint));
+    }
+
+    /// <summary>默认实例名：版本号；选了加载器时再带上加载器版本。</summary>
     private string DefaultInstanceName()
     {
         var version = _selectedDownloadVersion?.Id ?? "";
         if (string.IsNullOrWhiteSpace(version)) return "";
 
-        if (_installFabric && _selectedFabricLoader is { } loader)
-            return $"{version}-fabric-{loader.Version}";
-
-        if (_installForge && _selectedForgeLoader is { } forge)
-            return $"{version}-forge-{forge.Loader}";
-
-        return version;
+        return _selectedLoader switch
+        {
+            LoaderKind.Fabric when _selectedFabricLoader is { } fabric => $"{version}-fabric-{fabric.Version}",
+            LoaderKind.Forge when _selectedForgeLoader is { } forge => $"{version}-forge-{forge.Loader}",
+            LoaderKind.NeoForge when _selectedNeoForgeLoader is { } neo => $"{version}-neoforge-{neo.Loader}",
+            _ => version,
+        };
     }
 
     /// <summary>用户没手改过名称时，让它跟着版本/加载器走。</summary>
@@ -2654,41 +2810,89 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _suppressNameEdit = false;
     }
 
-    private async Task LoadFabricLoaderVersionsAsync()
+    /// <summary>查一遍当前游戏版本可用的加载器（Fabric / Forge / NeoForge 并行查）。</summary>
+    private async Task RefreshLoadersAsync()
     {
         if (_selectedDownloadVersion is not { } version) return;
 
+        if (_loaderCache.TryGetValue(version.Id, out var cached))
+        {
+            ApplyLoaderAvailability(cached);
+            return;
+        }
+
+        _checkingLoaders = true;
+        NotifyLoaderAvailabilityChanged();
+        RefreshLoaderHint();
+
         try
         {
-            DownloadStatus = "正在获取 Fabric 加载器版本…";
+            var fabricTask = new FabricLoaderInstaller(_http).GetLoaderVersionsAsync(version.Id);
+            var forgeTask = ForgeVersions.GetAsync(_downloader.GetStringAsync, version.Id);
+            var neoTask = NeoForgeVersions.GetAsync(_downloader.GetStringAsync, version.Id);
 
-            var fabric = new FabricLoaderInstaller(_http);
-            var versions = await fabric.GetLoaderVersionsAsync(version.Id);
+            await Task.WhenAll(fabricTask, forgeTask, neoTask);
 
-            FabricLoaderVersions.Clear();
-            foreach (var loader in versions) FabricLoaderVersions.Add(loader);
+            var availability = new LoaderAvailability(fabricTask.Result, forgeTask.Result, neoTask.Result);
+            _loaderCache[version.Id] = availability;
 
-            OnPropertyChanged(nameof(HasFabricLoaderVersions));
-            SelectedFabricLoader = FabricLoaderVersions.FirstOrDefault(loader => loader.Stable)
-                                   ?? FabricLoaderVersions.FirstOrDefault();
-
-            if (versions.Count == 0)
-            {
-                // 不支持就别让用户勾着：取消勾选，并说明原因。
-                // 空列表有三种来源：早于 Fabric 的版本（400）、
-                // 以及没有 intermediary 映射、只返回 0.0.0 占位符的版本。
-                InstallFabric = false;
-                DownloadStatus = $"Fabric 不支持 {version.Id}（该版本没有对应的 intermediary 映射）";
-                LauncherLog.Write(_launcher.Root, $"Fabric 不支持 {version.Id}，已取消勾选");
-                return;
-            }
-
-            DownloadStatus = $"共 {versions.Count} 个 Fabric 加载器版本";
+            if (_selectedDownloadVersion?.Id == version.Id) ApplyLoaderAvailability(availability);
         }
         catch (Exception ex)
         {
-            DownloadStatus = $"获取 Fabric 加载器版本失败：{ex.GetBaseException().Message}";
+            DownloadStatus = $"检查加载器失败：{ex.GetBaseException().Message}";
+            _loaderHint = "检查加载器失败，可先按原版安装";
         }
+        finally
+        {
+            _checkingLoaders = false;
+            NotifyLoaderAvailabilityChanged();
+            RefreshLoaderHint();
+        }
+    }
+
+    private void ApplyLoaderAvailability(LoaderAvailability availability)
+    {
+        FabricLoaderVersions.Clear();
+        foreach (var loader in availability.Fabric) FabricLoaderVersions.Add(loader);
+
+        ForgeLoaderVersions.Clear();
+        foreach (var loader in availability.Forge) ForgeLoaderVersions.Add(loader);
+
+        NeoForgeLoaderVersions.Clear();
+        foreach (var loader in availability.NeoForge) NeoForgeLoaderVersions.Add(loader);
+
+        SelectedFabricLoader = FabricLoaderVersions.FirstOrDefault(loader => loader.Stable)
+                               ?? FabricLoaderVersions.FirstOrDefault();
+        SelectedForgeLoader = ForgeLoaderVersions.FirstOrDefault();
+        SelectedNeoForgeLoader = NeoForgeLoaderVersions.FirstOrDefault();
+
+        OnPropertyChanged(nameof(HasFabricLoaderVersions));
+        OnPropertyChanged(nameof(HasForgeLoaderVersions));
+        OnPropertyChanged(nameof(HasNeoForgeLoaderVersions));
+
+        // 当前选中的加载器在这个游戏版本没有 → 退回原版，别留一个灰色的选中项
+        if (_selectedLoader != LoaderKind.Vanilla && !IsLoaderAvailable(_selectedLoader))
+            _selectedLoader = LoaderKind.Vanilla;
+
+        NotifyLoaderAvailabilityChanged();
+        RefreshLoaderHint();
+        SyncInstanceNameFromSelection();
+    }
+
+    private void NotifyLoaderAvailabilityChanged()
+    {
+        OnPropertyChanged(nameof(IsCheckingLoaders));
+        OnPropertyChanged(nameof(CanSelectFabric));
+        OnPropertyChanged(nameof(CanSelectForge));
+        OnPropertyChanged(nameof(CanSelectNeoForge));
+        OnPropertyChanged(nameof(ShowFabricVersions));
+        OnPropertyChanged(nameof(ShowForgeVersions));
+        OnPropertyChanged(nameof(ShowNeoForgeVersions));
+        OnPropertyChanged(nameof(IsVanillaSelected));
+        OnPropertyChanged(nameof(IsFabricSelected));
+        OnPropertyChanged(nameof(IsForgeSelected));
+        OnPropertyChanged(nameof(IsNeoForgeSelected));
     }
 
     /// <summary>实际会用的实例名：留空就用默认名（版本号 / 带加载器版本）。</summary>
@@ -2741,76 +2945,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>是否同时安装 Fabric 加载器（装完才能用模组）。</summary>
-    public bool InstallFabric
-    {
-        get => _installFabric;
-        set
-        {
-            if (!SetProperty(ref _installFabric, value)) return;
-
-            // 两个加载器互斥：同一个实例只可能是一个 loader 的 profile
-            if (value) InstallForge = false;
-
-            OnPropertyChanged(nameof(HasFabricLoaderVersions));
-            SyncInstanceNameFromSelection();
-
-            if (value && FabricLoaderVersions.Count == 0) _ = LoadFabricLoaderVersionsAsync();
-        }
-    }
-
-    /// <summary>是否顺便装 Forge（1.13+ 由官方安装器完成，安装阶段需要 Java）。</summary>
-    public bool InstallForge
-    {
-        get => _installForge;
-        set
-        {
-            if (!SetProperty(ref _installForge, value)) return;
-
-            if (value) InstallFabric = false;
-
-            OnPropertyChanged(nameof(HasForgeLoaderVersions));
-            SyncInstanceNameFromSelection();
-
-            if (value && ForgeLoaderVersions.Count == 0) _ = LoadForgeLoaderVersionsAsync();
-        }
-    }
-
-    /// <summary>供诊断用：列出某个游戏版本可用的 Forge 加载器（不下载安装包）。</summary>
+    /// <summary>供诊断用：列出某个游戏版本可用的 Forge / NeoForge 加载器（不下载安装包）。</summary>
     public Task<IReadOnlyList<ForgeLoaderVersion>> ListForgeVersionsAsync(string minecraftVersion)
         => ForgeVersions.GetAsync(_downloader.GetStringAsync, minecraftVersion);
 
-    private async Task LoadForgeLoaderVersionsAsync()    {
-        if (_selectedDownloadVersion is not { } version) return;
-
-        try
-        {
-            DownloadStatus = "正在获取 Forge 加载器版本…";
-
-            var versions = await ForgeVersions.GetAsync(_downloader.GetStringAsync, version.Id);
-
-            ForgeLoaderVersions.Clear();
-            foreach (var loader in versions) ForgeLoaderVersions.Add(loader);
-
-            OnPropertyChanged(nameof(HasForgeLoaderVersions));
-            SelectedForgeLoader = ForgeLoaderVersions.FirstOrDefault();
-
-            if (versions.Count == 0)
-            {
-                InstallForge = false;
-                DownloadStatus = $"Forge 不支持 {version.Id}（maven 上没有对应的安装包）";
-                LauncherLog.Write(_launcher.Root, $"Forge 不支持 {version.Id}，已取消勾选");
-                return;
-            }
-
-            DownloadStatus = $"共 {versions.Count} 个 Forge 加载器版本";
-        }
-        catch (Exception ex)
-        {
-            InstallForge = false;
-            DownloadStatus = $"获取 Forge 加载器版本失败：{ex.GetBaseException().Message}";
-        }
-    }
+    public Task<IReadOnlyList<ForgeLoaderVersion>> ListNeoForgeVersionsAsync(string minecraftVersion)
+        => NeoForgeVersions.GetAsync(_downloader.GetStringAsync, minecraftVersion);
 
     public bool IsDownloading
     {
@@ -3015,10 +3155,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                              + (result.Failures.Count > 0 ? $"，失败 {result.Failures.Count} 个" : "");
 
 
-            // 可选：装 Fabric，并把实例指向 Fabric 的 profile 版本
+            // 可选：装一个模组加载器，并把实例指向它的 profile 版本
             var instanceVersionId = choice.Id;
 
-            if (_installFabric)
+            if (_selectedLoader == LoaderKind.Fabric)
             {
                 DownloadStatus = $"正在安装 Fabric 加载器（游戏 {choice.Id}）…";
                 DownloadProgressText = "";
@@ -3031,7 +3171,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 instanceVersionId = fabricResult.ProfileId;
                 DownloadStatus = $"Fabric {fabricResult.LoaderVersion} 已安装（库 {fabricResult.LibrariesDownloaded} 个）";
             }
-            else if (_installForge && _selectedForgeLoader is { } forgeChoice)
+            else if (_selectedLoader == LoaderKind.Forge && _selectedForgeLoader is { } forgeChoice)
             {
                 DownloadStatus = $"正在安装 Forge {forgeChoice.Loader}（游戏 {choice.Id}）…";
                 DownloadProgressText = "";
@@ -3040,18 +3180,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 var forgePlan = await forge.PrepareAsync(
                     choice.Id, forgeChoice.Loader, Path.Combine(_launcher.Root, "cache", "forge"));
 
-                // 1.13+ 的安装器是 java 程序；缺运行时就按本体的 javaVersion 补一个
-                var forgeJava = ForgeInstaller.ResolveInstallerJava(_launcher, version);
-
-                if (forgeJava is null)
-                {
-                    DownloadStatus = "正在补装 Forge 安装所需的 Java…";
-                    var javaProblem = await EnsureJavaForVersionAsync(version);
-
-                    if (javaProblem is not null) throw new InvalidOperationException(javaProblem);
-
-                    forgeJava = ForgeInstaller.ResolveInstallerJava(_launcher, version);
-                }
+                var forgeJava = await EnsureLoaderJavaAsync(version, "Forge");
 
                 var forgeProgress = new Progress<string>(message => DownloadStatus = message);
                 var forgeResult = await forge.InstallAsync(
@@ -3061,6 +3190,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 DownloadStatus = forgeResult.UsedOfficialInstaller
                     ? $"Forge {forgeChoice.Loader} 已安装（官方安装器，版本 {forgeResult.VersionId}）"
                     : $"Forge {forgeChoice.Loader} 已安装（库 {forgeResult.LibrariesDownloaded} 个）";
+            }
+            else if (_selectedLoader == LoaderKind.NeoForge && _selectedNeoForgeLoader is { } neoChoice)
+            {
+                DownloadStatus = $"正在安装 NeoForge {neoChoice.Loader}（游戏 {choice.Id}）…";
+                DownloadProgressText = "";
+
+                var neo = new NeoForgeInstaller(_downloader);
+                var neoPlan = await neo.PrepareAsync(
+                    choice.Id, neoChoice.Loader, Path.Combine(_launcher.Root, "cache", "forge"));
+
+                var neoJava = await EnsureLoaderJavaAsync(version, "NeoForge");
+
+                var neoProgress = new Progress<string>(message => DownloadStatus = message);
+                var neoResult = await neo.InstallAsync(
+                    _launcher, neoPlan, neoProgress, javaPath: neoJava);
+
+                instanceVersionId = neoResult.VersionId;
+                DownloadStatus = $"NeoForge {neoChoice.Loader} 已安装（官方安装器，版本 {neoResult.VersionId}）";
             }
 
             // 建实例：版本指向 fabric profile（若有），这样页签能力检测能识别到加载器
@@ -3325,52 +3472,57 @@ public sealed partial class MainWindowViewModel : ObservableObject
             else if (plan.Index.LoaderName is { } otherLoader
                      && otherLoader.Contains("forge", StringComparison.OrdinalIgnoreCase))
             {
-                // Forge：1.12 及以前解安装包即可；1.13+ 要跑官方安装器（需要 Java）
-                var forge = new ForgeInstaller(_downloader);
+                // Forge / NeoForge：1.12 及以前解安装包即可；1.13+ 要跑官方安装器（需要 Java）
+                var isNeoForge = otherLoader.Contains("neoforge", StringComparison.OrdinalIgnoreCase);
+                var loaderLabel = isNeoForge ? "NeoForge" : "Forge";
                 var forgeCache = Path.Combine(_launcher.Root, "cache", "forge");
 
-                ModpackStatus = $"正在安装 Forge {plan.Index.LoaderVersion}…";
+                ModpackStatus = $"正在安装 {loaderLabel} {plan.Index.LoaderVersion}…";
                 ModpackProgressPercent = 0;
                 ModpackProgressIndeterminate = true;
 
                 try
                 {
-                    var forgePlan = await forge.PrepareAsync(
-                        gameVersion,
-                        plan.Index.LoaderVersion ?? "",
-                        forgeCache);
+                    ForgeInstallPlan forgePlan;
 
-                    // 1.13+ 的安装器是 java 程序：缺运行时就先按版本要求补一个
-                    var forgeJava = ForgeInstaller.ResolveInstallerJava(_launcher, version);
-
-                    if (forgeJava is null)
+                    if (isNeoForge)
                     {
-                        ModpackStatus = "正在补装 Forge 安装所需的 Java…";
-                        var javaProblem = await EnsureJavaForVersionAsync(version);
-
-                        if (javaProblem is not null)
-                            throw new InvalidOperationException(javaProblem);
-
-                        forgeJava = ForgeInstaller.ResolveInstallerJava(_launcher, version);
+                        var neo = new NeoForgeInstaller(_downloader);
+                        forgePlan = await neo.PrepareAsync(
+                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache);
+                    }
+                    else
+                    {
+                        var forge = new ForgeInstaller(_downloader);
+                        forgePlan = await forge.PrepareAsync(
+                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache);
                     }
 
+                    // 1.13+ 的安装器是 java 程序：缺运行时会先补装，并提示可去设置页预下载
+                    var forgeJava = await EnsureLoaderJavaAsync(version, loaderLabel);
+
                     var forgeProgress = new Progress<string>(message => ModpackProgress = message);
-                    var forgeResult = await forge.InstallAsync(_launcher, forgePlan, forgeProgress, javaPath: forgeJava);
+
+                    var forgeResult = isNeoForge
+                        ? await new NeoForgeInstaller(_downloader)
+                            .InstallAsync(_launcher, forgePlan, forgeProgress, javaPath: forgeJava)
+                        : await new ForgeInstaller(_downloader)
+                            .InstallAsync(_launcher, forgePlan, forgeProgress, javaPath: forgeJava);
 
                     instanceVersion = forgeResult.VersionId;
 
                     ModpackProgress = "";
                     ModpackStatus = forgeResult.UsedOfficialInstaller
-                        ? $"Forge {plan.Index.LoaderVersion} 已安装（由官方安装器完成，版本 {forgeResult.VersionId}）"
-                        : $"Forge {plan.Index.LoaderVersion} 已安装（库 {forgeResult.LibrariesDownloaded} 个"
+                        ? $"{loaderLabel} {plan.Index.LoaderVersion} 已安装（由官方安装器完成，版本 {forgeResult.VersionId}）"
+                        : $"{loaderLabel} {plan.Index.LoaderVersion} 已安装（库 {forgeResult.LibrariesDownloaded} 个"
                           + (forgeResult.Failures.Count > 0 ? $"，失败 {forgeResult.Failures.Count} 个" : "")
                           + "）";
                 }
                 catch (Exception ex)
                 {
-                    ModpackStatus = $"安装 Forge 失败：{ex.GetBaseException().Message}；将按原版创建。"
-                                    + "（1.13+ 的 Forge 需要 Java 与官方安装器）";
-                    LauncherLog.Write(_launcher.Root, $"整合包 Forge 安装失败 → {ex.GetBaseException().Message}");
+                    ModpackStatus = $"安装 {loaderLabel} 失败：{ex.GetBaseException().Message}；将按原版创建。"
+                                    + "（1.13+ 的 Forge / NeoForge 需要 Java 与官方安装器）";
+                    LauncherLog.Write(_launcher.Root, $"整合包 {loaderLabel} 安装失败 → {ex.GetBaseException().Message}");
                 }
             }
             else if (plan.Index.LoaderName is { } unsupportedLoader)
@@ -4250,3 +4402,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         (EnableAllCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }
 }
+
+/// <summary>下载页可选的模组加载器。四选一：一个实例只能挂一个加载器的 profile。</summary>
+public enum LoaderKind
+{
+    Vanilla = 0,
+    Fabric = 1,
+    Forge = 2,
+    NeoForge = 3,
+}
+
+/// <summary>某个游戏版本的加载器可用清单（三家并行查回来的结果）。</summary>
+internal sealed record LoaderAvailability(
+    IReadOnlyList<FabricLoaderVersion> Fabric,
+    IReadOnlyList<ForgeLoaderVersion> Forge,
+    IReadOnlyList<ForgeLoaderVersion> NeoForge);

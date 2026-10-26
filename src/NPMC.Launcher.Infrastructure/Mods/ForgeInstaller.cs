@@ -50,17 +50,25 @@ public sealed class ForgeInstaller
         string minecraftVersion,
         string forgeVersion,
         string cacheDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? installerUrls = null)
     {
         Directory.CreateDirectory(cacheDirectory);
 
-        var installerPath = Path.Combine(cacheDirectory, $"forge-{minecraftVersion}-{forgeVersion}-installer.jar");
+        var candidates = installerUrls ?? ForgeCoordinates.InstallerUrlCandidates(minecraftVersion, forgeVersion);
+
+        // 文件名跟具体 loader 走（Forge / NeoForge 的安装包都叫 installer.jar，混用会互相覆盖）
+        var fileName = installerUrls is null
+            ? $"forge-{minecraftVersion}-{forgeVersion}-installer.jar"
+            : Path.GetFileName(new Uri(candidates[0]).AbsolutePath);
+
+        var installerPath = Path.Combine(cacheDirectory, fileName);
 
         // 两套命名都试一遍：老版本是 <mc>-<forge>-<mc>，新版本是 <mc>-<forge>
         Exception? failure = null;
         var downloaded = false;
 
-        foreach (var url in ForgeCoordinates.InstallerUrlCandidates(minecraftVersion, forgeVersion))
+        foreach (var url in candidates)
         {
             try
             {
@@ -323,18 +331,25 @@ public sealed class ForgeInstaller
             UsedOfficialInstaller: true);
     }
 
-    /// <summary>安装器不一定按 profile.VersionId 命名目录；按 <c>&lt;mc&gt;-forge*</c> 兜底找最新的一个。</summary>
+    /// <summary>安装器不一定按 profile.VersionId 命名目录；按常见模式兜底找最新的一个。</summary>
     private static string? FindInstalledForgeVersionId(LauncherPaths paths, string minecraftVersion)
     {
         try
         {
             if (!Directory.Exists(paths.Versions)) return null;
 
-            return Directory.EnumerateDirectories(paths.Versions, $"{minecraftVersion}-forge*")
-                .Select(Path.GetFileName)
-                .Where(name => name is not null && File.Exists(paths.VersionJson(name)))
-                .OrderByDescending(name => name, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault();
+            foreach (var pattern in new[] { $"{minecraftVersion}-forge*", "neoforge-*" })
+            {
+                var found = Directory.EnumerateDirectories(paths.Versions, pattern)
+                    .Select(Path.GetFileName)
+                    .Where(name => name is not null && File.Exists(paths.VersionJson(name)))
+                    .OrderByDescending(name => name, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+
+                if (found is not null) return found;
+            }
+
+            return null;
         }
         catch
         {

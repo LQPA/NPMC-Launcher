@@ -444,7 +444,7 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | M3 | 实例管理与三级隔离 | ✅ 模型 / 目录 / JSON 持久化 / CLI 均已完成，28 个相关测试通过 |
 | M4 | Modrinth 搜索与依赖安装 | ⏳ API 已核实 |
 | M5 | 正版登录 | 🔒 **阻塞于外部审批** |
-| M6 | Forge / Fabric / NeoForge 安装 | ✅ Fabric 直接合成 profile；**Forge ≤1.12 解安装包、1.13+ 跑官方安装器**（`--installClient`，需 Java）；NeoForge 未接 |
+| M6 | Forge / Fabric / NeoForge 安装 | ✅ Fabric 直接合成 profile；**Forge ≤1.12 解安装包、1.13+ 跑官方安装器**（`--installClient`，需 Java）；**NeoForge 同一套官方安装器**（1.20.1 用 `net/neoforged/forge` 老坐标） |
 | M7 | 整合包导入（`.mrpack` 优先） | ⏳ |
 
 ---
