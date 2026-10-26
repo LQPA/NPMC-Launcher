@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Text.Json;
 using NPMC.Launcher.Core.Modpacks;
 using NPMC.Launcher.Core.Paths;
@@ -15,6 +15,13 @@ public sealed record ModpackPlan(
     string ArchivePath,
     string OverridesRoot,
     IReadOnlyList<string> Problems);
+
+/// <summary>安装进度：已完成 / 总数 / 当前文件（相对路径）。</summary>
+public sealed record ModpackInstallProgress(int Completed, int Total, string Path)
+{
+    /// <summary>0-100；总数为 0 时为 null（进度不可知）。</summary>
+    public double? Percent => Total > 0 ? Completed * 100.0 / Total : null;
+}
 
 /// <summary>安装结果。</summary>
 public sealed record ModpackInstallResult(
@@ -142,7 +149,7 @@ public sealed class ModpackInstaller
     public async Task<ModpackInstallResult> InstallIntoAsync(
         ModpackPlan plan,
         string instanceDirectory,
-        IProgress<string>? progress = null,
+        IProgress<ModpackInstallProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(instanceDirectory);
@@ -158,7 +165,7 @@ public sealed class ModpackInstaller
             var file = plan.Index.Files[i];
             var destination = SafeCombine(instanceDirectory, file.Path);
 
-            progress?.Report($"整合包文件 {i + 1}/{plan.Index.Files.Count}  {file.Path}");
+            progress?.Report(new ModpackInstallProgress(i + 1, plan.Index.Files.Count, file.Path));
 
             try
             {

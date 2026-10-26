@@ -2378,6 +2378,40 @@ public sealed class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref _downloadProgressText, value);
     }
 
+    // ---- 进度条（版本下载 / 整合包安装各一条） ----
+
+    private double _downloadProgress;
+    private bool _downloadProgressIndeterminate = true;
+    private double _modpackProgressPercent;
+    private bool _modpackProgressIndeterminate = true;
+
+    /// <summary>版本下载进度 0-100。</summary>
+    public double DownloadProgress
+    {
+        get => _downloadProgress;
+        private set => SetProperty(ref _downloadProgress, value);
+    }
+
+    /// <summary>总量未知（例如还在拿版本信息、或装加载器）时显示滚动条。</summary>
+    public bool DownloadProgressIndeterminate
+    {
+        get => _downloadProgressIndeterminate;
+        private set => SetProperty(ref _downloadProgressIndeterminate, value);
+    }
+
+    /// <summary>整合包安装进度 0-100。</summary>
+    public double ModpackProgressPercent
+    {
+        get => _modpackProgressPercent;
+        private set => SetProperty(ref _modpackProgressPercent, value);
+    }
+
+    public bool ModpackProgressIndeterminate
+    {
+        get => _modpackProgressIndeterminate;
+        private set => SetProperty(ref _modpackProgressIndeterminate, value);
+    }
+
     public ICommand ShowInstancesCommand { get; }
     public ICommand ShowDownloadsCommand { get; }
     public ICommand DownloadCommand { get; }
@@ -2461,6 +2495,8 @@ public sealed class MainWindowViewModel : ObservableObject
 
         IsDownloading = true;
         DownloadProgressText = "";
+        DownloadProgress = 0;
+        DownloadProgressIndeterminate = true;
 
         try
         {
@@ -2477,6 +2513,17 @@ public sealed class MainWindowViewModel : ObservableObject
                     "libraries" => $"库 {p.Completed}/{p.Total}",
                     _ => p.Stage,
                 };
+
+                // 有总数就按比例推进，没有就退回滚动条
+                if (p.Total > 0)
+                {
+                    DownloadProgress = p.Completed * 100.0 / p.Total;
+                    DownloadProgressIndeterminate = false;
+                }
+                else
+                {
+                    DownloadProgressIndeterminate = true;
+                }
             });
 
             DownloadStatus = $"正在下载 {choice.Id}…";
@@ -2735,12 +2782,34 @@ public sealed class MainWindowViewModel : ObservableObject
 
         try
         {
-            var progress = new Progress<string>(message => ModpackProgress = message);
+            ModpackProgressPercent = 0;
+            ModpackProgressIndeterminate = true;
+
+            // 本体下载：与版本下载同一套进度
+            var bodyProgress = new Progress<MinecraftInstallProgress>(p =>
+            {
+                if (p.Total <= 0)
+                {
+                    ModpackProgressIndeterminate = true;
+                    ModpackProgress = p.Stage;
+                    return;
+                }
+
+                ModpackProgress = p.Stage switch
+                {
+                    "assets" => $"资源对象 {p.Completed}/{p.Total}   已下载 {p.BytesDownloaded / 1024d / 1024d:N1} MB",
+                    "libraries" => $"库 {p.Completed}/{p.Total}",
+                    _ => p.Stage,
+                };
+
+                ModpackProgressPercent = p.Completed * 100.0 / p.Total;
+                ModpackProgressIndeterminate = false;
+            });
 
             ModpackStatus = $"正在下载游戏本体 {gameVersion}…";
             var installer = await CreateMinecraftInstallerAsync();
             var version = await installer.LoadVersionAsync(_launcher, gameVersion);
-            await installer.InstallAsync(_launcher, gameVersion, version);
+            await installer.InstallAsync(_launcher, gameVersion, version, bodyProgress);
 
             var instanceVersion = gameVersion;
 
@@ -2769,12 +2838,27 @@ public sealed class MainWindowViewModel : ObservableObject
             await store.SaveAsync(catalog.Instances);
 
             ModpackStatus = $"正在写入整合包文件（{plan.Index.Files.Count} 个）…";
+            ModpackProgressPercent = 0;
+            ModpackProgressIndeterminate = plan.Index.Files.Count == 0;
             var layout = new InstanceLayout(_launcher, instance);
 
+            var fileProgress = new Progress<ModpackInstallProgress>(p =>
+            {
+                ModpackProgress = $"文件 {p.Completed}/{p.Total}  {p.Path}";
+
+                if (p.Percent is { } percent)
+                {
+                    ModpackProgressPercent = percent;
+                    ModpackProgressIndeterminate = false;
+                }
+            });
+
             var result = await CreateModpackInstaller()
-                .InstallIntoAsync(plan, layout.GameDirectory, progress);
+                .InstallIntoAsync(plan, layout.GameDirectory, fileProgress);
 
             ModpackProgress = "";
+            ModpackProgressPercent = 100;
+            ModpackProgressIndeterminate = false;
 
             ModpackStatus = $"完成：已创建「{instance.Name}」"
                             + $"（文件 {result.FilesDownloaded} 个，跳过 {result.FilesSkipped} 个，"

@@ -657,6 +657,11 @@
                            TextWrapping="Wrap" Margin="0,6,0,0" />
                 <TextBlock Text="{Binding DownloadProgressText}" FontSize="11" Foreground="#7BC47F"
                            TextWrapping="Wrap" />
+
+                <ProgressBar Value="{Binding DownloadProgress}" Minimum="0" Maximum="100"
+                             IsIndeterminate="{Binding DownloadProgressIndeterminate}"
+                             IsVisible="{Binding IsDownloading}"
+                             Height="6" Margin="0,6,0,0" />
               </StackPanel>
             </Border>
           </StackPanel>
@@ -713,6 +718,11 @@
                            TextWrapping="Wrap" />
                 <TextBlock Text="{Binding ModpackProgress}" FontSize="11" Foreground="#7BC47F"
                            TextWrapping="Wrap" />
+
+                <ProgressBar Value="{Binding ModpackProgressPercent}" Minimum="0" Maximum="100"
+                             IsIndeterminate="{Binding ModpackProgressIndeterminate}"
+                             IsVisible="{Binding IsInstallingModpack}"
+                             Height="6" Margin="0,6,0,0" />
               </StackPanel>
             </Border>
           </StackPanel>

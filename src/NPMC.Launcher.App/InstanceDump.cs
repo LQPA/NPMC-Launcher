@@ -433,6 +433,55 @@ internal static class InstanceDump
             lines.Add($"    可安装 = {viewModel.InstallModpackCommand.CanExecute(null)}");
         }
 
+        // 验证下载进度真的在动：采样 DownloadProgress
+        if (args.Any(arg => string.Equals(arg, "--exercise-download-progress", StringComparison.OrdinalIgnoreCase)))
+        {
+            var progressIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-download-progress", StringComparison.OrdinalIgnoreCase));
+            var wanted = progressIndex >= 0 && progressIndex + 1 < args.Length ? args[progressIndex + 1] : "1.20.1";
+
+            viewModel.ShowDownloadsCommand.Execute(null);
+            for (var i = 0; i < 300 && viewModel.DownloadVersions.Count == 0; i++) Thread.Sleep(100);
+
+            var target = viewModel.DownloadVersions.FirstOrDefault(item => item.Id == wanted);
+            lines.Add("");
+            lines.Add($"[下载进度] 版本 {wanted}");
+
+            if (target is null)
+            {
+                lines.Add("    版本列表里没有该版本");
+            }
+            else
+            {
+                viewModel.SelectedDownloadVersion = target;
+                viewModel.DownloadInstanceName = "进度测试";
+
+                var samples = new System.Collections.Concurrent.ConcurrentBag<double>();
+                using var stop = new CancellationTokenSource();
+                var sampler = Task.Run(async () =>
+                {
+                    while (!stop.IsCancellationRequested)
+                    {
+                        samples.Add(viewModel.DownloadProgress);
+                        try { await Task.Delay(150, stop.Token); } catch { }
+                    }
+                });
+
+                viewModel.DownloadCommand.Execute(null);
+                for (var i = 0; i < 600 && viewModel.IsDownloading; i++) Thread.Sleep(200);
+
+                stop.Cancel();
+                try { sampler.Wait(2000); } catch { }
+
+                var list = samples.ToArray();
+                var nonZero = list.Count(value => value > 0);
+
+                lines.Add($"    采样点 = {list.Length}，非零 {nonZero} 个");
+                lines.Add($"    最小 = {list.DefaultIfEmpty(0).Min():N1}%  最大 = {list.DefaultIfEmpty(0).Max():N1}%");
+                lines.Add($"    状态 = {viewModel.DownloadStatus}");
+                lines.Add($"    滚动态出现过 = {list.Any(value => value == 0)}");
+            }
+        }
         // 验证实例页的 Java 候选列表
         if (args.Any(arg => string.Equals(arg, "--exercise-java", StringComparison.OrdinalIgnoreCase)))
         {
