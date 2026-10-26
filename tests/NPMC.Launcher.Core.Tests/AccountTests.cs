@@ -96,6 +96,23 @@ public class AccountCatalogTests
     }
 
     [Fact]
+    public void SetSkin_only_changes_skin_fields()
+    {
+        var catalog = new AccountCatalog();
+        var account = catalog.AddOffline("Steve");
+
+        var updated = catalog.SetSkin(account.Id, AccountSkin.Custom, @"C:\skins\me.png", "slim");
+
+        Assert.NotNull(updated);
+        Assert.Equal(AccountSkin.Custom, updated!.Skin);
+        Assert.Equal(@"C:\skins\me.png", updated.SkinPath);
+        Assert.Equal("slim", updated.SkinModel);
+        Assert.Equal(account.Username, updated.Username);
+        Assert.Equal(account.Uuid, updated.Uuid);
+        Assert.Equal("自定义", updated.SkinText);
+    }
+
+    [Fact]
     public void Remove_and_find_work_by_id_and_username()
     {
         var catalog = new AccountCatalog();

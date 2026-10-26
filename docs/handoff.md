@@ -389,6 +389,14 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
   - 用户名填好（合法）后 **700ms 自动保存**，不需要点保存按钮；
   - 名称为空 → 取消/离开账号页时不落盘（不会留下空账号）；
   - 验证方式目前只有「离线（默认）」，「微软正版」项禁用并注明未接入；没选时按离线创建。
+- **皮肤**（每个账号独立）：`Skin` = Steve / Alex / 自定义 / 同名正版；
+  - 自定义：选 64×64 PNG，另选手臂粗细（经典 4px / 纤细 3px），文件会复制进
+    `<root>\cache\skins\`，原文件删了也不影响；
+  - 同名正版：按用户名查 Mojang（`api.mojang.com` → `sessionserver` → 皮肤 PNG），
+    取回后缓存，模型（classic/slim）一起记录；
+  - 右侧有预览图；Steve / Alex 只做内置预览。
+  - **限制**：离线账号进游戏时，原版客户端不会读取启动器的皮肤设置；
+    要让皮肤真的显示，需要皮肤站 / CustomSkinLoader 之类的模组（后续接 authlib-injector 时一并处理）。
 - **账号解析优先级**（启动时）：实例的 `Settings.AccountId` → 全局 `settings.json` 的
   `DefaultAccountId` → 账号列表第一个；一个账号都没有时退回 `Player` 这个名字（不阻断启动）。
 - 实例概览新增「账号」下拉；第一项"跟随默认账号"。选择会写进该实例的 `AccountId`。

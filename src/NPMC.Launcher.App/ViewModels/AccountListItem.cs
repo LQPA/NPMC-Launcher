@@ -9,7 +9,19 @@ public sealed class AccountListItem : ObservableObject
 
     public AccountListItem(PlayerAccount account) => Account = account;
 
-    public PlayerAccount Account { get; }
+    public PlayerAccount Account { get; private set; }
+
+    /// <summary>就地更新（改名 / 换皮肤），不重建列表。</summary>
+    public void ApplyAccount(PlayerAccount account)
+    {
+        Account = account;
+
+        OnPropertyChanged(nameof(Account));
+        OnPropertyChanged(nameof(Username));
+        OnPropertyChanged(nameof(UuidDisplay));
+        OnPropertyChanged(nameof(UuidShort));
+        OnPropertyChanged(nameof(Initial));
+    }
 
     public string Id => Account.Id;
     public string Username => Account.Username;
@@ -41,11 +53,17 @@ public sealed class AccountListItem : ObservableObject
 }
 
 /// <summary>账号下拉里的一项：<see cref="Id"/> 为 null 表示"跟随默认账号"。</summary>
-public sealed class AccountChoiceItem
+public sealed class AccountChoiceItem : ObservableObject
 {
+    private string _display = "";
+
     public string? Id { get; init; }
 
-    public string Display { get; init; } = "";
+    public string Display
+    {
+        get => _display;
+        set => SetProperty(ref _display, value);
+    }
 
     public override string ToString() => Display;
 }

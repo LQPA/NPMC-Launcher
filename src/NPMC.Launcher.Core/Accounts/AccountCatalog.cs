@@ -78,6 +78,24 @@ public sealed class AccountCatalog
         return _accounts[index];
     }
 
+    /// <summary>换皮肤：只动皮肤相关字段，用户名 / UUID / Id 都不变。</summary>
+    public PlayerAccount? SetSkin(string id, AccountSkin skin, string? skinPath, string? skinModel)
+    {
+        var index = _accounts.FindIndex(account =>
+            string.Equals(account.Id, id, StringComparison.OrdinalIgnoreCase));
+
+        if (index < 0) return null;
+
+        _accounts[index] = _accounts[index] with
+        {
+            Skin = skin,
+            SkinPath = skinPath,
+            SkinModel = skinModel,
+        };
+
+        return _accounts[index];
+    }
+
     /// <summary>返回问题描述；空列表表示数据健康。</summary>
     public IReadOnlyList<string> Validate()
     {

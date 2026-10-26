@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
+using Avalonia.Media.Imaging;
 using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Instances;
+using NPMC.Launcher.Infrastructure.Skins;
 using NPMC.Launcher.Infrastructure.Storage;
 
 namespace NPMC.Launcher.App.ViewModels;
@@ -42,6 +44,24 @@ public sealed partial class MainWindowViewModel
     public ICommand DeleteAccountCommand { get; private set; }
     public ICommand SetDefaultAccountCommand { get; private set; }
     public ICommand CopyAccountUuidCommand { get; private set; }
+    public ICommand FetchMojangSkinCommand { get; private set; }
+
+    private bool _suppressSkinUi;
+    private int _selectedSkinIndex;
+    private int _selectedSkinArmIndex;
+    private Bitmap? _skinPreview;
+    private string _skinHint = "";
+    private bool _isFetchingSkin;
+
+    public ObservableCollection<string> SkinOptions { get; } = new()
+    {
+        "Steve", "Alex", "自定义皮肤", "使用同名正版皮肤",
+    };
+
+    public ObservableCollection<string> SkinArmOptions { get; } = new()
+    {
+        "经典（手臂 4px）", "纤细（手臂 3px）",
+    };
 
     private void InitializeAccountCommands()
     {
@@ -55,6 +75,8 @@ public sealed partial class MainWindowViewModel
             () => SelectedAccount is not null);
         CopyAccountUuidCommand = new RelayCommand(CopyAccountUuid,
             () => SelectedAccount is not null && CopyToClipboard is not null);
+        FetchMojangSkinCommand = new AsyncRelayCommand(FetchMojangSkinAsync,
+            () => SelectedAccount is not null && !IsFetchingSkin);
     }
 
     // ---- 导航与页面状态 ----
@@ -105,6 +127,10 @@ public sealed partial class MainWindowViewModel
             // 这时不能当成"用户清空了默认账号"，否则会覆盖 settings.json。
             if (!_accountOptionsReady) return;
 
+            // XAML 在重建下拉时会推回旧实例或 null；只接受当前集合里的项
+            if (value is not null && !DefaultAccountOptions.Contains(value)) return;
+            if (value is null && _settingsDefaultAccountId is not null) return;
+
             if (!SetProperty(ref _settingsDefaultAccountChoice, value)) return;
 
             var newId = value?.Id;
@@ -114,7 +140,7 @@ public sealed partial class MainWindowViewModel
             SaveSettings();
 
             RefreshAccountDefaults();
-            RebuildAccountOptions();
+            RefreshDefaultOptionLabels();
             NotifyAccountSettingsChanged();
 
             AccountStatus = newId is null
@@ -224,6 +250,7 @@ public sealed partial class MainWindowViewModel
             OnPropertyChanged(nameof(SelectedAccountIsDefault));
 
             RaiseAccountCommandStates();
+            RefreshSkinView();
         }
     }
 
@@ -372,6 +399,22 @@ public sealed partial class MainWindowViewModel
         }
     }
 
+    /// <summary>原地更新"跟随默认账号（xxx）"的文案，不重建集合，避免 XAML 回写旧选中项。</summary>
+    private void RefreshDefaultOptionLabels()
+    {
+        var defaultName = _accountCatalog.Find(_settingsDefaultAccountId)?.Username
+                          ?? _accountCatalog.Accounts.FirstOrDefault()?.Username;
+
+        if (AccountOptions.Count > 0)
+        {
+            AccountOptions[0].Display = defaultName is null
+                ? "跟随默认账号（还没有账号）"
+                : $"跟随默认账号（{defaultName}）";
+        }
+
+        if (DefaultAccountOptions.Count > 0) DefaultAccountOptions[0].Display = "自动（第一个账号）";
+    }
+
     /// <summary>settings.json 读进来之后，把下拉同步到文件里的 DefaultAccountId。</summary>
     private void RefreshDefaultAccountSelection()
     {
@@ -475,10 +518,13 @@ public sealed partial class MainWindowViewModel
         get => _selectedAccountChoice;
         set
         {
+            // 只接受当前下拉集合里的项：XAML 重建列表时会推回已脱离集合的旧实例
+            if (value is null || !AccountOptions.Contains(value)) return;
+
             if (!SetProperty(ref _selectedAccountChoice, value)) return;
             if (_suppressAccountSelection) return;
 
-            _ = PersistInstanceAccountAsync(value?.Id);
+            _ = PersistInstanceAccountAsync(value.Id);
         }
     }
 
@@ -742,8 +788,11 @@ public sealed partial class MainWindowViewModel
 
             _settingsDefaultAccountId = accountId;
             RefreshAccountDefaults();
-            RebuildAccountOptions();
-            RebuildDefaultAccountOptions();
+
+            // 不重建下拉集合：重建会让 XAML 把旧 SelectedItem 推回来，
+            // 结果徽标显示新账号、状态栏也写着新账号，实际默认值却被改回旧账号。
+            RefreshDefaultOptionLabels();
+            RefreshDefaultAccountSelection();
             NotifyAccountSettingsChanged();
 
             var account = _accountCatalog.Find(accountId);
@@ -769,6 +818,267 @@ public sealed partial class MainWindowViewModel
         (SaveAccountNameCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (SetDefaultAccountCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (CopyAccountUuidCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (FetchMojangSkinCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    // ---- 皮肤 ----
+
+    private string SkinCacheDirectory => Path.Combine(_launcher.Root, "cache", "skins");
+
+    public int SelectedSkinIndex
+    {
+        get => _selectedSkinIndex;
+        set
+        {
+            if (!SetProperty(ref _selectedSkinIndex, value)) return;
+
+            NotifySkinFlags();
+
+            if (_suppressSkinUi) return;
+
+            OnSkinChoiceChanged();
+        }
+    }
+
+    public int SelectedSkinArmIndex
+    {
+        get => _selectedSkinArmIndex;
+        set
+        {
+            if (!SetProperty(ref _selectedSkinArmIndex, value)) return;
+            if (_suppressSkinUi) return;
+
+            var model = value == 1 ? "slim" : "classic";
+            _ = SaveSkinAsync(SelectedSkinIndexToKind(_selectedSkinIndex),
+                SelectedAccount?.Account.SkinPath, model);
+        }
+    }
+
+    public bool IsCustomSkin => _selectedSkinIndex == 2;
+
+    public bool IsMojangSkin => _selectedSkinIndex == 3;
+
+    public Bitmap? SkinPreview
+    {
+        get => _skinPreview;
+        private set
+        {
+            if (ReferenceEquals(_skinPreview, value)) return;
+
+            _skinPreview?.Dispose();
+            _skinPreview = value;
+
+            OnPropertyChanged(nameof(SkinPreview));
+            OnPropertyChanged(nameof(HasSkinPreview));
+            OnPropertyChanged(nameof(SkinPreviewLabel));
+        }
+    }
+
+    public bool HasSkinPreview => _skinPreview is not null;
+
+    public string SkinPreviewLabel => HasSkinPreview
+        ? ""
+        : SelectedSkinIndexToKind(_selectedSkinIndex) switch
+        {
+            AccountSkin.Alex => "ALEX",
+            AccountSkin.Steve => "STEVE",
+            _ => "皮肤",
+        };
+
+    public string SkinHint
+    {
+        get => _skinHint;
+        private set => SetProperty(ref _skinHint, value);
+    }
+
+    public bool IsFetchingSkin
+    {
+        get => _isFetchingSkin;
+        private set
+        {
+            if (!SetProperty(ref _isFetchingSkin, value)) return;
+            (FetchMojangSkinCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    private void NotifySkinFlags()
+    {
+        OnPropertyChanged(nameof(IsCustomSkin));
+        OnPropertyChanged(nameof(IsMojangSkin));
+        OnPropertyChanged(nameof(SkinPreviewLabel));
+    }
+
+    private static AccountSkin SelectedSkinIndexToKind(int index) => index switch
+    {
+        1 => AccountSkin.Alex,
+        2 => AccountSkin.Custom,
+        3 => AccountSkin.MojangName,
+        _ => AccountSkin.Steve,
+    };
+
+    /// <summary>把选中账号的皮肤设置映射到右侧控件 + 预览图。</summary>
+    private void RefreshSkinView()
+    {
+        _suppressSkinUi = true;
+
+        try
+        {
+            var account = SelectedAccount?.Account;
+
+            _selectedSkinIndex = account is null
+                ? 0
+                : account.Skin switch
+                {
+                    AccountSkin.Alex => 1,
+                    AccountSkin.Custom => 2,
+                    AccountSkin.MojangName => 3,
+                    _ => 0,
+                };
+
+            _selectedSkinArmIndex = string.Equals(account?.SkinModel, "slim", StringComparison.OrdinalIgnoreCase)
+                ? 1
+                : 0;
+
+            OnPropertyChanged(nameof(SelectedSkinIndex));
+            OnPropertyChanged(nameof(SelectedSkinArmIndex));
+            NotifySkinFlags();
+
+            LoadSkinPreview(account?.SkinPath);
+
+            SkinHint = account switch
+            {
+                null => "",
+                { Skin: AccountSkin.Custom } => "选一个 64×64 的 PNG；手臂粗细按皮肤样式选。",
+                { Skin: AccountSkin.MojangName } => "按同名正版账号从 Mojang 取皮肤；找不到时会提示。",
+                _ => "内置 Steve / Alex 只做预览；进游戏显示需要皮肤站或模组支持。",
+            };
+        }
+        finally
+        {
+            _suppressSkinUi = false;
+        }
+    }
+
+    private void LoadSkinPreview(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            SkinPreview = null;
+            return;
+        }
+
+        try
+        {
+            SkinPreview = new Bitmap(path);
+        }
+        catch
+        {
+            SkinPreview = null;
+        }
+    }
+
+    private void OnSkinChoiceChanged()
+    {
+        var skin = SelectedSkinIndexToKind(_selectedSkinIndex);
+
+        if (skin == AccountSkin.Steve || skin == AccountSkin.Alex)
+        {
+            _ = SaveSkinAsync(skin, null, null);
+            return;
+        }
+
+        var account = SelectedAccount?.Account;
+
+        _ = SaveSkinAsync(skin, account?.SkinPath, account?.SkinModel);
+
+        if (skin == AccountSkin.Custom && string.IsNullOrWhiteSpace(account?.SkinPath))
+            SkinHint = "还没选皮肤文件，点「选择 PNG」。";
+    }
+
+    /// <summary>选好自定义皮肤后由窗口调用（文件对话框在代码里）。</summary>
+    public async void SetAccountSkinFile(string path)
+    {
+        if (SelectedAccount is not { } selected) return;
+
+        if (!File.Exists(path))
+        {
+            SkinHint = "文件不存在";
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(SkinCacheDirectory);
+
+            var destination = Path.Combine(
+                SkinCacheDirectory, $"{selected.Id}-{DateTime.UtcNow.Ticks}.png");
+
+            File.Copy(path, destination, overwrite: true);
+
+            await SaveSkinAsync(AccountSkin.Custom, destination,
+                _selectedSkinArmIndex == 1 ? "slim" : "classic");
+        }
+        catch (Exception ex)
+        {
+            SkinHint = $"读取皮肤失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    private async Task FetchMojangSkinAsync()
+    {
+        if (SelectedAccount is not { } selected) return;
+
+        if (IsFetchingSkin) return;
+
+        IsFetchingSkin = true;
+        SkinHint = "正在从 Mojang 查同名正版皮肤…";
+
+        try
+        {
+            var fetched = await MojangSkinClient.TryFetchAsync(selected.Username, SkinCacheDirectory);
+
+            if (fetched is null)
+            {
+                SkinHint = "找不到同名正版账号（或网络不可用），已保留当前皮肤设置。";
+                return;
+            }
+
+            await SaveSkinAsync(AccountSkin.MojangName, fetched.Path, fetched.Model);
+            SkinHint = $"已取回正版皮肤（{fetched.Model}）。";
+        }
+        catch (Exception ex)
+        {
+            SkinHint = $"获取皮肤失败：{ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            IsFetchingSkin = false;
+        }
+    }
+
+    private async Task SaveSkinAsync(AccountSkin skin, string? path, string? model)
+    {
+        if (SelectedAccount is not { } selected) return;
+
+        try
+        {
+            var store = new JsonAccountStore(_launcher);
+            var catalog = new AccountCatalog(await store.LoadAsync());
+
+            var updated = catalog.SetSkin(selected.Id, skin, path, model);
+            if (updated is null) return;
+
+            await store.SaveAsync(catalog.Accounts);
+
+            selected.ApplyAccount(updated);
+            RefreshSkinView();
+
+            AccountStatus = $"账号「{updated.Username}」的皮肤：{updated.SkinText}";
+        }
+        catch (Exception ex)
+        {
+            SkinHint = $"保存皮肤失败：{ex.GetBaseException().Message}";
+        }
     }
 
     private void NotifyAccountSettingsChanged()

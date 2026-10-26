@@ -1113,6 +1113,25 @@ internal static class InstanceDump
                 lines.Add($"    默认：Selected={viewModel.SelectedAccountIsDefault} "
                           + $"设置下拉={viewModel.SettingsDefaultAccountChoice?.Display ?? "-"}");
 
+                // 第二个账号 + 默认切换：徽标应该从上一个账号搬到新账号
+                viewModel.CreateAccountCommand.Execute(null);
+                Thread.Sleep(200);
+                viewModel.NewAccountName = "DiagAcc2";
+                Thread.Sleep(1400);
+
+                var second = viewModel.Accounts.FirstOrDefault(item => item.Username == "DiagAcc2");
+
+                if (second is not null)
+                {
+                    viewModel.SelectedAccount = second;
+                    Thread.Sleep(200);
+                    viewModel.SetDefaultAccountCommand.Execute(null);
+                    Thread.Sleep(700);
+
+                    lines.Add("    默认切换：" + string.Join("、", viewModel.Accounts.Select(item =>
+                        $"{item.Username}={(item.IsDefault ? "默认" : "-")}")));
+                }
+
                 if (viewModel.SelectedInstance is { } instance)
                 {
                     var choice = viewModel.AccountOptions.FirstOrDefault(option => option.Id == created.Id);
@@ -1164,6 +1183,64 @@ internal static class InstanceDump
             viewModel.AccountSearchText = "";
             Thread.Sleep(250);
             lines.Add($"    清空搜索：列表 {viewModel.Accounts.Count} 个");
+        }
+
+        // 皮肤：内置选择与"同名正版皮肤"（需要网络；失败也应当优雅提示）
+        if (args.Any(arg => string.Equals(arg, "--exercise-skin", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[皮肤]");
+
+            var name = "Notch";
+
+            viewModel.CreateAccountCommand.Execute(null);
+            Thread.Sleep(200);
+            viewModel.NewAccountName = name;
+            Thread.Sleep(1400);
+
+            var account = viewModel.Accounts.FirstOrDefault(item => item.Username == name);
+
+            if (account is null)
+            {
+                lines.Add("    临时账号创建失败");
+            }
+            else
+            {
+                viewModel.SelectedAccount = account;
+                Thread.Sleep(300);
+
+                lines.Add($"    默认皮肤={account.Account.SkinText}");
+
+                viewModel.SelectedSkinIndex = 3; // 使用同名正版皮肤
+                Thread.Sleep(300);
+                viewModel.FetchMojangSkinCommand.Execute(null);
+
+                for (var i = 0; i < 60 && viewModel.IsFetchingSkin; i++) Thread.Sleep(200);
+                Thread.Sleep(500);
+
+                var fetched = viewModel.SelectedAccount?.Account;
+                lines.Add($"    取回：皮肤={fetched?.SkinText ?? "-"} 模型={fetched?.SkinModel ?? "-"}"
+                          + $" 文件存在={(fetched?.SkinPath is { } path && File.Exists(path))}");
+
+                // 切到自定义（不选文件）再切回 Alex，确认能保存/预览
+                viewModel.SelectedSkinIndex = 2;
+                Thread.Sleep(400);
+                lines.Add($"    自定义：手臂={viewModel.SelectedSkinArmIndex} 提示={viewModel.SkinHint}");
+
+                viewModel.SelectedSkinIndex = 1; // Alex
+                Thread.Sleep(400);
+                var alex = viewModel.SelectedAccount?.Account;
+                lines.Add($"    Alex：皮肤={alex?.SkinText} 路径={(alex?.SkinPath is null ? "null" : "有")}");
+
+                // 清理：删除临时账号
+                viewModel.SelectedAccount = viewModel.Accounts.FirstOrDefault(item => item.Username == name);
+                viewModel.DeleteAccountCommand.Execute(null);
+                Thread.Sleep(250);
+                viewModel.DeleteAccountCommand.Execute(null);
+                Thread.Sleep(800);
+
+                lines.Add($"    清理：剩余={string.Join("、", viewModel.Accounts.Select(item => item.Username))}");
+            }
         }
 
         // 加载器检查的缓存与"切回不再卡住"：首次联网耗时 vs 切回命中缓存耗时

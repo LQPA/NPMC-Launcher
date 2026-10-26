@@ -201,6 +201,34 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>账号页：选择自定义皮肤 PNG（64×64）。</summary>
+    private async void OnPickAccountSkinClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+
+        try
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "选择皮肤 PNG（64×64）",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Minecraft 皮肤") { Patterns = new[] { "*.png" } },
+                },
+            });
+
+            if (files.Count == 0) return;
+
+            var path = files[0].TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path)) viewModel.SetAccountSkinFile(path);
+        }
+        catch (Exception ex)
+        {
+            viewModel.ReportSettingsFailure($"选择皮肤失败：{ex.GetBaseException().Message}");
+        }
+    }
+
     /// <summary>手动指定 java.exe（非常规安装路径）。</summary>
     private async void OnPickJavaClick(object? sender, RoutedEventArgs e)
     {

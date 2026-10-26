@@ -382,6 +382,11 @@ CLI 是 `npmc settings show` / `npmc settings set <键> <值>`。
   删除账号时如果它正好是全局默认，会同时清空 `settings.json` 里的 `DefaultAccountId`。
 - 新建账号是"空档案 → 填表 → 自动落盘"：草稿只存在内存里（`IsCreatingAccount`），
   用户名合法后延迟 700ms 自动写入 `accounts.json`；空名取消/离开页面不会产生账号。
+- 皮肤字段：`Skin`（Steve/Alex/Custom/MojangName）、`SkinPath`（`<root>\cache\skins\*.png`）、
+  `SkinModel`（classic/slim）。`MojangSkinClient` 走
+  `api.mojang.com/users/profiles/minecraft/{name}` → `sessionserver.../profile/{id}`
+  → 解码 textures 属性 → 下载皮肤 PNG。离线客户端不会自动用这些皮肤，
+  进游戏显示仍需皮肤站 / 模组（authlib-injector 后续接入）。
 - 微软 / authlib-injector 的令牌不会写进 `accounts.json`；后续接它们时单独存受保护位置。
 
 ## 9. 正版登录（受外部阻塞）

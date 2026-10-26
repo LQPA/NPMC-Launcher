@@ -193,9 +193,12 @@
                   <Grid ColumnDefinitions="96,*">
                     <TextBlock Text="用户名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                     <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
-                      <TextBox Text="{Binding AccountNameEdit, Mode=TwoWay}" FontSize="12" Height="30" />
+                      <TextBox Text="{Binding AccountNameEdit, Mode=TwoWay}" FontSize="12" Height="30"
+                               VerticalAlignment="Center" />
                       <Button Grid.Column="1" Content="保存" Command="{Binding SaveAccountNameCommand}"
-                              Margin="8,0,0,0" FontSize="12" Height="30" Padding="16,0" />
+                              Margin="8,0,0,0" FontSize="12" Height="30" Width="104"
+                              HorizontalAlignment="Right" VerticalAlignment="Center"
+                              HorizontalContentAlignment="Center" Padding="0" />
                     </Grid>
                   </Grid>
 
@@ -206,7 +209,9 @@
                                  Foreground="#DCE4F5" VerticalAlignment="Center"
                                  TextTrimming="CharacterEllipsis" />
                       <Button Grid.Column="1" Content="复制 UUID" Command="{Binding CopyAccountUuidCommand}"
-                              Margin="8,0,0,0" FontSize="12" Height="30" Padding="12,0" />
+                              Margin="8,0,0,0" FontSize="12" Height="30" Width="104"
+                              HorizontalAlignment="Right" VerticalAlignment="Center"
+                              HorizontalContentAlignment="Center" Padding="0" />
                     </Grid>
                   </Grid>
 
@@ -220,6 +225,49 @@
                     <TextBlock Text="创建时间" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Text="{Binding SelectedAccount.CreatedText}" FontSize="12"
                                Foreground="#B4BCC8" VerticalAlignment="Center" />
+                  </Grid>
+
+                  <!-- 皮肤：内置 Steve/Alex、自定义 PNG（手臂粗细）、同名正版 -->
+                  <Grid ColumnDefinitions="96,*">
+                    <TextBlock Text="皮肤" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Spacing="8">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <ComboBox ItemsSource="{Binding SkinOptions}"
+                                  SelectedIndex="{Binding SelectedSkinIndex, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch" FontSize="12" />
+
+                        <Border Grid.Column="1" Width="52" Height="52" Margin="8,0,0,0"
+                                Background="#1B1D23" BorderBrush="#31353F" BorderThickness="1"
+                                CornerRadius="4" VerticalAlignment="Center">
+                          <Panel>
+                            <Image Source="{Binding SkinPreview}" Stretch="Uniform"
+                                   RenderOptions.BitmapInterpolationMode="None"
+                                   IsVisible="{Binding HasSkinPreview}" />
+                            <TextBlock Text="{Binding SkinPreviewLabel}" FontSize="10"
+                                       Foreground="#949CA9" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" IsVisible="{Binding !HasSkinPreview}" />
+                          </Panel>
+                        </Border>
+                      </Grid>
+
+                      <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsCustomSkin}">
+                        <ComboBox ItemsSource="{Binding SkinArmOptions}"
+                                  SelectedIndex="{Binding SelectedSkinArmIndex, Mode=TwoWay}"
+                                  Width="170" FontSize="12" />
+                        <Button Content="选择 PNG" Click="OnPickAccountSkinClick"
+                                FontSize="12" Height="30" Padding="12,0" />
+                      </StackPanel>
+
+                      <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsMojangSkin}">
+                        <Button Content="获取正版皮肤" Command="{Binding FetchMojangSkinCommand}"
+                                FontSize="12" Height="30" Padding="12,0" />
+                        <TextBlock Text="按同名正版账号查询并缓存" FontSize="10" Foreground="#6E7684"
+                                   VerticalAlignment="Center" />
+                      </StackPanel>
+
+                      <TextBlock Text="{Binding SkinHint}" FontSize="10" Foreground="#6E7684"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
                   </Grid>
 
                   <TextBlock Text="离线账号：不联网、不需要令牌；UUID 由用户名按 Minecraft 离线规则算出，改名后会重算。"
