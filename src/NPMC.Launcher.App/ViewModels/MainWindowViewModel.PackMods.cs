@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using NPMC.Launcher.Core.Instances;
+using NPMC.Launcher.Core.Mods;
 
 namespace NPMC.Launcher.App.ViewModels;
 
@@ -112,6 +113,75 @@ public sealed partial class MainWindowViewModel
         }
     }
 
+    private List<NPMC.Launcher.Core.Content.ContentEntry> _modSnapshot = new();
+    private readonly Dictionary<string, ContentEntryItem> _modItemCache = new(StringComparer.OrdinalIgnoreCase);
+    private InstanceListItem? _modSnapshotInstance;
+
+    private void RememberModSnapshot(InstanceListItem instance, IEnumerable<NPMC.Launcher.Core.Content.ContentEntry> entries)
+    {
+        _modSnapshotInstance = instance;
+        _modSnapshot = entries.ToList();
+
+        var paths = _modSnapshot.Select(entry => entry.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in _modItemCache.Keys.Where(key => !paths.Contains(key)).ToList())
+            _modItemCache.Remove(key);
+    }
+
+    /// <summary>
+    /// 用内存里的扫描结果重建列表：折叠/筛选只移动已有的行对象，不再重新扫盘、
+    /// 也不重新创建 495 个 ContentEntryItem（否则每次开关都会把内存顶上去）。
+    /// </summary>
+    private void RebuildModContent()
+    {
+        if (!IsModsTab || _modSnapshotInstance is null) return;
+
+        var info = InstanceModpackStore.Load(_modSnapshotInstance.GameDirectory);
+        var packNames = info?.PackFiles
+            .Select(file => file.FileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var packSource = info?.IsCurseForge == true ? UpdateSource.CurseForge : UpdateSource.Modrinth;
+        var query = _modFilterQuery.Trim();
+
+        Content.Clear();
+
+        var hidden = 0;
+
+        foreach (var entry in _modSnapshot)
+        {
+            var name = Path.GetFileName(entry.Path);
+            var isPack = packNames.Contains(name);
+
+            if (isPack && _hidePackMods)
+            {
+                hidden++;
+                continue;
+            }
+
+            if (query.Length > 0 && !name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!_modItemCache.TryGetValue(entry.Path, out var item))
+            {
+                item = new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync);
+                _modItemCache[entry.Path] = item;
+            }
+
+            if (isPack) item.SetIdentification(packSource);
+
+            Content.Add(item);
+        }
+
+        _packFileNames = packNames;
+        _packModsHidden = hidden;
+
+        OnPropertyChanged(nameof(IsContentEmpty));
+        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
+        OnPropertyChanged(nameof(ContentEmptyHint));
+        RaisePackModFilterChanged();
+        RaiseCommandStates();
+    }
     private void RaisePackModFilterChanged()
     {
         OnPropertyChanged(nameof(CanHidePackMods));

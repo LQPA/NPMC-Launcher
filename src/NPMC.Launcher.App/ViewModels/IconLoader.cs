@@ -18,7 +18,9 @@ internal sealed class IconLoader
     private readonly HttpClient _http;
     private readonly string _cacheDirectory;
     private readonly Action<string>? _log;
+    private const int MaxEntries = 128;
     private readonly Dictionary<string, Bitmap?> _memory = new(StringComparer.OrdinalIgnoreCase);
+    private readonly LinkedList<string> _order = new();
 
     public IconLoader(HttpClient http, string cacheDirectory, Action<string>? log = null)
     {
@@ -30,7 +32,11 @@ internal sealed class IconLoader
     public async Task<Bitmap?> GetAsync(string? url)
     {
         if (string.IsNullOrWhiteSpace(url)) return null;
-        if (_memory.TryGetValue(url, out var cached)) return cached;
+        if (_memory.TryGetValue(url, out var cached))
+        {
+            Touch(url);
+            return cached;
+        }
 
         try
         {
@@ -72,6 +78,36 @@ internal sealed class IconLoader
         }
     }
 
+    /// <summary>把最近用到的 URL 移到队首；超出上限就丢掉最旧的引用，磁盘缓存还在，需要时再读。</summary>
+    private void Store(string url, Bitmap? bitmap)
+    {
+        _memory[url] = bitmap;
+        Touch(url);
+
+        while (_memory.Count > MaxEntries && _order.Last is { } last)
+        {
+            _order.RemoveLast();
+            _memory.Remove(last.Value);
+        }
+    }
+
+    private void Touch(string url)
+    {
+        if (_order.First is { } first && string.Equals(first.Value, url, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var node = _order.Find(url);
+        if (node is not null) _order.Remove(node);
+
+        _order.AddFirst(url);
+    }
+
+    /// <summary>释放整份内存缓存（磁盘缓存保留）；换实例/离开列表时调用。</summary>
+    public void Clear()
+    {
+        _memory.Clear();
+        _order.Clear();
+    }
     private Bitmap? Decode(byte[] bytes, string source)
     {
         try

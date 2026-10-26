@@ -1208,6 +1208,11 @@ internal static class InstanceDump
                 Thread.Sleep(2500);
                 lines.Add($"    本地筛选 tombstone：{viewModel.Content.Count} 个");
 
+                var beforeMem = GC.GetTotalMemory(true);
+                for (var i = 0; i < 6; i++) viewModel.HidePackMods = i % 2 == 0;
+                viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+                var afterMem = GC.GetTotalMemory(true);
+                lines.Add($"    反复开关 6 次内存变化：{(afterMem - beforeMem) / 1024} KB；当前列表 {viewModel.Content.Count} 个");
                 lines.Add($"    整合包来源归属：CF={viewModel.Content.Count(item => item.IsFromCurseForge)} 个，"
                                     + $"Modrinth={viewModel.Content.Count(item => item.IsFromModrinth)} 个，"
                                     + $"未识别={viewModel.Content.Count(item => item.IsUnidentified)} 个");

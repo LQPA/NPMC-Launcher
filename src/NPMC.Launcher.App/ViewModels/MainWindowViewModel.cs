@@ -707,6 +707,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 _ = RefreshCapabilitiesAsync(selectedInstance);
                 SyncAccountChoice(selectedInstance.Model);
+                _icons.Clear();
                 LoadBlockedModsForSelectedInstance(value);
             }
 
@@ -1456,20 +1457,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (version != _contentScanVersion) return;
 
-        // 整合包实例：默认折叠整合包自带的模组
-        var visibleEntries = entries.ToList();
-        ApplyPackModFilter(instance, resolvedKind, visibleEntries);
+        // 模组页：保存扫描结果，折叠/筛选只在内存里移动行对象（见 RebuildModContent）
+        if (resolvedKind == ContentKind.Mod)
+        {
+            RememberModSnapshot(instance, entries);
+            RebuildModContent();
+        }
+        else
+        {
+            Content.Clear();
+            UpdateCount = 0;   // 列表重建后旧的升级标记已失效
+            foreach (var entry in entries)
+                Content.Add(new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync));
 
-        Content.Clear();
-        UpdateCount = 0;   // 列表重建后旧的升级标记已失效
-        foreach (var entry in visibleEntries)
-            Content.Add(new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync));
+            RaisePackModFilterChanged();
+            OnPropertyChanged(nameof(IsContentEmpty));
+            OnPropertyChanged(nameof(IsContentEmptyOrNotList));
+            RaiseCommandStates();
+        }
 
-        RaisePackModFilterChanged();
-
-        OnPropertyChanged(nameof(IsContentEmpty));
-        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
-        RaiseCommandStates();
         UpdateDataPackTabCount();
 
         // 徽标/R·B·A/图标都不依赖"检查更新"：先用缓存，再后台识别一次。
@@ -2178,9 +2184,31 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ContentKind kind,
         IReadOnlyList<ContentEntryItem> items)
     {
+        // 整合包自带的模组：直接归属整合包来源，不查哈希、不加载图标（495 个图标很吃内存）
+        var packInfo = kind == ContentKind.Mod
+            ? InstanceModpackStore.Load(instance.GameDirectory)
+            : null;
+
+        var packNames = packInfo?.PackFiles
+            .Select(file => file.FileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var packSource = packInfo?.IsCurseForge == true
+            ? UpdateSource.CurseForge
+            : UpdateSource.Modrinth;
+
         // 1) 先用记住的结果：徽标、R/B/A、图标全部离线可用
         foreach (var item in items)
         {
+            var name = Path.GetFileName(item.Entry.Path);
+
+            if (packNames.Contains(name))
+            {
+                item.SetIdentification(packSource);
+                continue;
+            }
+
             if (!_contentMetadata.TryGet(item.Entry.FileName, out var remembered)) continue;
 
             if (remembered.Identified)
@@ -2190,25 +2218,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var icon = await _icons.GetAsync(remembered.IconUrl);
             if (icon is not null) item.Icon = icon;
-        }
-
-        // 整合包自带的模组：直接归属整合包来源（CF / Modrinth），不再逐个联网猜来源。
-        var packNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var packSource = UpdateSource.Modrinth;
-
-        if (kind == ContentKind.Mod
-            && InstanceModpackStore.Load(instance.GameDirectory) is { } packInfo)
-        {
-            packSource = packInfo.IsCurseForge ? UpdateSource.CurseForge : UpdateSource.Modrinth;
-            packNames = packInfo.PackFiles
-                .Select(file => file.FileName)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var item in items)
-            {
-                if (packNames.Contains(Path.GetFileName(item.Entry.Path)))
-                    item.SetIdentification(packSource);
-            }
         }
 
         var checkItems = items

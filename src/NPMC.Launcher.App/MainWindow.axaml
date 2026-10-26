@@ -568,7 +568,7 @@
                   IsVisible="{Binding IsModFilterVisible}">
             <Grid ColumnDefinitions="*,Auto">
               <TextBox Text="{Binding ModFilterQuery, Mode=TwoWay}" FontSize="12"
-                       Watermark="筛选当前模组（输入即过滤，不联网）" />
+                       Watermark="筛选当前模组…" />
               <Button Grid.Column="1" Content="下载模组" Command="{Binding OpenModDownloadCommand}"
                       Margin="8,0,0,0" FontSize="12" Height="30" Padding="12,0"
                       HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
