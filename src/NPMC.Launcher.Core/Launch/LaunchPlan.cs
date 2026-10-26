@@ -177,6 +177,14 @@ public sealed class ArgumentBuilder
         builder.Set("${launcher_name}", context.LauncherName);
         builder.Set("${launcher_version}", context.LauncherVersion);
         builder.Set("${classpath}", string.Join(';', classpath));
+        // 旧版（1.13 之前）专用占位符。
+        // ${user_properties} 尤其关键：它必须是合法 JSON（"{}"），
+        // 否则游戏会拿字面量去解析，报 "Expected BEGIN_OBJECT but was STRING"。
+        builder.Set("${user_properties}", "{}");
+        builder.Set("${auth_session}", context.AccessToken);
+        builder.Set("${profile_name}", context.PlayerName);
+        builder.Set("${game_assets}", assetsDirectory);
+
         builder.Set("${resolution_width}", context.Width.ToString(CultureInfo.InvariantCulture));
         builder.Set("${resolution_height}", context.Height.ToString(CultureInfo.InvariantCulture));
 
@@ -208,9 +216,12 @@ public static class LaunchPlanFactory
         string? logConfigFile = null,
         string? gameDirectory = null)
     {
-        if (version.Arguments is null)
+        // 1.13 之前只有 minecraftArguments（一整串空格分隔的参数），没有 arguments 结构
+        var isLegacyArguments = version.Arguments is null;
+
+        if (isLegacyArguments && string.IsNullOrWhiteSpace(version.MinecraftArguments))
             throw new NotSupportedException(
-                $"版本 {versionId} 使用旧版 minecraftArguments 格式，当前仅支持现代 arguments 结构。");
+                $"版本 {versionId} 既没有 arguments 也没有 minecraftArguments，无法组装启动参数。");
 
         var features = FeatureSet.ForLaunch(hasCustomResolution);
 
@@ -235,9 +246,24 @@ public static class LaunchPlanFactory
         if (!string.IsNullOrEmpty(logConfigFile))
             jvm.Add($"-Dlog4j.configurationFile={logConfigFile}");
 
-        jvm.AddRange(builder.Build(version.Arguments.Jvm, os, features));
+        jvm.AddRange(builder.Build(
+            version.Arguments?.Jvm ?? (IReadOnlyList<ArgumentEntry>)Array.Empty<ArgumentEntry>(), os, features));
 
-        var game = builder.Build(version.Arguments.Game, os, features);
+        IReadOnlyList<string> game;
+
+        if (isLegacyArguments)
+        {
+            // 旧版把 -Djava.library.path 与 -cp 也省略了，需要自己补
+            jvm.Add($"-Djava.library.path={natives}");
+            jvm.Add("-cp");
+            jvm.Add(string.Join(';', classpath));
+
+            game = ExpandLegacyArguments(builder, version.MinecraftArguments!);
+        }
+        else
+        {
+            game = builder.Build(version.Arguments!.Game, os, features);
+        }
 
         var javaPath = version.JavaVersion is { Component.Length: > 0 } jv
             ? paths.JavaExe(jv.Component)
@@ -245,6 +271,18 @@ public static class LaunchPlanFactory
 
         return new LaunchPlan(javaPath, gameDir, version.MainClass, jvm, game);
     }
+
+    /// <summary>
+    /// 展开旧版 minecraftArguments。
+    ///
+    /// 先按空格切分**再**替换：占位符本身不含空格，而替换进去的值（例如游戏目录）
+    /// 可能含空格，反过来的话参数会被切碎。
+    /// </summary>
+    public static IReadOnlyList<string> ExpandLegacyArguments(ArgumentBuilder builder, string minecraftArguments)
+        => minecraftArguments
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(builder.Expand)
+            .ToList();
 
     /// <summary>检查是否还残留 ${...} 占位符——有残留说明模板替换有漏项。</summary>
     public static IReadOnlyList<string> FindUnresolvedPlaceholders(LaunchPlan plan)

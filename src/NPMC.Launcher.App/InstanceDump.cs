@@ -385,7 +385,6 @@ internal static class InstanceDump
                 viewModel.SelectedDownloadVersion = probe;
                 Thread.Sleep(2500);
 
-                lines.Add($"    {probeId,-14} {viewModel.JavaStatusText}   勾选={viewModel.InstallJava}");
             }
             // 名称跟随、加载器选择、重名拦截
             if (viewModel.DownloadVersions.Count >= 3)

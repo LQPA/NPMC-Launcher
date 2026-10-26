@@ -234,8 +234,17 @@ internal static class Program
             }
         }
 
-        // 5) natives 目录（1.20.1 不需要解压，但 -Djava.library.path 必须指向存在的目录）
+        // 5) natives：目录必须存在；旧式声明（1.13 之前）还要把 dll 解进去
         Directory.CreateDirectory(paths.NativesDir(versionId));
+
+        var natives = await new NativesInstaller(downloader)
+            .EnsureAsync(paths, versionId, version, OsInfo.Windows64(), cancellationToken: default)
+            .ConfigureAwait(false);
+
+        if (natives.Extracted > 0)
+            Ok($"natives    解出 {natives.Extracted} 个动态库");
+
+        foreach (var failure in natives.Failures) Warn($"natives 失败：{failure}");
 
         Section("下载源");
         Info($"镜像 {mirrorHits} 个 / 官方 {officialHits} 个   （首选：{DescribeSource(router.Settings.Source)}）");

@@ -1,4 +1,4 @@
-using NPMC.Launcher.Core.Mirrors;
+﻿using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
@@ -197,8 +197,14 @@ public sealed class MinecraftInstaller
             failures.AddRange(assetResult.Failures);
         }
 
-        // 5) natives 目录必须存在（-Djava.library.path 指向它）
+        // 5) natives：目录必须存在，旧式声明还要把 dll 解进去（否则 1.7.10 报 no lwjgl）
         Directory.CreateDirectory(paths.NativesDir(versionId));
+
+        var natives = await new NativesInstaller(_downloader)
+            .EnsureAsync(paths, versionId, version, os, cancellationToken)
+            .ConfigureAwait(false);
+
+        failures.AddRange(natives.Failures);
 
         return new MinecraftInstallResult(
             librariesDownloaded,
