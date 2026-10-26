@@ -540,7 +540,7 @@
             </ScrollViewer>
           </Border>
 
-          <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+          <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"
                       Spacing="8" Margin="24" IsVisible="{Binding IsContentEmptyOrNotList}">
             <TextBlock Text="{Binding ContentEmptyHint}" FontSize="12" Foreground="#949CA9"
                        TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" LineHeight="19" />

@@ -956,14 +956,14 @@ public sealed class MainWindowViewModel : ObservableObject
             {
                 DataPackWorld = null;
                 LoadWorlds();
-                RaiseWorldViewChanged();
             }
-            OnPropertyChanged(nameof(ShowOverview));
-            OnPropertyChanged(nameof(ShowContentList));
-        OnPropertyChanged(nameof(ShowContentPane));
-        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
-            OnPropertyChanged(nameof(ShowLog));
-            OnPropertyChanged(nameof(ContentEmptyHint));
+            else if (DataPackWorld is not null)
+            {
+                // 离开存档页签：清掉"正在管理的世界"，否则"返回存档"头部会留在别的页签上
+                DataPackWorld = null;
+                Content.Clear();
+            }
+            RaiseWorldViewChanged();
             OnPropertyChanged(nameof(SearchPlaceholder));
             RaiseCommandStates();
             UpdateLogTimer();
