@@ -956,15 +956,67 @@ internal static class InstanceDump
         lines.Add($"[导航] 下载/整合包 版本区块={viewModel.IsVersionsMode} "
                   + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
 
-        // 实例排序与改名：验证 VM → instances.json → 重新读取 的往返
+        // 文件夹被手动改名：负载在目录里的标记把 Id / 显示名同步回启动器
+        if (args.Any(arg => string.Equals(arg, "--exercise-instance-folder-sync", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[文件夹改名同步]");
+
+            var paths = new LauncherPaths(root);
+            var target = viewModel.Instances.FirstOrDefault(item =>
+                             string.Equals(item.Name, item.Id, StringComparison.OrdinalIgnoreCase))
+                         ?? viewModel.Instances.FirstOrDefault();
+
+            if (target is null)
+            {
+                lines.Add("    没有实例");
+            }
+            else
+            {
+                var originalId = target.Id;
+                var originalDirectory = Path.Combine(paths.Instances, originalId);
+                var tempName = "外部改名测试";
+                var tempDirectory = Path.Combine(paths.Instances, tempName);
+
+                if (!Directory.Exists(originalDirectory))
+                {
+                    lines.Add($"    目录不存在：{originalDirectory}");
+                }
+                else if (Directory.Exists(tempDirectory))
+                {
+                    lines.Add($"    目标目录已存在，跳过：{tempDirectory}");
+                }
+                else
+                {
+                    Directory.Move(originalDirectory, tempDirectory);
+                    viewModel.LoadAsync().GetAwaiter().GetResult();
+
+                    var synced = viewModel.Instances.FirstOrDefault(item => item.Id == tempName);
+                    lines.Add($"    文件夹 {originalId} → {tempName}："
+                              + $"Id={synced?.Id ?? "(丢失)"} 名称={synced?.Name ?? "(丢失)"}");
+
+                    var reloaded = new MainWindowViewModel(paths);
+                    reloaded.LoadAsync().GetAwaiter().GetResult();
+                    lines.Add($"    重新读取 → {reloaded.Instances.FirstOrDefault(item => item.Id == tempName)?.Name ?? "(丢失)"}");
+
+                    // 还原目录并再次对账
+                    Directory.Move(tempDirectory, originalDirectory);
+                    viewModel.LoadAsync().GetAwaiter().GetResult();
+
+                    var restored = viewModel.Instances.FirstOrDefault(item => item.Id == originalId);
+                    lines.Add($"    还原 → Id={restored?.Id ?? "(丢失)"} 名称={restored?.Name ?? "(丢失)"}");
+                }
+            }
+        }
+
+        // 实例排序：验证 VM → instances.json → 重新读取 的往返
         if (args.Any(arg => string.Equals(arg, "--exercise-instance-order", StringComparison.OrdinalIgnoreCase)))
         {
             lines.Add("");
-            lines.Add("[实例顺序与改名]");
+            lines.Add("[实例顺序]");
 
             var store = new JsonInstanceStore(new LauncherPaths(root));
             var originalIds = viewModel.Instances.Select(item => item.Id).ToList();
-            var originalNames = viewModel.Instances.ToDictionary(item => item.Id, item => item.Name);
 
             if (viewModel.Instances.Count >= 2)
             {
@@ -982,30 +1034,54 @@ internal static class InstanceDump
                 lines.Add($"    重新读取 → {string.Join(" | ", reloaded.Instances.Select(item => item.Name))}");
             }
 
-            // 改名往返：只改显示名，Id 不变
+            // 还原顺序，诊断不该留下痕迹
+            var catalog = new InstanceCatalog(store.LoadAsync().GetAwaiter().GetResult());
+            catalog.Reorder(originalIds);
+            store.SaveAsync(catalog.Instances).GetAwaiter().GetResult();
+            lines.Add($"    已还原：{string.Join(" | ", originalIds)}");
+        }
+
+        // 实例改名：显示名与目录一起改，最后还原
+        if (args.Any(arg => string.Equals(arg, "--exercise-instance-rename", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[实例改名]");
+
             var target = viewModel.SelectedInstance ?? viewModel.Instances.FirstOrDefault();
-            if (target is not null)
+            var paths = new LauncherPaths(root);
+
+            if (target is null)
             {
-                var beforeId = target.Id;
+                lines.Add("    没有实例");
+            }
+            else
+            {
+                var originalId = target.Id;
+                var originalName = target.Name;
+                var originalDirectory = Path.Combine(paths.Instances, originalId);
+
                 viewModel.RenameText = "改名测试";
                 viewModel.ConfirmRenameCommand.Execute(null);
-                Thread.Sleep(800);
+                Thread.Sleep(1200);
 
-                lines.Add($"    改名 → {target.Name}（Id 不变={target.Id == beforeId}）");
+                var newId = target.Id;
+                var newDirectory = Path.Combine(paths.Instances, newId);
 
-                var reloaded = new MainWindowViewModel(new LauncherPaths(root));
+                lines.Add($"    「{originalName}」→「{target.Name}」");
+                lines.Add($"    目录 {originalId} → {newId}"
+                          + $"（旧目录还在={Directory.Exists(originalDirectory)}，新目录存在={Directory.Exists(newDirectory)}）");
+
+                var reloaded = new MainWindowViewModel(paths);
                 reloaded.LoadAsync().GetAwaiter().GetResult();
-                var again = reloaded.Instances.FirstOrDefault(item => item.Id == beforeId);
-                lines.Add($"    重新读取 → {again?.Name ?? "(丢失)"}");
+                lines.Add($"    重新读取 → {reloaded.Instances.FirstOrDefault(item => item.Id == newId)?.Name ?? "(丢失)"}");
 
-                // 还原：顺序与名字都写回原值，诊断不该留下痕迹
-                var catalog = new InstanceCatalog(store.LoadAsync().GetAwaiter().GetResult());
-                catalog.Reorder(originalIds);
+                // 还原：改回原名（目录也会跟着改回去）
+                viewModel.RenameText = originalName;
+                viewModel.ConfirmRenameCommand.Execute(null);
+                Thread.Sleep(1200);
 
-                foreach (var (id, name) in originalNames) catalog.Rename(id, name);
-
-                store.SaveAsync(catalog.Instances).GetAwaiter().GetResult();
-                lines.Add($"    已还原：{string.Join(" | ", originalNames.Values)}");
+                lines.Add($"    还原 → Id={target.Id} 名称={target.Name}"
+                          + $" 目录存在={Directory.Exists(Path.Combine(paths.Instances, target.Id))}");
             }
         }
 

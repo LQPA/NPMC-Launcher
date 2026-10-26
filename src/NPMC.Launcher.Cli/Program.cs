@@ -443,6 +443,18 @@ internal static class Program
         var store = new JsonInstanceStore(launcher);
         var catalog = new InstanceCatalog(await store.LoadAsync());
 
+        // 实例文件夹被手动改名过 → 按目录标记把 Id / 显示名同步回来
+        var reconcile = InstanceReconciler.Reconcile(launcher, catalog);
+
+        if (reconcile.Renamed.Count > 0)
+        {
+            await store.SaveAsync(catalog.Instances);
+
+            if (action == "list")
+                foreach (var rename in reconcile.Renamed)
+                    Info($"已同步被改名的文件夹：{rename}");
+        }
+
         switch (action)
         {
             case "list":

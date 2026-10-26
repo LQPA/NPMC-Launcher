@@ -99,9 +99,10 @@
                        IsVisible="{Binding !IsRenaming}" />
             <Button Grid.Column="1" Content="重命名" Command="{Binding BeginRenameCommand}"
                     FontSize="11" Padding="10,3" VerticalAlignment="Center"
-                    IsVisible="{Binding !IsRenaming}" />
+                    IsVisible="{Binding !IsRenaming}"
+                    ToolTip.Tip="同时修改显示名与实例目录名（游戏运行时不允许）" />
 
-            <!-- 改名：只改显示名，不动实例目录 -->
+            <!-- 改名：显示名与实例目录一起改 -->
             <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8"
                         IsVisible="{Binding IsRenaming}" VerticalAlignment="Center">
               <TextBox Text="{Binding RenameText, Mode=TwoWay}" Width="340" FontSize="13"

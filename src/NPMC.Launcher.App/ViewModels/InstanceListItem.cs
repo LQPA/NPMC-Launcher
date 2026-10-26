@@ -17,7 +17,8 @@ namespace NPMC.Launcher.App.ViewModels;
 /// </summary>
 public sealed class InstanceListItem : ObservableObject
 {
-    private readonly InstanceLayout _layout;
+    private readonly LauncherPaths _launcher;
+    private InstanceLayout _layout;
     private LauncherInstance _model;
 
     private int _modsCount;
@@ -27,14 +28,9 @@ public sealed class InstanceListItem : ObservableObject
 
     public InstanceListItem(LauncherPaths launcher, LauncherInstance instance)
     {
+        _launcher = launcher;
         _model = instance;
         _layout = new InstanceLayout(launcher, instance);
-
-        GameDirectory = _layout.GameDirectory;
-        ModsDirectory = _layout.Mods;
-        ResourcePacksDirectory = _layout.ResourcePacks;
-        ShaderPacksDirectory = _layout.ShaderPacks;
-        SavesDirectory = _layout.Saves;
 
         RefreshContentCounts();
     }
@@ -72,11 +68,11 @@ public sealed class InstanceListItem : ObservableObject
 
     public string CreatedText => _model.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd");
 
-    public string GameDirectory { get; }
-    public string ModsDirectory { get; }
-    public string ResourcePacksDirectory { get; }
-    public string ShaderPacksDirectory { get; }
-    public string SavesDirectory { get; }
+    public string GameDirectory => _layout.GameDirectory;
+    public string ModsDirectory => _layout.Mods;
+    public string ResourcePacksDirectory => _layout.ResourcePacks;
+    public string ShaderPacksDirectory => _layout.ShaderPacks;
+    public string SavesDirectory => _layout.Saves;
 
     public int ModsCount { get => _modsCount; private set => SetProperty(ref _modsCount, value); }
     public int ResourcePackCount { get => _resourcePackCount; private set => SetProperty(ref _resourcePackCount, value); }
@@ -148,6 +144,29 @@ public sealed class InstanceListItem : ObservableObject
 
         OnPropertyChanged(nameof(Model));
         OnPropertyChanged(nameof(Name));
+    }
+
+    /// <summary>
+    /// 整个实例换掉（改名时 Id / 目录都会变）：重算布局、刷新路径与内容统计。
+    /// 不重建列表项，选中项与拖拽顺序都不受影响。
+    /// </summary>
+    public void ApplyModel(LauncherInstance model)
+    {
+        _model = model;
+        _layout = new InstanceLayout(_launcher, model);
+
+        OnPropertyChanged(nameof(Model));
+        OnPropertyChanged(nameof(Id));
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(VersionId));
+        OnPropertyChanged(nameof(SummaryText));
+        OnPropertyChanged(nameof(GameDirectory));
+        OnPropertyChanged(nameof(ModsDirectory));
+        OnPropertyChanged(nameof(ResourcePacksDirectory));
+        OnPropertyChanged(nameof(ShaderPacksDirectory));
+        OnPropertyChanged(nameof(SavesDirectory));
+
+        RefreshContentCounts();
     }
 
     /// <summary>重新统计各内容目录与存档数。启用/禁用/删除后调用。</summary>

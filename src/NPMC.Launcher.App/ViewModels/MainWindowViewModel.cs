@@ -301,8 +301,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 只改显示名，不动实例 Id（Id 就是目录名，改了会牵动 versions/存档路径），
-    /// 也不重建列表 —— 就地更新这一行，选中项与拖拽顺序都不受影响。
+    /// 改名：显示名与实例目录一起改（Id 就是目录名）。
+    /// 目录能安全改的前提是游戏没在跑；先移动目录再落盘，落盘失败会把目录挪回去。
+    /// 不重建列表 —— 就地更新这一行，选中项与拖拽顺序都不受影响。
     /// </summary>
     private async Task ConfirmRenameAsync()
     {
@@ -316,12 +317,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        if (string.Equals(name, instance.Name, StringComparison.Ordinal))
-        {
-            IsRenaming = false;
-            return;
-        }
-
         if (Instances.Any(item =>
                 item.Id != instance.Id
                 && string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase)))
@@ -330,27 +325,89 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
+        if (IsGameRunning)
+        {
+            Status = "游戏正在运行，先关闭游戏再改名（实例目录要跟着一起改）";
+            return;
+        }
+
+        var oldId = instance.Id;
+        var newId = InstanceId.MakeUnique(
+            name, Instances.Where(item => item.Id != oldId).Select(item => item.Id));
+
+        // 名字和目录都没变化：直接结束（但名字没变、目录没对上时仍要往下走 —— 用来同步旧数据）
+        if (string.Equals(name, instance.Name, StringComparison.Ordinal)
+            && string.Equals(newId, oldId, StringComparison.Ordinal))
+        {
+            IsRenaming = false;
+            return;
+        }
+
+        var oldDirectory = Path.Combine(_launcher.Instances, oldId);
+        var newDirectory = Path.Combine(_launcher.Instances, newId);
+        var directoryMoved = false;
+
         try
         {
+            if (!string.Equals(newId, oldId, StringComparison.Ordinal))
+            {
+                if (Directory.Exists(newDirectory))
+                {
+                    Status = $"目录已存在，改名失败：{newDirectory}";
+                    return;
+                }
+
+                if (Directory.Exists(oldDirectory))
+                {
+                    Directory.Move(oldDirectory, newDirectory);
+                    directoryMoved = true;
+                }
+            }
+
             var store = new JsonInstanceStore(_launcher);
             var catalog = new InstanceCatalog(await store.LoadAsync());
 
-            var updated = catalog.Rename(instance.Id, name);
+            var updated = catalog.Relocate(oldId, name, newId);
             if (updated is null)
             {
+                if (directoryMoved) TryMoveDirectory(newDirectory, oldDirectory);
                 Status = "实例已不存在，改名失败";
                 return;
             }
 
             await store.SaveAsync(catalog.Instances);
 
-            instance.ApplyName(updated.Name);
+            instance.ApplyModel(updated);
             IsRenaming = false;
-            Status = $"已重命名为「{updated.Name}」";
+            Status = oldId == updated.Id
+                ? $"已重命名为「{updated.Name}」"
+                : $"已重命名为「{updated.Name}」，目录 instances\\{updated.Id}";
+
+            // 实例目录变了：目录入口、内容扫描、Java 候选都要按新路径重算
+            RaiseFolderVisibilityChanged();
+            OnPropertyChanged(nameof(SelectedInstance));
+            _ = RefreshContentAsync();
+
+            _javaChoicesReady = false;
+            _ = LoadJavaChoicesAsync(instance);
         }
         catch (Exception ex)
         {
+            if (directoryMoved) TryMoveDirectory(newDirectory, oldDirectory);
+
             Status = $"改名失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    private static void TryMoveDirectory(string from, string to)
+    {
+        try
+        {
+            if (Directory.Exists(from) && !Directory.Exists(to)) Directory.Move(from, to);
+        }
+        catch
+        {
+            // 回滚失败时保留现状，状态栏已经给出错误
         }
     }
 
@@ -1278,7 +1335,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            var catalog = new InstanceCatalog(await new JsonInstanceStore(_launcher).LoadAsync());
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+
+            // 用户在资源管理器里改了实例文件夹名 → 按目录里的标记把 Id / 显示名同步回来
+            var reconcile = InstanceReconciler.Reconcile(_launcher, catalog);
+
+            if (reconcile.Renamed.Count > 0)
+                await store.SaveAsync(catalog.Instances);
 
             Instances.Clear();
             foreach (var instance in catalog.Instances)
@@ -1289,11 +1353,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SelectedInstance = Instances.FirstOrDefault();
 
             var problems = catalog.Validate();
-            Status = Instances.Count == 0
+
+            var status = Instances.Count == 0
                 ? "还没有实例。可用 npmc instance create 创建（界面创建在后续阶段接入）。"
                 : problems.Count > 0
                     ? $"共 {Instances.Count} 个实例，其中 {problems.Count} 项数据有问题"
                     : $"共 {Instances.Count} 个实例";
+
+            if (reconcile.Renamed.Count > 0)
+                status += $"；已同步被改名的文件夹：{string.Join("、", reconcile.Renamed)}";
+
+            if (reconcile.MissingDirectories.Count > 0)
+                status += $"；{reconcile.MissingDirectories.Count} 个实例目录不存在（{string.Join("、", reconcile.MissingDirectories.Take(3))}…）";
+
+            if (reconcile.UnmanagedDirectories.Count > 0)
+                status += $"；{reconcile.UnmanagedDirectories.Count} 个未纳管目录（如 {string.Join("、", reconcile.UnmanagedDirectories.Take(3))}）";
+
+            Status = status;
 
             await RefreshContentAsync();
         }

@@ -313,6 +313,12 @@ foreach (var a in plan.ToProcessArguments()) psi.ArgumentList.Add(a);
   等价于"按名称排序"；新建实例在已有显式顺序时取 `max+1` 排到最后。
   拖动的实现细节（ListBoxItem 会吃掉 PointerPressed、必须用 Tunnel 接管；
   用实时 `ObservableCollection.Move` 而不是 OLE 拖放）见 handoff 10.6。
+- **Id 就是实例目录名**：改名会同时改显示名与目录（`InstanceCatalog.Relocate` +
+  `Directory.Move`，失败回滚）；纯改显示名的旧行为已废弃，旧数据里"名字与目录不一致"的实例，
+  再保存一次同名即可把目录同步过去。
+- **目录里的 `.nmpc-instance.json` 是身份标记**：`InstanceReconciler` 用它把
+  "用户在资源管理器里改的文件夹名"反向同步成实例 Id / 显示名（应用启动与 CLI `instance`
+  命令都会先对账）；没有标记、又不在列表里的目录只报告"未纳管"，不会自动收编。
 
 ### 目录访问入口
 

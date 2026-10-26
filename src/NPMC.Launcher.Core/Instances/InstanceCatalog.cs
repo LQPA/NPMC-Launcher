@@ -85,6 +85,28 @@ public sealed class InstanceCatalog
         return _instances[index];
     }
 
+    /// <summary>
+    /// 同时改显示名与 Id（Id 就是实例目录名，界面改名后目录也要跟着变）。
+    /// 目录移动由调用方在落盘前完成；这里只校验新 Id 没被别的实例占用。
+    /// </summary>
+    public LauncherInstance? Relocate(string id, string newName, string newId)
+    {
+        if (string.IsNullOrWhiteSpace(newName)) throw new ArgumentException("实例名不能为空。", nameof(newName));
+        if (!InstanceId.IsValid(newId)) throw new ArgumentException($"实例目录名非法：'{newId}'", nameof(newId));
+
+        var index = _instances.FindIndex(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (index < 0) return null;
+
+        if (_instances.Any(i => !string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase)
+                                && string.Equals(i.Id, newId, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException($"已有实例使用目录名 '{newId}'");
+        }
+
+        _instances[index] = _instances[index] with { Id = newId, Name = newName.Trim() };
+        return _instances[index];
+    }
+
     public LauncherInstance? UpdateSettings(string id, InstanceSettings settings)
     {
         var index = _instances.FindIndex(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));

@@ -34,7 +34,7 @@ tools/sign-local.ps1              本地签名
 
 | 领域 | 状态 |
 |---|---|
-| 实例管理 | 创建 / 重命名（概览页，只改显示名）/ 删除（两次点击确认）/ **按住拖动排序**（顺序写入 instances.json）/ 版本隔离 / 独立内存与窗口尺寸 |
+| 实例管理 | 创建 / 重命名（**显示名与实例目录一起改**）/ 删除（两次点击确认）/ **按住拖动排序**（顺序写入 instances.json）/ **外部改文件夹名自动同步** / 版本隔离 / 独立内存与窗口尺寸 |
 | 版本下载 | 官方 + BMCLAPI 镜像；版本类型筛选（仅正式 / 正式+快照 / 全部 / 仅愚人节） |
 | Java | 本地运行时自动发现 / 系统 JDK / 自定义路径；**启动时按需自动下载**对应版本；候选列表按实例缓存（706ms → 151ms） |
 | Fabric | 安装、加载器版本选择、按 intermediary 检测版本是否受支持 |
@@ -130,7 +130,9 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 | `--exercise-datapack-race` | 紧邻点击（切页签立即点数据包）是否还能扫到内容 |
 | `--exercise-nav` | 面板/头部/列表/空提示/日志的可见性随导航变化，**并核对 PropertyChanged 是否真的发出** |
 | `--exercise-global-settings` | 设置页：字段 ↔ `settings.json` ↔ 启动计划（默认 Java）；改完**还原原设置** |
-| `--exercise-instance-order` | 拖动排序与改名：VM → `instances.json` → 重新读取，最后还原原值 |
+| `--exercise-instance-order` | 拖动排序：VM → `instances.json` → 重新读取，最后还原原值 |
+| `--exercise-instance-rename` | 改名：显示名与目录一起改，旧目录消失/新目录出现，最后改回 |
+| `--exercise-instance-folder-sync` | 直接在磁盘上改实例文件夹名，确认刷新后 Id/名称同步，再改回 |
 | `--exercise-loader-cache [mc]` | 加载器检查：首次联网耗时 vs 切回命中缓存耗时（顺带验证不会卡在"正在检查"） |
 | `--exercise-download-loader <mc> [fabric|forge|neoforge] [loader]` | 走界面同一条路：下载本体 → 装加载器 → 建实例 |
 | `--exercise-forge-versions` | Forge / NeoForge 加载器清单（两个 maven 的 metadata，只读不下载） |
@@ -356,8 +358,16 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
   2. 不要用 OLE `DragDrop.DoDragDrop`：拖动过程中做"指针落在哪一行就 Move 到哪一行"的实时排序，
      半路松手也会停在当前位置，而且不依赖系统拖放循环。
   用 `ObservableCollection.Move` 而不是 Clear+Add，否则 ListBox 会丢选中项。
-- **重命名**：概览页标题右侧「重命名」→ 行内编辑（保存/取消）。只改 `Name`，
-  **不动 Id**（Id 就是实例目录名）；重名会被拦住；就地 `ApplyName` 不重建列表。
-- 验证：`--exercise-instance-order` 走 VM → 落盘 → 重新读取的往返并还原；
-  合成鼠标拖动实测把第 2 项拖到第 1 项，`instances.json` 的 SortIndex 变为 0/1/2；
-  改名往返后 Id 不变、重新读取名字正确，已还原。
+- **重命名**：概览页标题右侧「重命名」→ 行内编辑（保存/取消）。
+  **显示名与实例目录一起改**（Id 就是目录名）：先 `Directory.Move(instances/<旧Id>, instances/<新Id>)`，
+  再 `InstanceCatalog.Relocate` 落盘；落盘失败会把目录挪回去。游戏运行时禁止改名（目录被占用）。
+  同名保存在"名字没变但目录与 slug 不一致"时仍会执行一次目录同步（用于修正旧数据）。
+- **反向同步：在资源管理器里改文件夹名**。每个实例目录里有 `.nmpc-instance.json` 标记
+  （Id / Name / VersionId）。启动或刷新时 `InstanceReconciler` 扫描 `instances\`：
+  旧 Id 目录不在了、但某个新目录里的标记自称是它 → 认定文件夹被改名，
+  把 **Id 与显示名都同步成新目录名** 并落盘；目录在但标记缺失 → 顺手补写标记。
+  仅靠目录名不猜（没有标记的目录只报告"未纳管"，不擅自收编）。
+- 验证：`--exercise-instance-order` 走排序往返并还原；`--exercise-instance-rename` 走
+  「改名 → 旧目录消失/新目录出现 → 重新读取 → 改回原名」；`--exercise-instance-folder-sync`
+  直接在磁盘上 `Directory.Move` 改文件夹名，确认启动器刷新后 Id/名称跟着变，再改回。
+  合成鼠标拖动实测把第 2 项拖到第 1 项，`instances.json` 的 SortIndex 变为 0/1/2。

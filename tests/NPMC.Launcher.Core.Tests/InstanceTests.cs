@@ -263,6 +263,35 @@ public class InstanceCatalogTests
     }
 
     [Fact]
+    public void Relocate_changes_name_and_id_together()
+    {
+        var catalog = new InstanceCatalog(new[]
+        {
+            LauncherInstance.Create("old-id", "旧名字", "1.20.1"),
+            LauncherInstance.Create("other", "别的", "1.20.1"),
+        });
+
+        var moved = catalog.Relocate("old-id", "新名字", "new-id");
+
+        Assert.NotNull(moved);
+        Assert.Equal("new-id", moved!.Id);
+        Assert.Equal("新名字", moved.Name);
+        Assert.Equal("new-id", catalog.Instances.First(i => i.Name == "新名字").Id);
+    }
+
+    [Fact]
+    public void Relocate_rejects_an_id_that_another_instance_uses()
+    {
+        var catalog = new InstanceCatalog(new[]
+        {
+            LauncherInstance.Create("a", "A", "1.20.1"),
+            LauncherInstance.Create("b", "B", "1.20.1"),
+        });
+
+        Assert.Throws<InvalidOperationException>(() => catalog.Relocate("a", "A2", "b"));
+    }
+
+    [Fact]
     public void Add_after_reorder_appends_to_the_end()
     {
         var catalog = new InstanceCatalog(new[]
