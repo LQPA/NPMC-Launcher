@@ -113,6 +113,10 @@ public sealed class MainWindowViewModel : ObservableObject
         ShowInstancesCommand = new RelayCommand(() => Navigate(NavPage.Instances));
         ShowDownloadsCommand = new RelayCommand(() => Navigate(NavPage.Downloads));
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
+        DeleteInstanceCommand = new AsyncRelayCommand(
+            DeleteInstanceAsync,
+            () => SelectedInstance is not null && !IsGameRunning);
+
         OpenDetailInBrowserCommand = new RelayCommand(OpenDetailInBrowser);
 
         ShowVersionsModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Versions));
@@ -202,6 +206,84 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
+    // ---- 删除实例 ----
+
+    private bool _deleteConfirmPending;
+    private string _deleteInstanceText = "删除实例";
+
+    /// <summary>删除按钮文案：第一次点变成"再次点击确认"。</summary>
+    public string DeleteInstanceText
+    {
+        get => _deleteInstanceText;
+        private set => SetProperty(ref _deleteInstanceText, value);
+    }
+
+    /// <summary>
+    /// 删除实例。分两步点击确认，避免误删 —— 这里会连同实例目录一起删掉，不可恢复。
+    /// 只删实例目录，共享的 versions/libraries/assets 一律不动。
+    /// </summary>
+    private async Task DeleteInstanceAsync()
+    {
+        if (SelectedInstance is not { } instance) return;
+
+        if (IsGameRunning)
+        {
+            Status = "游戏正在运行，先关闭游戏再删除实例。";
+            return;
+        }
+
+        if (!_deleteConfirmPending)
+        {
+            _deleteConfirmPending = true;
+            DeleteInstanceText = "再次点击确认删除";
+            Status = $"将删除实例「{instance.Name}」及其目录 {instance.GameDirectory}（不可恢复）。再点一次确认。";
+
+            // 8 秒内没再点就自动取消，避免按钮一直处于"确认"状态
+            _ = Task.Delay(TimeSpan.FromSeconds(8)).ContinueWith(_ =>
+            {
+                if (!_deleteConfirmPending) return;
+                _deleteConfirmPending = false;
+                DeleteInstanceText = "删除实例";
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+
+            return;
+        }
+
+        _deleteConfirmPending = false;
+        DeleteInstanceText = "删除实例";
+
+        var directory = instance.GameDirectory;
+
+        try
+        {
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+            catalog.Remove(instance.Id);
+            await store.SaveAsync(catalog.Instances);
+
+            // 先移出列表，再删目录：即使删目录失败，实例也不会继续显示
+            await LoadAsync();
+
+            try
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Write(_launcher.Root, $"删除实例目录失败 {directory} → {ex.GetBaseException().Message}");
+                Status = $"实例已从列表移除，但目录没删掉：{ex.GetBaseException().Message}";
+                return;
+            }
+
+            Status = $"已删除实例「{instance.Name}」";
+            LauncherLog.Write(_launcher.Root, $"已删除实例「{instance.Name}」：{directory}");
+        }
+        catch (Exception ex)
+        {
+            Status = $"删除失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"删除实例失败 → {ex.GetBaseException().Message}");
+        }
+    }
     private async Task LaunchGameAsync()
     {
         var instance = SelectedInstance;
@@ -351,6 +433,9 @@ public sealed class MainWindowViewModel : ObservableObject
             if (IsLogTab) _ = RefreshLogAsync();
             else _ = RefreshContentAsync();
 
+            _deleteConfirmPending = false;
+            DeleteInstanceText = "删除实例";
+
             // 换实例 → 重新判断该实例能不能用模组/光影
             if (value is { } selectedInstance) _ = RefreshCapabilitiesAsync(selectedInstance);
 
@@ -369,6 +454,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool HasModLoader => _hasModLoader;
 
+    public bool HasShaderSupport => _hasShaderSupport;
     /// <summary>检测到的加载器名（fabric / forge / neoforge / quilt）。</summary>
     public string DetectedLoadersText =>
         _detectedLoaders.Count == 0 ? "无（原版）" : string.Join(", ", _detectedLoaders);
@@ -401,7 +487,7 @@ public sealed class MainWindowViewModel : ObservableObject
             if (Directory.Exists(instance.ModsDirectory))
             {
                 hasShaderProvider = Directory
-                    .EnumerateFiles(instance.ModsDirectory, "*.jar")
+                    .EnumerateFiles(instance.ModsDirectory, "*.jar", SearchOption.AllDirectories)
                     .Select(Path.GetFileName)
                     .Any(name => name is not null
                                  && (name.Contains("iris", StringComparison.OrdinalIgnoreCase)
@@ -415,12 +501,14 @@ public sealed class MainWindowViewModel : ObservableObject
 
         _detectedLoaders = loaders;
         _hasModLoader = loaders.Count > 0;
-        _hasShaderSupport = _hasModLoader && hasShaderProvider;
-
+        // OptiFine 独立版同样会读 shaderpacks，所以不再强制"必须有加载器";
+        _hasShaderSupport = hasShaderProvider;
         OnPropertyChanged(nameof(HasModLoader));
         OnPropertyChanged(nameof(DetectedLoadersText));
+        OnPropertyChanged(nameof(HasShaderSupport));
 
         ApplyTabAvailability();
+        RaiseFolderVisibilityChanged();
     }
 
     private void ApplyTabAvailability()
@@ -457,17 +545,17 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public bool IsEmpty => Instances.Count == 0;
 
-    // ---- 概览处的「打开目录」入口 ----
+    // 除了目录存在，还要"该实例真的用得上"：没有加载器不给「打开 mods」，没有 Iris/OptiFine 不给「打开光影」。
     // 只有目录真实存在才显示入口：用户没装光影就不该看到一个点了也只会新建空文件夹的按钮。
 
     public bool HasModsDirectory =>
-        SelectedInstance is not null && Directory.Exists(SelectedInstance.ModsDirectory);
+        SelectedInstance is not null && HasModLoader && Directory.Exists(SelectedInstance.ModsDirectory);
 
     public bool HasResourcePacksDirectory =>
         SelectedInstance is not null && Directory.Exists(SelectedInstance.ResourcePacksDirectory);
 
     public bool HasShaderPacksDirectory =>
-        SelectedInstance is not null && Directory.Exists(SelectedInstance.ShaderPacksDirectory);
+        SelectedInstance is not null && HasShaderSupport && Directory.Exists(SelectedInstance.ShaderPacksDirectory);
 
     // ---- 实例设置（概览页直接编辑）----
 
@@ -1376,6 +1464,7 @@ public sealed class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref _detailUrl, value);
     }
 
+    public ICommand DeleteInstanceCommand { get; }
     public ICommand OpenDetailInBrowserCommand { get; }
 
     /// <summary>详情面板里的项目图标。</summary>
@@ -3273,6 +3362,7 @@ public sealed class MainWindowViewModel : ObservableObject
         (OpenResourcePacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenShaderPacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenContentFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (DeleteInstanceCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DisableAllCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (EnableAllCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }

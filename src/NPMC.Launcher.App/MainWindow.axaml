@@ -531,6 +531,9 @@
                   IsVisible="{Binding HasResourcePacksDirectory}" />
           <Button Content="打开光影" Command="{Binding OpenShaderPacksFolderCommand}"
                   IsVisible="{Binding HasShaderPacksDirectory}" />
+          <!-- 删除实例：两次点击确认，避免误删 -->
+          <Button Content="{Binding DeleteInstanceText}" Command="{Binding DeleteInstanceCommand}"
+                  Margin="18,0,0,0" Foreground="#E06C6C" />
         </StackPanel>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"

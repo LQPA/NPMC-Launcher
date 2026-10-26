@@ -481,6 +481,26 @@ internal static class InstanceDump
                 lines.Add($"    滚动态出现过 = {list.Any(value => value == 0)}");
             }
         }
+        // 验证"能力检测 + 目录入口可见性"
+        if (args.Any(arg => string.Equals(arg, "--exercise-caps", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[能力检测]");
+
+            foreach (var candidate in viewModel.Instances)
+            {
+                viewModel.SelectedInstance = candidate;
+                Thread.Sleep(1500);
+
+                var tabs = string.Join(", ", viewModel.ContentTabs.Select(tab => $"{tab.Title}={(tab.IsEnabled ? "开" : "关")}"));
+
+                lines.Add($"    {candidate.Name}");
+                lines.Add($"      加载器 {viewModel.DetectedLoadersText}  光影支持={viewModel.HasShaderSupport}");
+                lines.Add($"      入口 mods={viewModel.HasModsDirectory} 资源包={viewModel.HasResourcePacksDirectory} 光影={viewModel.HasShaderPacksDirectory}");
+                lines.Add($"      页签 {tabs}");
+                lines.Add($"      列表行 {candidate.ContentText}");
+            }
+        }
         // 验证实例页的 Java 候选列表
         if (args.Any(arg => string.Equals(arg, "--exercise-java", StringComparison.OrdinalIgnoreCase)))
         {

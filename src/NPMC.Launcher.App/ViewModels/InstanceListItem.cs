@@ -83,8 +83,41 @@ public sealed class InstanceListItem : ObservableObject
     public int ShaderPackCount { get => _shaderPackCount; private set => SetProperty(ref _shaderPackCount, value); }
     public int SaveCount { get => _saveCount; private set => SetProperty(ref _saveCount, value); }
 
-    public string ContentText =>
-        $"mods {ModsCount} · 资源包 {ResourcePackCount} · 光影 {ShaderPackCount} · 存档 {SaveCount}";
+    /// <summary>
+    /// 该实例是否有模组加载器。列表里每项都要判断，所以只看版本号
+    /// （fabric-loader-… / *Forge* / neoforge / quilt），不做文件 IO。
+    /// </summary>
+    public bool HasModLoader =>
+        VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase)
+        || VersionId.Contains("forge", StringComparison.OrdinalIgnoreCase)
+        || VersionId.Contains("quilt", StringComparison.OrdinalIgnoreCase);
+
+    private bool _hasShaderProvider;
+
+    /// <summary>mods 里是否有 Iris / OptiFine：没有的话光影这一栏对用户没有意义。</summary>
+    public bool HasShaderProvider => _hasShaderProvider;
+
+    /// <summary>
+    /// 列表第二行的内容统计。
+    ///
+    /// 只显示"这个实例用得上"的项：没有加载器就不显示 mods，
+    /// 没有 Iris/OptiFine 就不显示光影 —— 否则原版实例会一直挂着
+    /// "mods 0 · 光影 0"，看起来像是坏了。
+    /// </summary>
+    public string ContentText
+    {
+        get
+        {
+            var parts = new List<string>();
+
+            if (HasModLoader) parts.Add($"mods {ModsCount}");
+            parts.Add($"资源包 {ResourcePackCount}");
+            if (HasShaderProvider) parts.Add($"光影 {ShaderPackCount}");
+            parts.Add($"存档 {SaveCount}");
+
+            return string.Join(" · ", parts);
+        }
+    }
 
     /// <summary>某个内容类型对应的目录。</summary>
     public string DirectoryFor(ContentKind kind) => kind switch
@@ -119,6 +152,24 @@ public sealed class InstanceListItem : ObservableObject
             ? Directory.EnumerateDirectories(SavesDirectory).Count()
             : 0;
 
+        // 光影支持只看有没有 Iris / OptiFine（整合包常放在 mods/<版本>/ 子目录里，要递归）
+        try
+        {
+            _hasShaderProvider = Directory.Exists(ModsDirectory)
+                && Directory.EnumerateFiles(ModsDirectory, "*.jar", SearchOption.AllDirectories)
+                    .Any(path =>
+                    {
+                        var name = Path.GetFileName(path);
+                        return name.Contains("iris", StringComparison.OrdinalIgnoreCase)
+                               || name.Contains("optifine", StringComparison.OrdinalIgnoreCase);
+                    });
+        }
+        catch
+        {
+            _hasShaderProvider = false;
+        }
+
+        OnPropertyChanged(nameof(HasShaderProvider));
         OnPropertyChanged(nameof(ContentText));
     }
 }
