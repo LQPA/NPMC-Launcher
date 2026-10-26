@@ -1,7 +1,7 @@
 # 交接说明（Handoff）
 
-> 写于 2026-10-26，对应提交 `56ce5a3`。
-> 新会话请先读本文件，再读 `AGENTS.md`（项目根）与 `docs/architecture.md`。
+> 写于 2026-10-26，对应提交 `56ce5a3`；当天下午的回归修复见第 8 节（提交 `54913d3`）。
+> 新会话请先读本文件，再读 `D:\Agents\AGENTS.md`（工作区规则）与 `docs/architecture.md`。
 
 ---
 
@@ -125,7 +125,7 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 | `--exercise-java-cache` | 首次与再次进入同一实例的耗时 |
 | `--exercise-datapacks` | 存档页签：世界列表 → 数据包页 → 返回 |
 | `--exercise-datapack-race` | 紧邻点击（切页签立即点数据包）是否还能扫到内容 |
-| `--exercise-nav` | 面板/头部/列表/空提示的可见性随导航变化 |
+| `--exercise-nav` | 面板/头部/列表/空提示/日志的可见性随导航变化，**并核对 PropertyChanged 是否真的发出** |
 | `--exercise-world-import` | 文件夹 / zip(根) / zip(嵌套) / 坏包 四种导入 |
 | `--exercise-launch [实例名]` | 真实启动并等 45 秒，返回 PID 与日志尾部 |
 | `--print-launch-command` | 只打印命令行，不启动 |
@@ -142,10 +142,52 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 6. **扫描版本号竞态**：`RefreshContentAsync` 只在**解析出目录之后**才递增版本号，否则"还没进世界的那次刷新"会把稍后有效扫描判为过期。
 7. **切页签/切页面要双向清理**：进入存档页签要清 `DataPackWorld`，**离开也要清**，否则「← 返回存档」会跟到别的页签。
 8. **空提示不要和搜索面板同 Grid.Row**：两者都放 Row 0/1 会叠在一起，提示应在列表区（Row 2）。
+9. **派生可见性属性要集中通知**：`ShowOverview` / `ShowContentPane` / `ShowContentList` / `ShowLog` /
+   `IsContentEmptyOrNotList` 全是 `=>` 现算的。切页签时只通知 `IsOverview` 之类不够 —— 旧面板会继续
+   画在新页签下面（两排操作按钮叠在一起、概览表单透到存档页、日志页签点开是空白）。
+   统一走 `RaisePaneVisibilityChanged()`，它在选中实例、切页签、切页面、数据包视图变化时都会被调到。
+10. **绑定不会回写"没变化的源值"**：不可用页签被点中后，ListBox 已经改了选中项，而 VM 里
+    `OnPropertyChanged(nameof(SelectedTab))` 因为源值没变，绑定不会把目标值拉回去 ——
+    界面上就是"光影高亮、内容还是日志"。回退必须在控件层做（`MainWindow.OnTabSelectionChanged`）。
+    用 `Dispatcher.Post` 推迟通知也**不管用**，别白试。
 
 ---
 
 ## 7. 未提交/未完成的事项
 
-- 无未提交改动；`main` 与远端同步于 `56ce5a3`。
+- 无未提交改动；`main` 与远端同步于 `56ce5a3`（下午的修复见第 8 节）。
 - 会话末尾有两个回归已修（空提示行、离开页签清理），见该提交说明。
+
+---
+
+## 8. 2026-10-26 下午：页签可见性回归（已修）
+
+用户实测报的三处错位，根因是同一个：**切页签时没有通知派生可见性属性**。
+
+| 现象 | 根因 |
+|---|---|
+| 资源包/模组页签：底部两排按钮叠在一起，列表顶部还露出一条 `内存` 数字框的残影 | `ShowOverview` 仍为真，概览面板和概览操作行没被收起来，只在 Row 1/Row 2 之间的间隙里露出来 |
+| 存档页签：概览表单调到世界列表上面 | 同上 |
+| 光影页签：同样两排按钮重叠 | 同上 |
+| **（顺带发现）日志页签点开是空白** | `ShowLog` 从来没被通知过，日志面板一直隐藏 |
+| **（顺带发现）点不可用页签会"高亮但不切换"** | 见第 6 节第 10 条，回退放进 `OnTabSelectionChanged` |
+
+改法：
+
+- `MainWindowViewModel.RaisePaneVisibilityChanged()` 统一通知那 5 个派生属性，供 `SelectedInstance`
+  的 setter、`SelectedTab` 的 setter、`Navigate`、`RaiseWorldViewChanged` 复用。
+- `MainWindow.axaml` 的页签 ListBox 加 `SelectionChanged="OnTabSelectionChanged"`，把被拒绝的
+  选中项拉回 VM 的有效页签。
+- `--exercise-nav` 现在订阅 `PropertyChanged`，逐个页签打印"通知：齐全 / 缺 xxx"，
+  并把资源包、日志页签也走一遍。**它跑通只说明值对，值对不等于界面会刷新** —— 这个诊断专门补这一课。
+
+验证方式（本机）：
+
+```powershell
+$env:DOTNET_CLI_HOME = "<repo>\.dotnet-home"; $env:NUGET_PACKAGES = "<repo>\.nuget"
+dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
+  --dump-instances .data\nav.txt --root .data --exercise-nav
+```
+
+界面侧只能靠截图核对：逐页签点一遍，确认①只有一排操作按钮 ②概览只出现在概览页签
+③存档页签的世界列表上方没有概览残影 ④日志页签能出内容 ⑤点不可用页签后高亮不跟走。
