@@ -412,6 +412,22 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
   参考：[CustomSkinLoader 离线皮肤讨论](https://www.mcmod.cn/post/6366.html)、
   [authlib-injector 离线按名字查皮肤](https://github.com/yushijinhun/authlib-injector/issues/256)、
   [XMCL 自定义皮肤指南](https://xmcl.app/zh/guide/custom-skins)。
+
+- **2026-10-26 实测：能否不改实例、直接劫持客户端的会话请求？**
+  - authlib 4.0.43（1.20.1）的 `EnvironmentParser` 会读
+    `minecraft.api.auth.host / account.host / session.host / services.host`，但**四个必须都设**，
+    只设 session 会退回官方环境。
+  - 四个都指向本地 HTTP 服务后，游戏日志出现
+    `Environment: authHost='http://127.0.0.1:8765' …`，本地服务确实收到了
+    `/player/attributes` 与 `/publickeys` —— 说明**入口可以被劫持**。
+  - 但离线本地玩家启动时**没有请求** `/session/minecraft/profile/<uuid>`：
+    客户端只有在 `fillProfileProperties` / 打开社交界面等路径才会去拉纹理，
+    而且多人玩家那条路径是 `requireSecure=true`（要求 Mojang 签名，本地伪造的纹理会被拒）。
+  - 结论：单纯改 URL 不够；authlib-injector 之所以存在，是因为它还要改
+    profile 填充/纹理校验。要真正落地离线皮肤，可行的是
+    **javaagent（不是模组）+ 本地 Yggdrasil/皮肤 API**；这套工作量明显大于当前皮肤设置本身。
+  - 另：26.3 用的 authlib 10.x 已经**不再读**这些 `minecraft.api.*` 属性（class 里没有这些字符串），
+    所以该劫持手段只适用于 authlib 4/6/7 那一代版本。
 - **账号解析优先级**（启动时）：实例的 `Settings.AccountId` → 全局 `settings.json` 的
   `DefaultAccountId` → 账号列表第一个；一个账号都没有时退回 `Player` 这个名字（不阻断启动）。
 - 实例概览新增「账号」下拉；第一项"跟随默认账号"。选择会写进该实例的 `AccountId`。
