@@ -171,9 +171,10 @@
                       </DataTemplate>
                     </ComboBox.ItemTemplate>
                   </ComboBox>
-                  <Button Grid.Column="1" Content="浏览…" Click="OnPickJavaClick"
-                          Padding="10,0" Margin="6,0,0,0" FontSize="12"
-                          Height="30" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="浏览…" Click="OnPickJavaClick"
+                            Padding="12,0" Margin="6,0,0,0" FontSize="12" Height="30"
+                            VerticalAlignment="Center" VerticalContentAlignment="Center"
+                            HorizontalContentAlignment="Center" />
                 </Grid>
               </Grid>
 
@@ -531,6 +532,12 @@
                   IsVisible="{Binding HasResourcePacksDirectory}" />
           <Button Content="打开光影" Command="{Binding OpenShaderPacksFolderCommand}"
                   IsVisible="{Binding HasShaderPacksDirectory}" />
+          <Button Content="打开存档" Command="{Binding OpenSavesFolderCommand}"
+                  IsVisible="{Binding HasSavesDirectory}"
+                  ToolTip.Tip="打开 saves 目录（世界存档都在这里）" />
+          <Button Content="打开数据包" Command="{Binding OpenDatapacksFolderCommand}"
+                  IsVisible="{Binding HasDatapacksEntry}"
+                  ToolTip.Tip="数据包按世界存放，这里打开最近修改过的世界的 datapacks 目录" />
           <!-- 删除实例：两次点击确认，避免误删 -->
           <Button Content="{Binding DeleteInstanceText}" Command="{Binding DeleteInstanceCommand}"
                   Margin="18,0,0,0" Foreground="#E06C6C" />
