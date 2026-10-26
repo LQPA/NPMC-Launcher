@@ -107,7 +107,8 @@
                    Watermark="搜索账号（用户名 / UUID）" />
 
           <Button Content="创建账号" Command="{Binding CreateAccountCommand}"
-                  HorizontalAlignment="Stretch" FontSize="12" Height="30" />
+                  HorizontalAlignment="Stretch" FontSize="12" Height="30"
+                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
 
           <TextBlock Text="{Binding AccountStatus}" FontSize="10" Foreground="#7BC47F"
                      TextWrapping="Wrap" IsVisible="{Binding HasAccountStatus}" />
@@ -258,12 +259,14 @@
                                   SelectedIndex="{Binding SelectedSkinArmIndex, Mode=TwoWay}"
                                   Width="170" FontSize="12" />
                         <Button Content="选择 PNG" Click="OnPickAccountSkinClick"
-                                FontSize="12" Height="30" Padding="12,0" />
+                                FontSize="12" Height="30" Padding="12,0"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
                       </StackPanel>
 
                       <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsMojangSkin}">
                         <Button Content="获取正版皮肤" Command="{Binding FetchMojangSkinCommand}"
-                                FontSize="12" Height="30" Padding="12,0" />
+                                FontSize="12" Height="30" Padding="12,0"
+                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
                         <TextBlock Text="按同名正版账号查询并缓存" FontSize="10" Foreground="#6E7684"
                                    VerticalAlignment="Center" />
                       </StackPanel>
