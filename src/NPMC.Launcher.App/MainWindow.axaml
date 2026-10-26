@@ -660,13 +660,13 @@
               </ComboBox.ItemTemplate>
             </ComboBox>
 
-            <!-- 版本类型：愚人节版本在清单里就是 snapshot，早期版本是 old_alpha/old_beta -->
+            <!-- 版本类型：四类互斥，切换时只在本地过滤（清单进页时一次性全量拉回） -->
             <ComboBox Grid.Column="1" SelectedIndex="{Binding VersionFilterIndex}"
                       Width="160" Margin="10,0,0,0" FontSize="12" VerticalAlignment="Center">
-              <ComboBoxItem Content="仅正式版" />
-              <ComboBoxItem Content="正式版 + 快照" />
-              <ComboBoxItem Content="全部（含早期）" />
-              <ComboBoxItem Content="仅愚人节版本" />
+              <ComboBoxItem Content="正式版" />
+              <ComboBoxItem Content="快照版本" />
+              <ComboBoxItem Content="早期版本" />
+              <ComboBoxItem Content="愚人节版本" />
             </ComboBox>
           </Grid>
 
@@ -695,6 +695,10 @@
                     <RadioButton GroupName="LoaderPick" Content="NeoForge" FontSize="12"
                                  IsChecked="{Binding IsNeoForgeSelected, Mode=TwoWay}"
                                  IsEnabled="{Binding CanSelectNeoForge}" />
+                    <Button Content="重新检查" Command="{Binding RefreshLoadersCommand}"
+                            FontSize="10" Padding="8,2" VerticalAlignment="Center"
+                            IsVisible="{Binding !IsCheckingLoaders}"
+                            ToolTip.Tip="跳过缓存，重新向 Fabric / Forge / NeoForge 查询该版本的加载器" />
                   </StackPanel>
                 </Grid>
 

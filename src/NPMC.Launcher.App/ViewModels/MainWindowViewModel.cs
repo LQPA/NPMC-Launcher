@@ -59,6 +59,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         // 启动时读一次全局设置：代理 / 超时只在这时能生效，界面上的其它项也先按文件里的值显示
         _startupSettings = new JsonSettingsStore(launcher).Load();
         _http = HttpFileDownloader.CreateClient(_startupSettings);
+        _loaderDiskCache = new LoaderAvailabilityCache(launcher.Root);
         ApplySettingsToFields(_startupSettings);
         _settingsLoaded = true;
 
@@ -142,6 +143,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         ShowVersionsModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Versions));
         ShowModpacksModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Modpacks));
+        RefreshLoadersCommand = new RelayCommand(RefreshLoadersNow);
         InstallModpackCommand = new AsyncRelayCommand(
             InstallModpackAsync,
             () => HasModpackPlan && !IsInstallingModpack);
@@ -2588,6 +2590,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _selectedDownloadVersion, value)) return;
 
+            // 没选中版本（例如某类筛选结果为空）：加载器区域回到"无内容"状态，
+            // 不能留着 _checkingLoaders=true —— 那会永远卡在"正在检查…"。
+            if (value is null)
+            {
+                FabricLoaderVersions.Clear();
+                ForgeLoaderVersions.Clear();
+                NeoForgeLoaderVersions.Clear();
+                SelectedFabricLoader = null;
+                SelectedForgeLoader = null;
+                SelectedNeoForgeLoader = null;
+
+                _checkingLoaders = false;
+                NotifyLoaderAvailabilityChanged();
+                RefreshLoaderHint();
+
+                OnPropertyChanged(nameof(DownloadVersionSubtitle));
+                (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+                return;
+            }
+
             OnPropertyChanged(nameof(DownloadVersionSubtitle));
             OnPropertyChanged(nameof(DownloadConflictsWithExisting));
 
@@ -2595,15 +2617,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SyncInstanceNameFromSelection();
 
 
-            // 换了游戏版本，旧加载器清单不再适用：先清空并置灰，再异步查三家
+            // 换了游戏版本，旧加载器清单不再适用：先清空并置灰，再异步查三家。
+            // 不清 _selectedLoader：新版本也支持同一个加载器时就保持选择，
+            // 不支持的话 ApplyLoaderAvailability 会退回原版。
             FabricLoaderVersions.Clear();
             ForgeLoaderVersions.Clear();
             NeoForgeLoaderVersions.Clear();
             SelectedFabricLoader = null;
             SelectedForgeLoader = null;
             SelectedNeoForgeLoader = null;
-
-            if (_selectedLoader != LoaderKind.Vanilla) _selectedLoader = LoaderKind.Vanilla;
 
             _checkingLoaders = true;
             NotifyLoaderAvailabilityChanged();
@@ -2635,6 +2657,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private LoaderKind _selectedLoader = LoaderKind.Vanilla;
     private bool _checkingLoaders = true;
     private string _loaderHint = "正在检查该版本可用的加载器…";
+
+    /// <summary>加载器清单的磁盘缓存：切回看过的版本不用再查三家 API。</summary>
+    private readonly LoaderAvailabilityCache _loaderDiskCache;
+
+    private int _loaderCheckToken;
 
     /// <summary>按游戏版本缓存的加载器清单：切来切去不必重复请求三家 API。</summary>
     private readonly Dictionary<string, LoaderAvailability> _loaderCache = new(StringComparer.Ordinal);
@@ -2810,45 +2837,109 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _suppressNameEdit = false;
     }
 
-    /// <summary>查一遍当前游戏版本可用的加载器（Fabric / Forge / NeoForge 并行查）。</summary>
-    private async Task RefreshLoadersAsync()
+    /// <summary>
+    /// 查当前游戏版本可用的加载器。三级缓存：
+    ///   1. 内存（切走再切回，同一版本立刻就有）；
+    ///   2. 磁盘（&lt;root&gt;\cache\loader-versions.json，重开启动器也不用再查）；
+    ///   3. 联网（Fabric launcher meta + Forge / NeoForge 的 maven-metadata，并行查）。
+    /// 「重新检查」按钮走 force=true，跳过两级缓存。
+    ///
+    /// 用 token 丢弃过期结果：连着切两个版本时，先发出去的那次回来也不能覆盖当前界面。
+    /// </summary>
+    private async Task RefreshLoadersAsync(bool force = false)
     {
-        if (_selectedDownloadVersion is not { } version) return;
-
-        if (_loaderCache.TryGetValue(version.Id, out var cached))
+        if (_selectedDownloadVersion is not { } version)
         {
-            ApplyLoaderAvailability(cached);
+            _checkingLoaders = false;
+            NotifyLoaderAvailabilityChanged();
+            RefreshLoaderHint();
             return;
         }
 
+        var minecraft = version.Id;
+        var token = ++_loaderCheckToken;
+
+        // 1) 内存缓存
+        if (!force && _loaderCache.TryGetValue(minecraft, out var cached))
+        {
+            _checkingLoaders = false;
+            ApplyLoaderAvailability(cached);
+            NotifyLoaderAvailabilityChanged();
+            RefreshLoaderHint();
+            return;
+        }
+
+        // 2) 磁盘缓存
+        if (!force && _loaderDiskCache.TryGet(minecraft, out var snapshot))
+        {
+            var fromDisk = new LoaderAvailability(snapshot.Fabric, snapshot.Forge, snapshot.NeoForge);
+            _loaderCache[minecraft] = fromDisk;
+
+            if (token != _loaderCheckToken) return;
+
+            _checkingLoaders = false;
+            ApplyLoaderAvailability(fromDisk);
+            NotifyLoaderAvailabilityChanged();
+            RefreshLoaderHint();
+            return;
+        }
+
+        // 3) 联网查
         _checkingLoaders = true;
         NotifyLoaderAvailabilityChanged();
         RefreshLoaderHint();
 
         try
         {
-            var fabricTask = new FabricLoaderInstaller(_http).GetLoaderVersionsAsync(version.Id);
-            var forgeTask = ForgeVersions.GetAsync(_downloader.GetStringAsync, version.Id);
-            var neoTask = NeoForgeVersions.GetAsync(_downloader.GetStringAsync, version.Id);
+            var fabricTask = new FabricLoaderInstaller(_http).GetLoaderVersionsAsync(minecraft);
+            var forgeTask = ForgeVersions.GetAsync(_downloader.GetStringAsync, minecraft);
+            var neoTask = NeoForgeVersions.GetAsync(_downloader.GetStringAsync, minecraft);
 
             await Task.WhenAll(fabricTask, forgeTask, neoTask);
 
-            var availability = new LoaderAvailability(fabricTask.Result, forgeTask.Result, neoTask.Result);
-            _loaderCache[version.Id] = availability;
+            // 中途又切了版本：这次结果作废，别去改界面
+            if (token != _loaderCheckToken) return;
 
-            if (_selectedDownloadVersion?.Id == version.Id) ApplyLoaderAvailability(availability);
+            var availability = new LoaderAvailability(fabricTask.Result, forgeTask.Result, neoTask.Result);
+            _loaderCache[minecraft] = availability;
+
+            _loaderDiskCache.Store(new LoaderAvailabilitySnapshot(
+                minecraft,
+                DateTimeOffset.UtcNow,
+                fabricTask.Result.ToList(),
+                forgeTask.Result.ToList(),
+                neoTask.Result.ToList()));
+
+            if (_selectedDownloadVersion?.Id == minecraft) ApplyLoaderAvailability(availability);
         }
         catch (Exception ex)
         {
-            DownloadStatus = $"检查加载器失败：{ex.GetBaseException().Message}";
-            _loaderHint = "检查加载器失败，可先按原版安装";
+            if (token == _loaderCheckToken)
+            {
+                DownloadStatus = $"检查加载器失败：{ex.GetBaseException().Message}";
+                _loaderHint = "检查加载器失败，可先按原版安装，或点「重新检查」再试";
+            }
         }
         finally
         {
-            _checkingLoaders = false;
-            NotifyLoaderAvailabilityChanged();
-            RefreshLoaderHint();
+            if (token == _loaderCheckToken)
+            {
+                _checkingLoaders = false;
+                NotifyLoaderAvailabilityChanged();
+                RefreshLoaderHint();
+            }
         }
+    }
+
+    /// <summary>跳过缓存重查当前版本（加载器清单里的「重新检查」）。</summary>
+    private void RefreshLoadersNow()
+    {
+        if (_selectedDownloadVersion is not { } version) return;
+
+        _loaderCache.Remove(version.Id);
+        _loaderDiskCache.Remove(version.Id);
+
+        _ = RefreshLoadersAsync(force: true);
     }
 
     private void ApplyLoaderAvailability(LoaderAvailability availability)
@@ -2927,10 +3018,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 版本类型过滤：0 仅正式版 / 1 正式版+快照 / 2 全部（含早期 alpha、beta）。
+    /// 版本类型过滤：0 正式版 / 1 快照版本 / 2 早期版本 / 3 愚人节版本（四选一）。
     ///
-    /// 愚人节版本在 Mojang 的清单里就是 snapshot，所以"含快照"就能看到它们；
-    /// 而 2010 年前后的早期版本被标成 old_alpha / old_beta，需要"全部"才出现。
+    /// 愚人节版本在 Mojang 的清单里就是 snapshot，只能靠已知清单认；
+    /// 2010 年前后的早期版本是 old_alpha / old_beta，单独一类。
+    /// 清单在第一次进下载页时已经全量拉回来了，切换筛选只在本地过滤。
     /// </summary>
     public int VersionFilterIndex
     {
@@ -2939,11 +3031,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _versionFilterIndex, value)) return;
 
-            _versionsLoaded = false;
             OnPropertyChanged(nameof(VersionFilterText));
-            _ = LoadDownloadVersionsAsync();
+
+            if (_allVersions is null) _ = LoadDownloadVersionsAsync();
+            else ApplyVersionFilter();
         }
     }
+
+    /// <summary>供诊断用：加载器清单磁盘缓存的位置。</summary>
+    public string LoaderCachePath => _loaderDiskCache.FilePath;
 
     /// <summary>供诊断用：列出某个游戏版本可用的 Forge / NeoForge 加载器（不下载安装包）。</summary>
     public Task<IReadOnlyList<ForgeLoaderVersion>> ListForgeVersionsAsync(string minecraftVersion)
@@ -3063,45 +3159,62 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(ModpacksModeForeground));
     }
 
+    /// <summary>
+    /// 版本清单的原始全量列表（第一次进下载页时拉一次）。
+    /// 之后切换「正式版 / 快照 / 早期 / 愚人节」只在本地过滤，不再联网 ——
+    /// 反复切筛选不该每次都等一遍网络。
+    /// </summary>
+    private List<VersionManifestEntry>? _allVersions;
+
     /// <summary>拉取版本清单。只在下拉页可见时才做，避免启动时多一次网络请求。</summary>
     private async Task LoadDownloadVersionsAsync()
     {
-        if (_versionsLoaded || IsDownloading) return;
+        if (IsDownloading) return;
 
         try
         {
-            DownloadStatus = "正在获取版本清单…";
-            var installer = await CreateMinecraftInstallerAsync();
-
-            var versions = await installer.GetVersionsAsync();
-
-            DownloadVersions.Clear();
-
-            foreach (var entry in versions)
+            if (_allVersions is null)
             {
-                if (!AcceptVersion(entry)) continue;
+                DownloadStatus = "正在获取版本清单…";
+                var installer = await CreateMinecraftInstallerAsync();
 
-                DownloadVersions.Add(new DownloadVersionItem(entry));
+                var versions = await installer.GetVersionsAsync();
+                _allVersions = versions.ToList();
+                _versionsLoaded = _allVersions.Count > 0;
             }
 
-            _versionsLoaded = DownloadVersions.Count > 0;
-
-            if (DownloadVersions.Count > 0)
-            {
-                SelectedDownloadVersion ??= DownloadVersions[0];
-                (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
-                DownloadStatus = $"共 {DownloadVersions.Count} 个版本（{VersionFilterText}）";
-            }
-            else
-            {
-                DownloadStatus = "清单里没有可用版本";
-            }
+            ApplyVersionFilter();
         }
         catch (Exception ex)
         {
             DownloadStatus = $"获取版本清单失败：{ex.GetBaseException().Message}";
             LauncherLog.Write(_launcher.Root, $"获取版本清单失败 → {ex.GetBaseException().Message}");
         }
+    }
+
+    /// <summary>按当前筛选条件从全量清单重建列表（纯本地操作，不发请求）。</summary>
+    private void ApplyVersionFilter()
+    {
+        if (_allVersions is null) return;
+
+        var previousId = _selectedDownloadVersion?.Id;
+
+        DownloadVersions.Clear();
+        foreach (var entry in _allVersions)
+        {
+            if (!AcceptVersion(entry)) continue;
+            DownloadVersions.Add(new DownloadVersionItem(entry));
+        }
+
+        // 原来的选择还在新分类里就保留，否则选这个分类里最新的一个
+        SelectedDownloadVersion = DownloadVersions.FirstOrDefault(item => item.Id == previousId)
+                                  ?? DownloadVersions.FirstOrDefault();
+
+        (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+
+        DownloadStatus = DownloadVersions.Count == 0
+            ? $"「{VersionFilterText}」里没有版本（清单共 {_allVersions.Count} 个）"
+            : $"共 {DownloadVersions.Count} 个版本（{VersionFilterText}，清单 {_allVersions.Count} 个）";
     }
 
     /// <summary>
@@ -3243,36 +3356,39 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>当前过滤条件是否接受该版本类型。</summary>
     /// <summary>
-    /// 当前过滤条件是否接受该版本。
-    ///
-    /// "正式版 + 快照"**排除**愚人节版本，否则专门的"仅愚人节"就没有意义。
-    /// 愚人节版本只能靠版本号与日期识别 —— 清单里的 type 与普通快照完全相同。
+    /// 当前过滤条件是否接受该版本。四类互斥：
+    ///   0 正式版（type = release）
+    ///   1 快照版本（type = snapshot，且不是愚人节）
+    ///   2 早期版本（old_alpha / old_beta）
+    ///   3 愚人节版本（清单里也是 snapshot，只能靠已知清单认）
+    /// 愚人节版本要从快照里排除，否则"愚人节版本"这一类会和快照重复。
     /// </summary>
     private bool AcceptVersion(VersionManifestEntry entry)
     {
         var isRelease = string.Equals(entry.Type, "release", StringComparison.OrdinalIgnoreCase);
         var isSnapshot = string.Equals(entry.Type, "snapshot", StringComparison.OrdinalIgnoreCase);
+        var isEarly = string.Equals(entry.Type, "old_alpha", StringComparison.OrdinalIgnoreCase)
+                      || string.Equals(entry.Type, "old_beta", StringComparison.OrdinalIgnoreCase);
         var isAprilFools = AprilFoolsVersions.IsAprilFools(entry.Id, entry.ReleaseTime, entry.Type);
 
         return _versionFilterIndex switch
         {
             0 => isRelease,
-            1 => (isRelease || isSnapshot) && !isAprilFools,
-            2 => true,
+            1 => isSnapshot && !isAprilFools,
+            2 => isEarly,
             3 => isAprilFools,
-            _ => true,
+            _ => isRelease,
         };
     }
 
     /// <summary>过滤条件的中文描述（用于状态行）。</summary>
     public string VersionFilterText => _versionFilterIndex switch
     {
-        0 => "仅正式版",
-        1 => "正式版 + 快照（不含愚人节）",
-        2 => "全部，含早期 alpha/beta",
-        _ => "仅愚人节版本",
+        0 => "正式版",
+        1 => "快照版本",
+        2 => "早期版本（alpha / beta）",
+        _ => "愚人节版本",
     };
 
     /// <summary>按全局设置构造安装器（镜像源、并发数都取自设置）。</summary>
@@ -3313,6 +3429,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public ICommand ShowVersionsModeCommand { get; }
     public ICommand ShowModpacksModeCommand { get; }
+    public ICommand RefreshLoadersCommand { get; }
     public ICommand InstallModpackCommand { get; }
 
     /// <summary>整合包状态行（选择文件后显示解析结果）。</summary>

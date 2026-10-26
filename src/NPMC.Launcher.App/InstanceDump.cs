@@ -473,7 +473,9 @@ internal static class InstanceDump
                 for (var i = 0; i < 300 && viewModel.IsCheckingLoaders; i++) Thread.Sleep(100);
 
                 lines.Add($"    可用加载器：Fabric={viewModel.CanSelectFabric} "
-                          + $"Forge={viewModel.CanSelectForge} NeoForge={viewModel.CanSelectNeoForge}");
+                          + $"Forge={viewModel.CanSelectForge} NeoForge={viewModel.CanSelectNeoForge}"
+                          + $"  检查中={viewModel.IsCheckingLoaders}");
+                lines.Add($"    缓存文件={viewModel.LoaderCachePath}（存在={File.Exists(viewModel.LoaderCachePath)}）");
 
                 if (viewModel.CanSelectFabric)
                 {
@@ -952,6 +954,59 @@ internal static class InstanceDump
         viewModel.ShowModpacksModeCommand.Execute(null);
         lines.Add($"[导航] 下载/整合包 版本区块={viewModel.IsVersionsMode} "
                   + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
+
+        // 加载器检查的缓存与"切回不再卡住"：首次联网耗时 vs 切回命中缓存耗时
+        if (args.Any(arg => string.Equals(arg, "--exercise-loader-cache", StringComparison.OrdinalIgnoreCase)))
+        {
+            var cacheIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-loader-cache", StringComparison.OrdinalIgnoreCase));
+            var minecraft = cacheIndex + 1 < args.Length ? args[cacheIndex + 1] : "26.3";
+
+            lines.Add("");
+            lines.Add($"[加载器缓存] {minecraft}");
+
+            viewModel.ShowDownloadsCommand.Execute(null);
+            for (var i = 0; i < 300 && viewModel.DownloadVersions.Count == 0; i++) Thread.Sleep(100);
+
+            var item = viewModel.DownloadVersions.FirstOrDefault(version => version.Id == minecraft);
+
+            if (item is null)
+            {
+                lines.Add($"    版本清单里没有 {minecraft}");
+            }
+            else
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                viewModel.SelectedDownloadVersion = item;
+
+                for (var i = 0; i < 900 && viewModel.IsCheckingLoaders; i++) Thread.Sleep(100);
+
+                lines.Add($"    首次：{watch.ElapsedMilliseconds} ms  检查中={viewModel.IsCheckingLoaders}  "
+                          + $"Fabric={viewModel.CanSelectFabric} Forge={viewModel.CanSelectForge} "
+                          + $"NeoForge={viewModel.CanSelectNeoForge}");
+
+                var other = viewModel.DownloadVersions.FirstOrDefault(version => version.Id != minecraft);
+
+                if (other is not null)
+                {
+                    viewModel.SelectedDownloadVersion = other;
+                    for (var i = 0; i < 900 && viewModel.IsCheckingLoaders; i++) Thread.Sleep(100);
+
+                    watch.Restart();
+                    viewModel.SelectedDownloadVersion = item;
+
+                    // 切回时应当在几十毫秒内从缓存恢复（不联网）
+                    for (var i = 0; i < 900 && viewModel.IsCheckingLoaders; i++) Thread.Sleep(100);
+
+                    lines.Add($"    切回：{watch.ElapsedMilliseconds} ms  检查中={viewModel.IsCheckingLoaders}  "
+                              + $"Fabric={viewModel.CanSelectFabric} Forge={viewModel.CanSelectForge} "
+                              + $"NeoForge={viewModel.CanSelectNeoForge}");
+                }
+
+                lines.Add($"    缓存文件={viewModel.LoaderCachePath}"
+                          + $"（存在={File.Exists(viewModel.LoaderCachePath)}）");
+            }
+        }
 
         // 走界面同一条路：下载本体 → 装加载器 → 建实例
         //   --exercise-download-loader <mc> [fabric|forge|neoforge] [loaderVersion]

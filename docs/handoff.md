@@ -130,6 +130,7 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 | `--exercise-datapack-race` | 紧邻点击（切页签立即点数据包）是否还能扫到内容 |
 | `--exercise-nav` | 面板/头部/列表/空提示/日志的可见性随导航变化，**并核对 PropertyChanged 是否真的发出** |
 | `--exercise-global-settings` | 设置页：字段 ↔ `settings.json` ↔ 启动计划（默认 Java）；改完**还原原设置** |
+| `--exercise-loader-cache [mc]` | 加载器检查：首次联网耗时 vs 切回命中缓存耗时（顺带验证不会卡在"正在检查"） |
 | `--exercise-download-loader <mc> [fabric|forge|neoforge] [loader]` | 走界面同一条路：下载本体 → 装加载器 → 建实例 |
 | `--exercise-forge-versions` | Forge / NeoForge 加载器清单（两个 maven 的 metadata，只读不下载） |
 | `--exercise-launch-plan [实例名]` | 只组装启动计划：占位符残留、`-p`/`-cp` 里缺失的 jar、问题列表 |
@@ -320,3 +321,21 @@ Forge 1.17+ 的版本 JSON 用 `${library_directory}` / `${classpath_separator}`
 `architecture.md` 的"占位符全集"里一直写着这两个，但 `ArgumentBuilder.CreateDefault` **从来没设**，
 所以哪怕安装成功也起不来。现已补上，`--exercise-launch-plan` 会打印未替换占位符与 `-p` 缺失文件数
 （实测 1.20.1 + Forge 47.2.0：占位符无残留、缺失 0 个，真实启动到游戏窗口并加载 Forge）。
+
+### 10.5 加载器清单缓存与版本分类（2026-10-26 晚）
+
+- **加载器清单三级缓存**：内存 → `<root>\cache\loader-versions.json`（7 天有效）→ 联网。
+  切回看过的游戏版本不再重查；「重新检查」按钮（`RefreshLoadersCommand`）跳过缓存强制刷新。
+  缓存文件里按游戏版本存 Fabric / Forge / NeoForge 三份清单 + `CheckedAt`。
+- **修掉"切回时卡在正在检查"**：旧代码在缓存命中分支直接 `return`，但调用方已经把
+  `_checkingLoaders` 置 true，于是永远停在"正在检查…"、三个加载器全灰。
+  现在所有分支（内存命中 / 磁盘命中 / 联网成功 / 失败 / 没选中版本）都会把状态落回 false；
+  另加 token，连着切版本时过期结果不会覆盖当前界面。
+- **版本清单一次全量拉取**：第一次进下载页就拿到完整 manifest（`_allVersions`），
+  之后「正式版 / 快照版本 / 早期版本 / 愚人节版本」四类筛选只在本地过滤，不再每次联网。
+  四类互斥：正式版 = release；快照 = snapshot 且非愚人节；早期 = old_alpha / old_beta；
+  愚人节 = 已知愚人节清单（清单里同样是 snapshot，只能靠版本号认）。
+  实测：正式版 103 / 快照 747 / 早期 61 / 愚人节 9。
+
+验证（`--exercise-loader-cache 26.3`）：首次 7235 ms（联网），切走再切回 **0 ms**、
+`检查中=False`、三个加载器可用状态正确；缓存文件 `<root>\cache\loader-versions.json`。
