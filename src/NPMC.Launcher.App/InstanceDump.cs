@@ -256,6 +256,7 @@ internal static class InstanceDump
 
             foreach (var entry in viewModel.Content)
             {
+                if (entry is null) continue;
                 lines.Add($"    {entry.StatusText}  {entry.Name}");
                 lines.Add($"        {entry.MetaText}");
             }

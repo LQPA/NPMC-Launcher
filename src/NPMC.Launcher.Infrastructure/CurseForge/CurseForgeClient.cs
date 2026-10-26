@@ -17,6 +17,8 @@ public static class CurseForgeRelation
 }
 
 /// <summary>文件声明的依赖（只给了 modId 与关系类型）。</summary>
+public sealed record CurseForgeProject(int Id, string Slug, string Name);
+
 public sealed record CurseForgeDependency(int ModId, int RelationType)
 {
     public bool IsRequired => RelationType == CurseForgeRelation.RequiredDependency;
@@ -420,6 +422,19 @@ public sealed class CurseForgeClient
         => gameVersions.Any(version =>
             expected.Any(loader => string.Equals(version, loader, StringComparison.OrdinalIgnoreCase)));
 
+    /// <summary>按项目 id 取名称与 slug（整合包清单里只有 id，没有名字）。</summary>
+    public async Task<CurseForgeProject?> GetProjectAsync(
+        int modId, CancellationToken cancellationToken = default)
+    {
+        using var document = await SendAsync(
+            HttpMethod.Get, $"{ApiBase}/mods/{modId}", null, cancellationToken).ConfigureAwait(false);
+
+        if (document is null) return null;
+        if (!document.RootElement.TryGetProperty("data", out var data)) return null;
+
+        return new CurseForgeProject(
+            GetInt(data, "id"), GetString(data, "slug") ?? "", GetString(data, "name") ?? "");
+    }
     private async Task<JsonDocument?> SendAsync(
         HttpMethod method,
         string url,

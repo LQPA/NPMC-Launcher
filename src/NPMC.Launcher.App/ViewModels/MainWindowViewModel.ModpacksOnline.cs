@@ -218,7 +218,7 @@ public sealed partial class MainWindowViewModel
             throw new InvalidOperationException(
                 problem ?? "缺少 CurseForge API key（CURSEFORGE_API_KEY 或 %APPDATA%\\NPMC-Launcher\\curseforge.key）");
 
-        var preparer = new CurseForgeModpackPreparer(_downloader, new CurseForgeClient(_http, key));
+        var preparer = new CurseForgeModpackPreparer(_downloader, new CurseForgeClient(_http, key), _modrinth);
 
         var plan = await preparer.PrepareAsync(
             modId, fileId, Path.Combine(_launcher.Root, "cache", "cfpacks"), progress);

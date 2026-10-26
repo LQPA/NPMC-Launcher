@@ -2,6 +2,7 @@ using System.IO.Compression;
 using NPMC.Launcher.Core.Modpacks;
 using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Http;
+using NPMC.Launcher.Infrastructure.Modrinth;
 
 namespace NPMC.Launcher.Infrastructure.Modpacks;
 
@@ -11,17 +12,21 @@ namespace NPMC.Launcher.Infrastructure.Modpacks;
 ///   - 下载整合包 zip（里面只有 manifest.json + overrides，没有模组本体）；
 ///   - 解析 manifest.json，取出 (projectID, fileID) 列表；
 ///   - 用 CurseForge API 把每个文件换成下载地址（URL 末段就是文件名）；
+///   - 作者禁止 API 下载的文件，回退到 Modrinth 用同名项目补齐（只接受 slug 完全一致）；
 ///   - 组成一份"合成的" Modrinth 风格索引，后面的安装完全复用 ModpackInstaller。
 /// </summary>
 public sealed class CurseForgeModpackPreparer
 {
     private readonly HttpFileDownloader _downloader;
     private readonly CurseForgeClient _curseForge;
+    private readonly ModrinthClient? _modrinth;
 
-    public CurseForgeModpackPreparer(HttpFileDownloader downloader, CurseForgeClient curseForge)
+    public CurseForgeModpackPreparer(
+        HttpFileDownloader downloader, CurseForgeClient curseForge, ModrinthClient? modrinth = null)
     {
         _downloader = downloader;
         _curseForge = curseForge;
+        _modrinth = modrinth;
     }
 
     public async Task<ModpackPlan> PrepareAsync(
@@ -83,19 +88,30 @@ public sealed class CurseForgeModpackPreparer
                 var url = await _curseForge.TryGetDownloadUrlAsync(
                     file.ProjectId, file.FileId, cancellationToken);
 
-                if (url is null)
+                if (url is not null)
                 {
-                    lock (problems)
-                        problems.Add($"{file.ProjectId}/{file.FileId}：作者禁止 API 下载");
+                    var name = Uri.UnescapeDataString(Path.GetFileName(new Uri(url).AbsolutePath));
+                    if (string.IsNullOrWhiteSpace(name)) name = $"{file.FileId}.jar";
+
+                    lock (files)
+                        files.Add(new ModpackFile($"mods/{name}", "", 0, new[] { url }));
 
                     return;
                 }
 
-                var name = Uri.UnescapeDataString(Path.GetFileName(new Uri(url).AbsolutePath));
-                if (string.IsNullOrWhiteSpace(name)) name = $"{file.FileId}.jar";
+                // 作者禁止 API 下载：试试 Modrinth 上的同名项目
+                var fallback = await TryResolveModrinthAsync(manifest, file, cancellationToken);
 
-                lock (files)
-                    files.Add(new ModpackFile($"mods/{name}", "", 0, new[] { url }));
+                if (fallback is { } replacement)
+                {
+                    lock (files) files.Add(replacement.File);
+                    lock (problems) problems.Add($"已用 Modrinth 替代：{replacement.Note}");
+                }
+                else
+                {
+                    lock (problems)
+                        problems.Add($"{file.ProjectId}/{file.FileId}：作者禁止 API 下载，Modrinth 也没有匹配项目");
+                }
             }
             catch (Exception ex)
             {
@@ -127,6 +143,49 @@ public sealed class CurseForgeModpackPreparer
 
         return new ModpackPlan(
             manifest.Name, manifest.Version, index, archivePath, extractRoot, problems);
+    }
+
+    /// <summary>
+    /// 用 Modrinth 补齐被 CurseForge 作者禁止下载的文件。
+    ///
+    /// 只接受 **slug 完全一致** 的项目，避免把同名但不同来源的模组混进来；
+    /// 版本取该游戏版本 + 加载器下的最新正式版（CF 没有暴露版本号，无法精确对齐）。
+    /// </summary>
+    private async Task<(ModpackFile File, string Note)?> TryResolveModrinthAsync(
+        CurseForgeModpackManifest manifest,
+        CurseForgeModpackFile file,
+        CancellationToken cancellationToken)
+    {
+        if (_modrinth is null) return null;
+
+        var project = await _curseForge.GetProjectAsync(file.ProjectId, cancellationToken);
+        if (project is null || string.IsNullOrWhiteSpace(project.Slug)) return null;
+
+        var loaders = string.IsNullOrWhiteSpace(manifest.LoaderName)
+            ? Array.Empty<string>()
+            : new[] { manifest.LoaderName! };
+
+        var hits = await _modrinth.SearchAsync(
+            project.Slug, manifest.GameVersion, loaders, limit: 5, projectType: "mod",
+            cancellationToken: cancellationToken);
+
+        var hit = hits.FirstOrDefault(candidate =>
+                      string.Equals(candidate.Slug, project.Slug, StringComparison.OrdinalIgnoreCase))
+                  ?? hits.FirstOrDefault(candidate =>
+                      string.Equals(candidate.Title, project.Name, StringComparison.OrdinalIgnoreCase));
+
+        if (hit is null) return null;
+
+        var versions = await _modrinth.GetProjectVersionsAsync(
+            hit.Slug, manifest.GameVersion, loaders, cancellationToken);
+
+        var version = versions.FirstOrDefault(candidate => !candidate.IsPrerelease)
+                      ?? versions.FirstOrDefault();
+
+        if (version?.PrimaryFile is not { } primary) return null;
+
+        return (new ModpackFile($"mods/{primary.FileName}", primary.Sha1, primary.Size, new[] { primary.Url }),
+                $"{project.Name} → Modrinth {hit.Slug} {version.VersionNumber}");
     }
 
     private static void ExtractOverrides(
