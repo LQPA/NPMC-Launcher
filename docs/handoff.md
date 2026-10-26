@@ -174,8 +174,8 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
     但代码 2026-10-26 之前从没 `Set` 过 —— 文档全 ≠ 实现全。
 13. **原生 Bitmap 不按托管堆压力回收**：495 个图标解码后托管堆只有 12MB，GC 没理由跑，
     工作集就一直挂着（用户看到 528MB）；强制 GC 后能掉 100MB+。所以内容列表的图标要
-    **按可见行懒加载**、行离开可视树就丢引用，别在 `LoadContentMetadataAsync` 里给所有行预先解码。
-    详见 9.1.7。
+    **按可见行懒加载**，并且行离开可视树时**归还租约、确定性 Dispose**（不能只丢引用），
+    别在 `LoadContentMetadataAsync` 里给所有行预先解码。详见 9.1.7。
 
 ---
 
@@ -318,7 +318,7 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 结论：托管堆只有 12MB，GC 没有压力，所以**原生位图释放后没人触发回收**；
 `DisposeAll` 对照实验里 WS 不再下降，说明"位图对象泄漏"不成立，问题是**一次加载太多 + 回收不及时**。
 
-#### 改法：懒加载（而不是逐行 Dispose）
+#### 改法一：懒加载（限制同时存在的引用）
 
 - `LoadContentMetadataAsync` / `SaveMetadataAsync` 不再为所有条目解码图标，只把 `IconUrl` 落盘。
 - 内容行根 `Grid` 加 `AttachedToVisualTree` / `DetachedFromVisualTree`：
@@ -327,19 +327,41 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 - `IconLoader.GetAsync` 改走 `Store()`：**原来的 LRU 上限 128 从未生效** ——
   `GetAsync` 三处都直接写 `_memory[url]`，绕过了 `Store()` 的淘汰逻辑，这是本轮发现的实打实的 bug。
 
-#### 改造后实测（同一份数据）
+#### 改法二：行租约 + 确定性 Dispose（限制原生内存）
 
-| 节点 | WS | live | 位图字节 |
-|---|---:|---:|---:|
-| 495 行全展开（只有可视行加载） | 239MB | 6 | 1.8MB |
-| 程序化滚完整张列表 | 298MB | 137 | 45.2MB |
-| 同上 + 强制 GC | 286MB | 128 | 38.8MB |
-| 切 26.1.2 概览 + 强制 GC | 238MB | 0 | 0 |
+只做懒加载还不够。用户的录屏里内存从 108MB 一路涨到 **484MB**，切回概览也不降；
+那段视频跑的是 `dist\NPMC.Launcher.App.exe`（2026-10-27 00:14 发布，早于本轮修复）。
+但即使换成"只在行可见时加载"，**滚动整张列表**仍会不断解码新图标：
+缓存淘汰/行离开只是丢引用，Avalonia/Skia 的位图是原生内存，托管堆只有十几 MB 时 GC 不会跑，
+所以工作集继续涨 —— 必须显式释放。
 
-- 列表只 materialize 8 行；滚完整表累计创建 137 个位图，缓存稳定在 128 条（38.8MB），不再随行数线性增长。
-- 没有逐行 `Dispose`：同一个 `Bitmap` 可能被多行共享（同一图标 URL），
-  Dispose 需要引用计数/所有权模型；当前"离开可视树即丢引用 + LRU 上限"已足够让 GC 回收，
-  且不会出现"释放了还在显示中的位图"。
+- `IconLoader` 增加**行租约**：`AcquireAsync(url)` 给内容行用，行离开可视树 `Release(url)`。
+- 同一 URL 的 `Bitmap` 仍只解码一次、可被多行共享；租约计数到 0 才允许释放。
+- 缓存淘汰 / `Clear()` 时：没有租约的位图**立即 Dispose**；还有租约的先放进"待释放"列表，
+  最后一个租约释放时 Dispose。
+- `ReleaseContentIcons()` 先逐行归还租约，再 `_icons.Clear()`；顺序反了会让位图只能等 GC。
+- `ResetSearchState()` 里补 `DetailIcon = null`，避免缓存清理后详情还引用已释放的位图。
+
+#### 复核数据（同一份数据：ATM10，319 个有图标 URL 的模组）
+
+| 节点 | WS | live | 位图字节 | created / disposed | 缓存/租约 |
+|---|---:|---:|---:|---:|---:|
+| 基线（空概览） | 218MB | 0 | 0 | 0 / 0 | 0 / 0 |
+| 495 行全展开（仅可视行） | 238MB | 6 | 1.8MB | 6 / 0 | 6 / 6 |
+| 滚动 120 行 | 269MB | 81 | 34.2MB | 82 / 1 | 81 / 7 |
+| 滚动 240 行 | 293MB | 155 | 42.3MB | 156 / 28 | 128 / 7 |
+| 滚动 360 行 | 286MB | 237 | 33.6MB | 238 / 110 | 128 / 5 |
+| 滚动 480 行 | 286MB | 306 | 32.5MB | 307 / 179 | 128 / 2 |
+| 滚到底 | 286MB | 314 | 32.5MB | 315 / 187 | 128 / 8 |
+| 再滚回顶部 | 290MB | 321 | 45.9MB | 509 / 381 | 128 / 3 |
+| 切 26.1.2 概览（未 GC） | **246MB** | 321 | 0 | 509 / **509** | 0 / 0 |
+| 同上 + 强制 GC | 241MB | 0 | 0 | 509 / 509 | 0 / 0 |
+
+- 滚动期间工作集在 286–293MB 之间**平台化**，不再随行数线性上涨；滚回顶部重新创建了 194 张，但旧的全部被 Dispose。
+- 切换实例后工作集**当场从 290MB 降到 246MB**（缓存里 128 张全部 Dispose），不需要等 GC；GC 只再收掉包装对象。
+- 表里的 `live` 是弱引用还活着的 Bitmap 包装对象，已 Dispose 的也要等 GC 才消失，
+  所以判断释放要看 `disposed` 和 `pixel`，不要只看 `live`。
+- 列表只 materialize 8 行；`iconCache` 上限 128、`iconLeases` 跟可见行数一致（3~8）。
 - 想再压可以把 `IconLoader.MaxEntries` 从 128 降到 64（代价是回滚时多读几次磁盘缓存）。
 
 ### 9.2 设置页（原先左侧导航是灰的）

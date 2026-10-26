@@ -46,6 +46,9 @@ public sealed class ContentEntryItem : ObservableObject
     /// </summary>
     internal bool IsRowVisible { get; set; }
 
+    /// <summary>当前 <see cref="Icon"/> 对应的 URL；行离开可视树时按它归还 IconLoader 的租约。</summary>
+    internal string? IconLeaseUrl { get; set; }
+
     private Bitmap? _icon;
 
     /// <summary>项目图标（识别成功后才会有）；未就绪时为 null，界面留空但占位。</summary>

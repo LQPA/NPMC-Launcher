@@ -14,6 +14,15 @@ namespace NPMC.Launcher.App.ViewModels;
 /// 磁盘上用 URL 的 SHA1 作文件名，避免 URL 里的非法字符，也天然去重。
 ///
 /// Avalonia 的 Image.Source 只接受 Bitmap，不会自己下载 —— 所以这一步是必须的。
+///
+/// **生命周期**：同一个 URL 只解码一次，Bitmap 可能被多行共用，所以不能由某一行
+/// 直接 Dispose。这里用"缓存持有 + 行租约"两层引用：
+///   - 缓存最多留 <see cref="MaxEntries"/> 条，淘汰时如果还有行在显示（租约 &gt; 0），
+///     先把 Bitmap 移到"待释放"区，最后一行松手时再 Dispose；
+///   - 行离开可视树时 `Release(url)`，没有租约、也不在缓存里的 Bitmap 立即释放。
+///
+/// 这一层是必要的：Avalonia/Skia 的位图是原生内存，托管堆只有十几 MB 时 GC
+/// 不会因为"原生内存涨了"而运行，光靠丢引用要等很久才回收（实测滚完 495 行能挂 400MB+）。
 /// </summary>
 internal sealed class IconLoader
 {
@@ -21,11 +30,21 @@ internal sealed class IconLoader
     private readonly string _cacheDirectory;
     private readonly Action<string>? _log;
     private const int MaxEntries = 128;
+
     private readonly Dictionary<string, Bitmap?> _memory = new(StringComparer.OrdinalIgnoreCase);
     private readonly LinkedList<string> _order = new();
 
+    /// <summary>URL → 当前有多少行正在显示这张图（租约）。</summary>
+    private readonly Dictionary<string, int> _leases = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>已经被缓存淘汰/清空、但还有行在显示的位图；最后一个租约释放时统一 Dispose。</summary>
+    private readonly Dictionary<string, List<Bitmap>> _evictedButLeased = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>内存缓存里有多少条（含"取不到"的 null 记录）；内存诊断用。</summary>
     public int CachedCount => _memory.Count;
+
+    /// <summary>当前未结束的行租约数；内存诊断用。</summary>
+    public int LeaseCount => _leases.Values.Sum();
 
     public IconLoader(HttpClient http, string cacheDirectory, Action<string>? log = null)
     {
@@ -34,6 +53,7 @@ internal sealed class IconLoader
         _log = log;
     }
 
+    /// <summary>取图标（缓存直接返回）。搜索结果/详情这类"少数几个"走这里，不持有租约。</summary>
     public async Task<Bitmap?> GetAsync(string? url)
     {
         if (string.IsNullOrWhiteSpace(url)) return null;
@@ -86,17 +106,77 @@ internal sealed class IconLoader
         }
     }
 
-    /// <summary>把最近用到的 URL 移到队首；超出上限就丢掉最旧的引用，磁盘缓存还在，需要时再读。</summary>
+    /// <summary>
+    /// 给内容行取图标：在缓存基础上记一个租约，调用方必须在行离开可视树时
+    /// `Release(url)`。取不到返回 null，不产生租约。
+    /// </summary>
+    public async Task<Bitmap?> AcquireAsync(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+
+        var bitmap = await GetAsync(url);
+        if (bitmap is null) return null;
+
+        _leases[url] = _leases.TryGetValue(url, out var count) ? count + 1 : 1;
+        return bitmap;
+    }
+
+    /// <summary>释放内容行对图标的租约；没有租约且已被缓存淘汰的位图会立即 Dispose。</summary>
+    public void Release(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return;
+        if (!_leases.TryGetValue(url, out var count)) return;
+
+        if (count > 1)
+        {
+            _leases[url] = count - 1;
+            return;
+        }
+
+        _leases.Remove(url);
+
+        if (_evictedButLeased.Remove(url, out var orphans))
+            foreach (var orphan in orphans)
+                DisposeBitmap(orphan);
+    }
+
+    /// <summary>把最近用到的 URL 移到队首；超出上限就丢掉最旧的引用（磁盘缓存还在，需要时再读）。</summary>
     private void Store(string url, Bitmap? bitmap)
     {
+        // 同一个 key 被替换（并发取同一 URL）时，旧值按同样的规则处理
+        if (_memory.TryGetValue(url, out var previous) && previous is not null && !ReferenceEquals(previous, bitmap))
+            Retire(url, previous);
+
         _memory[url] = bitmap;
         Touch(url);
 
         while (_memory.Count > MaxEntries && _order.Last is { } last)
         {
             _order.RemoveLast();
-            _memory.Remove(last.Value);
+            var oldestUrl = last.Value;
+
+            if (!_memory.Remove(oldestUrl, out var oldestBitmap) || oldestBitmap is null) continue;
+
+            Retire(oldestUrl, oldestBitmap);
         }
+    }
+
+    /// <summary>缓存不再持有这张图：没有行在显示就立即释放，否则等最后一个租约松手。</summary>
+    private void Retire(string url, Bitmap bitmap)
+    {
+        if (_leases.TryGetValue(url, out var count) && count > 0)
+        {
+            if (!_evictedButLeased.TryGetValue(url, out var orphans))
+            {
+                orphans = new List<Bitmap>();
+                _evictedButLeased[url] = orphans;
+            }
+
+            orphans.Add(bitmap);
+            return;
+        }
+
+        DisposeBitmap(bitmap);
     }
 
     private void Touch(string url)
@@ -110,12 +190,35 @@ internal sealed class IconLoader
         _order.AddFirst(url);
     }
 
-    /// <summary>释放整份内存缓存（磁盘缓存保留）；换实例/离开列表时调用。</summary>
+    /// <summary>
+    /// 释放整份内存缓存（磁盘缓存保留）；换实例/离开列表时调用。
+    /// **调用前必须先把所有行租约释放掉**，否则位图会进"待释放"区，等行松手才 Dispose。
+    /// </summary>
     public void Clear()
     {
+        foreach (var pair in _memory)
+        {
+            if (pair.Value is null) continue;
+            Retire(pair.Key, pair.Value);
+        }
+
         _memory.Clear();
         _order.Clear();
     }
+
+    private void DisposeBitmap(Bitmap bitmap)
+    {
+        try
+        {
+            bitmap.Dispose();
+            LiveBitmapTracker.MarkDisposed();
+        }
+        catch
+        {
+            // 已经释放过/平台已关闭都不影响功能
+        }
+    }
+
     private Bitmap? Decode(byte[] bytes, string source)
     {
         // 无头诊断（--dump-instances）没有 Avalonia Application / 渲染平台，Bitmap 必然抛

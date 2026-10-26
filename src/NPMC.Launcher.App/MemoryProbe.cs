@@ -121,12 +121,15 @@ internal static class MemoryProbe
                 // 模拟"滚完整张列表"：每次跳 20 行，让虚拟化真正回收/重建行容器。
                 if (WantsVisibleWindow(args) && rows > 0)
                 {
-                    Write("# 程序化滚动整张列表（不是鼠标操作）…");
+                    Write("# 程序化滚动整张列表（不是鼠标操作；每次滚一屏，模拟真实浏览）…");
 
-                    for (var index = 0; index < viewModel.Content.Count; index += 20)
+                    for (var index = 0; index < viewModel.Content.Count; index += 8)
                     {
                         window.ContentList.ScrollIntoView(index);
-                        await Task.Delay(120);
+                        await Task.Delay(90);
+
+                        // 每 120 行记一次，用来看工作集是不是随滚动无限上涨
+                        if (index > 0 && index % 120 == 0) Snapshot($"scroll-{index}");
                     }
 
                     await Task.Delay(1500);
@@ -137,6 +140,17 @@ internal static class MemoryProbe
                     Write($"# 滚到底后：可视树内容行={lastRows}，创建位图累计={LiveBitmapTracker.Snapshot().Created}");
                     Snapshot("atm10-scrolled-all");
                     Snapshot("atm10-scrolled-all+gc", forceCollect: true);
+
+                    // 再滚回顶部：验证"已 Dispose 的位图不会被复用中的行容器渲染"（这里崩了就是释放过头）
+                    Write("# 滚回顶部（验证释放后的图标能重新从磁盘缓存加载）…");
+                    for (var index = viewModel.Content.Count - 1; index >= 0; index -= 8)
+                    {
+                        window.ContentList.ScrollIntoView(index);
+                        await Task.Delay(60);
+                    }
+
+                    await Task.Delay(800);
+                    Snapshot("atm10-scrolled-back");
                 }
             }
             else

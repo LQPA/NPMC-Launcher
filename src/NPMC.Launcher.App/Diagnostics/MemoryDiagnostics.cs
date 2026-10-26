@@ -18,6 +18,10 @@ internal static class LiveBitmapTracker
 
     private static int _created;
     private static long _createdBytes;
+    private static int _disposed;
+
+    /// <summary>记录一次显式 Dispose（位图包装对象要等 GC 才消失，所以单独计数）。</summary>
+    public static void MarkDisposed() => Interlocked.Increment(ref _disposed);
 
     public static void Track(Bitmap bitmap)
     {
@@ -67,6 +71,7 @@ internal static class LiveBitmapTracker
             return new BitmapSummary(
                 Live: live,
                 Created: _created,
+                Disposed: _disposed,
                 PixelBytes: bytes,
                 LargestWidth: largestWidth,
                 LargestHeight: largestHeight);
@@ -93,6 +98,7 @@ internal static class LiveBitmapTracker
         foreach (var bitmap in targets)
         {
             try { bitmap.Dispose(); } catch { /* 诊断清理失败不影响结论 */ }
+            MarkDisposed();
         }
 
         return targets.Count;
@@ -119,6 +125,7 @@ internal static class LiveBitmapTracker
 internal readonly record struct BitmapSummary(
     int Live,
     int Created,
+    int Disposed,
     long PixelBytes,
     int LargestWidth,
     int LargestHeight)
@@ -126,7 +133,7 @@ internal readonly record struct BitmapSummary(
     public double PixelMegabytes => PixelBytes / 1024d / 1024d;
 
     public string Describe() =>
-        $"live={Live} pixel={PixelMegabytes:F1}MB created={Created}"
+        $"live={Live} pixel={PixelMegabytes:F1}MB created={Created} disposed={Disposed}"
         + (LargestWidth > 0 ? $" largest={LargestWidth}x{LargestHeight}" : "");
 }
 

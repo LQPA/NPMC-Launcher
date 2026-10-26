@@ -1364,7 +1364,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var context =
             $"instance={SelectedInstance?.Id ?? "-"} tab={SelectedTab?.Title ?? "-"} "
             + $"content={Content.Count} rows={_modItemCache.Count} "
-            + $"iconRows={Content.Count(item => item.Icon is not null)} iconCache={_icons.CachedCount}";
+            + $"iconRows={Content.Count(item => item.Icon is not null)} "
+            + $"iconCache={_icons.CachedCount} iconLeases={_icons.LeaseCount}";
 
         var snapshot = MemorySnapshot.Capture(label, context);
         MemoryTrace.Write(label, context);
@@ -2548,8 +2549,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         // 留着会让人以为"这个搜索在新页签里也生效"。
         SearchQuery = "";
 
+        // 让还在路上的详情/翻译结果作废：否则晚到的 DetailIcon 可能引用已被清空的缓存位图
+        _detailToken++;
+
         SelectedSearchResult = null;
         IsDetailVisible = false;
+        DetailIcon = null;
         DetailTitle = "";
         DetailSubtitle = "";
         DetailBody = "";

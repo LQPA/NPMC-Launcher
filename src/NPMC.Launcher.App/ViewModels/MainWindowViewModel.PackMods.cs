@@ -128,17 +128,34 @@ public sealed partial class MainWindowViewModel
         if (!_contentMetadata.TryGet(item.Entry.FileName, out var metadata)) return;
         if (string.IsNullOrWhiteSpace(metadata.IconUrl)) return;
 
-        var icon = await _icons.GetAsync(metadata.IconUrl);
+        var icon = await _icons.AcquireAsync(metadata.IconUrl);
 
-        // 等磁盘/网络这段时间里行可能已经滚走：只给还在可视树上的行贴图标
+        // 等磁盘/网络这段时间里行可能已经滚走：只给还在可视树上的行贴图标，
+        // 否则立刻把刚拿到的租约还掉，别让它挂在缓存之外。
         if (icon is not null && item.Icon is null && item.IsRowVisible && Content.Contains(item))
+        {
+            if (item.IconLeaseUrl is { } previousUrl) _icons.Release(previousUrl);
+
             item.Icon = icon;
+            item.IconLeaseUrl = metadata.IconUrl;
+        }
+        else if (icon is not null)
+        {
+            _icons.Release(metadata.IconUrl);
+        }
     }
 
-    /// <summary>行离开可视树时丢掉位图引用（图标还在 IconLoader 的 LRU 缓存里，滚回来时秒开）。</summary>
+    /// <summary>行离开可视树：归还租约并丢掉位图引用（磁盘/LRU 缓存还在，滚回来时秒开）。</summary>
     internal void ReleaseIcon(ContentEntryItem item)
     {
         item.IsRowVisible = false;
+
+        if (item.IconLeaseUrl is { } url)
+        {
+            item.IconLeaseUrl = null;
+            _icons.Release(url);
+        }
+
         if (item.Icon is not null) item.Icon = null;
     }
     /// <summary>
@@ -147,11 +164,13 @@ public sealed partial class MainWindowViewModel
     /// </summary>
     private void ReleaseContentIcons()
     {
+        // 先还清所有租约，再清缓存 —— 顺序反了会让 Bitmap 进"待释放"区，
+        // 只能等下一次 GC，等于又回到"看起来没回收"。
         foreach (var item in _modItemCache.Values)
-            item.Icon = null;
+            ReleaseIcon(item);
 
         foreach (var item in Content)
-            item.Icon = null;
+            ReleaseIcon(item);
 
         _icons.Clear();
     }
