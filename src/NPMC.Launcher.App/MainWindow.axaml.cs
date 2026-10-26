@@ -92,6 +92,34 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>设置页：手动指定"全局默认 Java"。</summary>
+    private async void OnPickSettingsJavaClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+
+        try
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "选择默认 java.exe",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Java 可执行文件") { Patterns = new[] { "java.exe", "javaw.exe" } },
+                },
+            });
+
+            if (files.Count == 0) return;
+
+            var path = files[0].TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path)) viewModel.SetSettingsCustomJava(path);
+        }
+        catch (Exception ex)
+        {
+            viewModel.ReportSettingsFailure($"选择 Java 失败：{ex.GetBaseException().Message}");
+        }
+    }
+
     /// <summary>手动指定 java.exe（非常规安装路径）。</summary>
     private async void OnPickJavaClick(object? sender, RoutedEventArgs e)
     {

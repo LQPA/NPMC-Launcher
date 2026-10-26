@@ -25,6 +25,27 @@ public sealed class JsonSettingsStore
         return JsonSerializer.Deserialize<LauncherSettings>(json, JsonConfig.Options) ?? new LauncherSettings();
     }
 
+    /// <summary>
+    /// 同步读一次，给"建 HttpClient 之前"用（代理与超时只能在建客户端时设定）。
+    /// 读不出来就返回默认值 —— 启动路径不该因为 settings.json 写坏而失败。
+    /// </summary>
+    public LauncherSettings Load()
+    {
+        try
+        {
+            if (!File.Exists(_filePath)) return new LauncherSettings();
+
+            var json = File.ReadAllText(_filePath, Encoding.UTF8);
+            if (string.IsNullOrWhiteSpace(json)) return new LauncherSettings();
+
+            return JsonSerializer.Deserialize<LauncherSettings>(json, JsonConfig.Options) ?? new LauncherSettings();
+        }
+        catch
+        {
+            return new LauncherSettings();
+        }
+    }
+
     public async Task SaveAsync(LauncherSettings settings, CancellationToken cancellationToken = default)
     {
         var json = JsonSerializer.Serialize(settings, JsonConfig.Options);

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
+using NPMC.Launcher.Core.Settings;
 
 namespace NPMC.Launcher.Infrastructure.Http;
 
@@ -24,7 +25,11 @@ public sealed class HttpFileDownloader
 
     public HttpFileDownloader(HttpClient http) => _http = http;
 
-    public static HttpClient CreateClient(string userAgent = "NPMC-Launcher/0.1 (github.com/LQPA/NPMC-Launcher)")
+    /// <summary>
+    /// 建共享 HttpClient。传 settings 时套用代理与超时 —— 这两项只能在建客户端时设定，
+    /// 因此界面上改成"重启后生效"。
+    /// </summary>
+    public static HttpClient CreateClient(LauncherSettings? settings = null)
     {
         var handler = new SocketsHttpHandler
         {
@@ -33,10 +38,24 @@ public sealed class HttpFileDownloader
             MaxConnectionsPerServer = 16,
         };
 
-        var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(10) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
+        // 代理写错时宁可直连，也不要让整个启动器发不出请求
+        if (settings?.HttpProxy is { Length: > 0 } proxy
+            && Uri.TryCreate(proxy.Trim(), UriKind.Absolute, out var proxyUri))
+        {
+            handler.Proxy = new WebProxy(proxyUri);
+            handler.UseProxy = true;
+        }
+
+        var seconds = settings is { HttpTimeoutSeconds: > 0 } configured
+            ? configured.HttpTimeoutSeconds
+            : 600;
+
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(seconds) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(DefaultUserAgent);
         return client;
     }
+
+    private const string DefaultUserAgent = "NPMC-Launcher/0.1 (github.com/LQPA/NPMC-Launcher)";
 
     /// <summary>单地址便捷重载。</summary>
     public async Task<bool> EnsureAsync(string url, string destPath, string? sha1, CancellationToken ct = default)

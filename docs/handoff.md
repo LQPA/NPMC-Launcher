@@ -45,6 +45,7 @@ tools/sign-local.ps1              本地签名
 | 拖入导入 | 模组 `.jar`、其余 `.zip`；同名不覆盖；扩展名按页签校验 |
 | 进度 | 下载与整合包安装的进度条 |
 | 发布 | `tools/publish.ps1`，README 说明"开发用 VBS，发布用 exe" |
+| 设置 | 下载源/镜像/回退、并发/超时、代理、默认内存、**全局默认 Java**、**预下载 Java 运行时**（Mojang 官方清单 + 进度）；改一项即存；CLI `npmc settings show/set` 同步支持 |
 
 ---
 
@@ -52,10 +53,10 @@ tools/sign-local.ps1              本地签名
 
 | 优先级 | 事项 | 备注 |
 |---|---|---|
-| 高 | **设置页**（左侧导航仍是灰的） | 全局默认 Java、预下载指定 Java、镜像（官方/BMCLAPI）、并发/超时、代理、语言 |
 | 中 | 1.13+ Forge | 必须跑官方安装器 jar 的 processors；目前直接拒绝并有提示 |
 | 中 | 整合包在线列表 | Modrinth 搜索整合包，现在只能拖本地 `.mrpack` |
 | 中 | CLI 迁移到 `MinecraftInstaller` | 现在 CLI 有自己一份 install 实现（natives 就是两边都要改才暴露的） |
+| 低 | 界面多语言 | 文案还没抽出来；`Language` 目前只影响 Modrinth 描述翻译。设置页只写了一行说明，别做成"能选但没用"的下拉 |
 | 低 | CurseForge 数据包分类 | classId 未核实，宁可不提供也不猜 |
 | 低 | 死代码清理 | `SelectedWorld`、`ManageDataPacksCommand`、`HasDatapacksEntry` 已无 UI 使用 |
 | 低 | `docs/architecture.md` 补录 | 新增的坑（占位符、natives、数据包按世界、可见性通知）应补进去 |
@@ -123,9 +124,10 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 | `--exercise-caps` | 加载器/光影支持、入口可见性、按钮可用性、列表行文案 |
 | `--exercise-java` | Java 候选、当前选中、提示文本 |
 | `--exercise-java-cache` | 首次与再次进入同一实例的耗时 |
-| `--exercise-datapacks` | 存档页签：世界列表 → 数据包页 → 返回 |
+| `--exercise-datapacks` | 存档页签：世界列表 → 数据包页 → 返回；**页签数字 + 跨实例切换后数字不残留** |
 | `--exercise-datapack-race` | 紧邻点击（切页签立即点数据包）是否还能扫到内容 |
 | `--exercise-nav` | 面板/头部/列表/空提示/日志的可见性随导航变化，**并核对 PropertyChanged 是否真的发出** |
+| `--exercise-global-settings` | 设置页：字段 ↔ `settings.json` ↔ 启动计划（默认 Java）；改完**还原原设置** |
 | `--exercise-world-import` | 文件夹 / zip(根) / zip(嵌套) / 坏包 四种导入 |
 | `--exercise-launch [实例名]` | 真实启动并等 45 秒，返回 PID 与日志尾部 |
 | `--print-launch-command` | 只打印命令行，不启动 |
@@ -191,3 +193,39 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 
 界面侧只能靠截图核对：逐页签点一遍，确认①只有一排操作按钮 ②概览只出现在概览页签
 ③存档页签的世界列表上方没有概览残影 ④日志页签能出内容 ⑤点不可用页签后高亮不跟走。
+
+---
+
+## 9. 2026-10-26 晚：设置页 + 存档数字（已修/已做）
+
+### 9.1 存档页签数字残留（用户报："没有存档却显示 1"）
+
+根因有两层，都在 `RefreshCountsAsync`：
+
+1. 数据包页签的目录是"按世界"的，没进世界时 `ResolveContentDirectory` 返回 null，
+   而代码写的是 `return`（不是 `continue`）→ 整个循环提前结束，页签 `Count` **保留上一次的值**。
+2. 那个"上一次的值"可能是别的实例/别的世界留下的 → 换个 0 存档的实例，页签还写着「存档 1」。
+
+改法：数据包的数字统一由 `UpdateDataPackTabCount()` 维护 —— 没进世界时是**世界数**（这一页列的就是世界），
+进了世界才是**该世界的数据包数**；它在 `LoadWorlds` / `BackToWorlds` / `RefreshContentAsync` 之后都会重算。
+顺带修了同源的另一个：**停在存档页签时切换实例**，旧实例的世界列表不刷新（点进去会打开别人的存档目录）——
+现在 `SelectedInstance` 的 setter 里会清 `DataPackWorld` 并 `LoadWorlds()`。
+
+`--exercise-datapacks` 增加"页签数字"与"26.1.2 管理世界后切到无存档实例"的检查。
+
+### 9.2 设置页（原先左侧导航是灰的）
+
+- 代码：`ViewModels/MainWindowViewModel.Settings.cs`（partial，设置页专用的字段/命令都在这）、
+  `ViewModels/RuntimeChoiceItem.cs`；XAML 在 `MainWindow.axaml` 末尾的「设置页」块。
+- 全局设置模型新增 `HttpTimeoutSeconds` / `HttpProxy` / `DefaultJavaPath`；
+  `JsonSettingsStore.Load()` 同步重载供**建 HttpClient 之前**读取（代理/超时只能那时生效）。
+- 启动计划 Java 优先级补了一档：实例 JavaPath → 实例 JavaComponent → **全局默认** → 版本元数据。
+- 新建实例（下载页 / 整合包）现在用 `NewInstanceSettings()`，初始内存取设置页的「默认内存」。
+- 预下载 Java 运行时：`MojangRuntimeInstaller.GetComponentsAsync("windows-x64")` 列真实组件（8 个，含版本号与"已安装"），
+  选一个点「下载」即整套装进 `<root>\runtime\<组件名>`；下载完自动刷新组件列表与 Java 候选。
+- CLI 同步：`npmc settings show` 增加超时/代理/默认 Java；`set` 增加 `timeout` / `proxy` / `java`。
+- 文档：`docs/architecture.md` 第 8 节已改写为"实际字段 + 生效时机"。
+
+界面验证（本轮已截图核对）：侧栏「设置」可点且高亮、实例列表与详情面板完全让位、
+四个分区（下载源 / 下载与网络 / 实例默认 / Java）排版正常、底部「恢复默认」与状态文案正常、
+返回实例页与下载页无残留。

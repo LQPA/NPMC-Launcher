@@ -25,14 +25,15 @@ using NPMC.Launcher.Infrastructure.Translation;
 
 namespace NPMC.Launcher.App.ViewModels;
 
-public sealed class MainWindowViewModel : ObservableObject
+public sealed partial class MainWindowViewModel : ObservableObject
 {
     private readonly LauncherPaths _launcher;
     private readonly ContentManager _contentManager = new();
     private readonly DispatcherTimer _logTimer;
 
-    // Modrinth / CurseForge 查询与文件下载共用同一个 HttpClient（连接池复用，UA 统一）
-    private readonly HttpClient _http = HttpFileDownloader.CreateClient();
+    // Modrinth / CurseForge 查询与文件下载共用同一个 HttpClient（连接池复用，UA 统一）。
+    // 代理与超时只能在建客户端时设定，所以这里先同步读一次 settings.json。
+    private readonly HttpClient _http;
     private readonly HttpFileDownloader _downloader;
     private readonly ModsUpdateService _updateService;
     private readonly ModrinthClient _modrinth;
@@ -54,6 +55,12 @@ public sealed class MainWindowViewModel : ObservableObject
     public MainWindowViewModel(LauncherPaths launcher)
     {
         _launcher = launcher;
+
+        // 启动时读一次全局设置：代理 / 超时只在这时能生效，界面上的其它项也先按文件里的值显示
+        _startupSettings = new JsonSettingsStore(launcher).Load();
+        _http = HttpFileDownloader.CreateClient(_startupSettings);
+        ApplySettingsToFields(_startupSettings);
+        _settingsLoaded = true;
 
         ContentTabs = new ObservableCollection<ContentTabItem>
         {
@@ -122,6 +129,10 @@ public sealed class MainWindowViewModel : ObservableObject
 
         ShowInstancesCommand = new RelayCommand(() => Navigate(NavPage.Instances));
         ShowDownloadsCommand = new RelayCommand(() => Navigate(NavPage.Downloads));
+        ShowSettingsCommand = new RelayCommand(() => Navigate(NavPage.Settings));
+        ResetSettingsCommand = new AsyncRelayCommand(ResetSettingsAsync);
+        OpenSettingsFolderCommand = new AsyncRelayCommand(OpenSettingsFolder, () => true, OnOpenError);
+        InstallRuntimeCommand = new AsyncRelayCommand(InstallRuntimeAsync, () => CanInstallRuntime);
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
         DeleteInstanceCommand = new AsyncRelayCommand(
             DeleteInstanceAsync,
@@ -439,6 +450,15 @@ public sealed class MainWindowViewModel : ObservableObject
             // 搜索结果绑定在"实例的游戏版本/加载器"上，换实例后它们已不成立
             ResetSearchState();
 
+            // 存档列表跟着实例走：换实例时先丢掉"正在管理的世界"，再按新实例重新枚举，
+            // 否则会保留上一个实例的世界（点进去还会打开别人的存档目录）。
+            if (IsDataPackTab)
+            {
+                DataPackWorld = null;
+                LoadWorlds();
+                RaiseWorldViewChanged();
+            }
+
             if (IsLogTab) _ = RefreshLogAsync();
             else _ = RefreshContentAsync();
 
@@ -532,6 +552,7 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsContentEmpty));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         RaiseCommandStates();
+        UpdateDataPackTabCount();
 
         Status = "已返回存档列表";
     }
@@ -600,6 +621,26 @@ public sealed class MainWindowViewModel : ObservableObject
 
         OnPropertyChanged(nameof(HasWorlds));
         OnPropertyChanged(nameof(ContentEmptyHint));
+        UpdateDataPackTabCount();
+    }
+
+    /// <summary>
+    /// 存档页签上的数字。
+    ///
+    /// 没进世界时是"世界数"（这一页列的就是世界），进了世界才是"该世界的数据包数"。
+    /// 以前这个数字只在扫描成功时才被赋值，所以"先看过某个世界的数据包、再切到没有存档的实例"
+    /// 会把上一个实例的数字留在页签上（实例明明 0 个存档，页签却写「存档 1」）。
+    /// </summary>
+    private void UpdateDataPackTabCount()
+    {
+        var tab = ContentTabs.FirstOrDefault(item => item.ContentKind == ContentKind.DataPack);
+        if (tab is null) return;
+
+        tab.Count = SelectedInstance is null
+            ? 0
+            : DataPackWorld is null
+                ? Worlds.Count
+                : Content.Count;
     }
 
     private async void OpenWorldFolder(WorldItem world)
@@ -1123,6 +1164,7 @@ public sealed class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(IsContentEmpty));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
             RaiseCommandStates();
+            UpdateDataPackTabCount();
             return;
         }
 
@@ -1151,6 +1193,7 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsContentEmpty));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         RaiseCommandStates();
+        UpdateDataPackTabCount();
 
         // 徽标/R·B·A/图标都不依赖"检查更新"：先用缓存，再后台识别一次。
         // 资源包与光影同样适用 —— 它们也能按哈希被认领，只是不按加载器过滤。
@@ -1172,10 +1215,21 @@ public sealed class MainWindowViewModel : ObservableObject
                 continue;
             }
 
+            // 数据包按世界算，数字由 UpdateDataPackTabCount 统一维护：
+            // 这里再扫一遍只会把"上一个世界的数字"留在页签上。
+            if (kind.IsPerWorld()) continue;
+
             var directory = ResolveContentDirectory(kind);
-            if (directory is null) return;   // 数据包：还没选世界
+            if (directory is null)
+            {
+                tab.Count = 0;
+                continue;
+            }
+
             tab.Count = await Task.Run(() => ContentScanner.Scan(directory, kind).Count);
         }
+
+        UpdateDataPackTabCount();
     }
 
     // ---- 内容操作 ----
@@ -2756,11 +2810,15 @@ public sealed class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(DownloadsNavBackground));
         OnPropertyChanged(nameof(InstancesNavForeground));
         OnPropertyChanged(nameof(DownloadsNavForeground));
+        OnPropertyChanged(nameof(IsSettingsPage));
+        OnPropertyChanged(nameof(SettingsNavBackground));
+        OnPropertyChanged(nameof(SettingsNavForeground));
         OnPropertyChanged(nameof(ShowVersionList));
         OnPropertyChanged(nameof(IsVersionsMode));
         OnPropertyChanged(nameof(IsModpacksMode));
 
         if (page == NavPage.Downloads) _ = LoadDownloadVersionsAsync();
+        if (page == NavPage.Settings) _ = EnsureSettingsPageDataAsync();
     }
 
     /// <summary>拉取版本清单。只在下拉页可见时才做，避免启动时多一次网络请求。</summary>
@@ -2877,7 +2935,7 @@ public sealed class MainWindowViewModel : ObservableObject
             var catalog = new InstanceCatalog(await store.LoadAsync());
 
             var name = EffectiveInstanceName;
-            var instance = catalog.Add(name, instanceVersionId);
+            var instance = catalog.Add(name, instanceVersionId, settings: NewInstanceSettings());
 
             await store.SaveAsync(catalog.Instances);
 
@@ -3189,7 +3247,7 @@ public sealed class MainWindowViewModel : ObservableObject
             var catalog = new InstanceCatalog(await store.LoadAsync());
 
             var name = UniqueName(catalog, plan.Name);
-            var instance = catalog.Add(name, instanceVersion);
+            var instance = catalog.Add(name, instanceVersion, settings: NewInstanceSettings());
             await store.SaveAsync(catalog.Instances);
 
             ModpackStatus = $"正在写入整合包文件（{plan.Index.Files.Count} 个）…";

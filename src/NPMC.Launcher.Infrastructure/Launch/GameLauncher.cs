@@ -132,12 +132,14 @@ public static class GameLauncher
             logConfigFile: logConfig,
             gameDirectory: layout?.GameDirectory);
 
-        // Java 优先级：实例指定路径 → 实例指定组件 → 版本元数据声明的组件
+        // Java 优先级：实例指定路径 → 实例指定组件 → 全局默认 Java → 版本元数据声明的组件
         var javaPath = plan.JavaPath;
         if (!string.IsNullOrWhiteSpace(instanceSettings.JavaPath))
             javaPath = instanceSettings.JavaPath!;
         else if (!string.IsNullOrWhiteSpace(instanceSettings.JavaComponent))
             javaPath = paths.JavaExe(instanceSettings.JavaComponent!);
+        else if (!string.IsNullOrWhiteSpace(launcherSettings.DefaultJavaPath))
+            javaPath = launcherSettings.DefaultJavaPath!;
 
         if (!string.Equals(javaPath, plan.JavaPath, StringComparison.OrdinalIgnoreCase))
             plan = plan with { JavaPath = javaPath };

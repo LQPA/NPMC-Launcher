@@ -4,6 +4,7 @@ using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
 using NPMC.Launcher.Infrastructure.Launch;
+using NPMC.Launcher.Infrastructure.Storage;
 
 namespace NPMC.Launcher.App;
 
@@ -171,6 +172,74 @@ internal static class InstanceDump
 
             lines.Add("");
             lines.Add($"[设置持久化] memory={again?.MemoryMb} window={again?.WindowWidth}x{again?.WindowHeight}");
+        }
+
+        // 验证全局设置页：字段 ↔ settings.json ↔ 启动计划
+        if (args.Any(arg => string.Equals(arg, "--exercise-global-settings", StringComparison.OrdinalIgnoreCase)))
+        {
+            var settingsStore = new JsonSettingsStore(new LauncherPaths(root));
+            var original = settingsStore.Load();
+
+            lines.Add("");
+            lines.Add("[全局设置]");
+            lines.Add($"    文件 {viewModel.SettingsPath}");
+
+            viewModel.ShowSettingsCommand.Execute(null);
+            Thread.Sleep(2000);
+
+            for (var i = 0; i < 60 && viewModel.SettingsJavaChoices.Count <= 1; i++) Thread.Sleep(200);
+            // 运行时清单要联网，给它最多 20 秒
+            for (var i = 0; i < 80 && viewModel.RuntimeInstallStatus.StartsWith("正在"); i++) Thread.Sleep(250);
+
+            lines.Add($"    页面={viewModel.IsSettingsPage} 实例面板={viewModel.ShowOverview}（应为 False）");
+            lines.Add($"    源={viewModel.SettingsSourceIndex} 镜像={viewModel.SettingsMirrorUrl} "
+                      + $"并发={viewModel.SettingsConcurrency} 超时={viewModel.SettingsTimeoutSeconds} "
+                      + $"代理={Describe(viewModel.SettingsProxy)} 默认内存={viewModel.SettingsDefaultMemory}");
+            lines.Add($"    Java 候选 {viewModel.SettingsJavaChoices.Count} 个，选中 {viewModel.SettingsJavaChoice?.Label}");
+            lines.Add($"    运行时组件 {viewModel.RuntimeChoices.Count} 个：{viewModel.RuntimeInstallStatus}");
+
+            // 改几项 → 落盘 → 直接读文件核对
+            viewModel.SettingsSourceIndex = 1;
+            viewModel.SettingsMirrorUrl = "https://bmclapi2.bangbang93.com/";
+            viewModel.SettingsConcurrency = 7;
+            viewModel.SettingsTimeoutSeconds = 240;
+            viewModel.SettingsProxy = "http://127.0.0.1:7890";
+            viewModel.SettingsDefaultMemory = 8192;
+            viewModel.SaveSettingsPageNowAsync().GetAwaiter().GetResult();
+
+            var reloaded = settingsStore.Load();
+            lines.Add($"    落盘：源={reloaded.PreferredSource} 镜像={reloaded.BmclapiBaseUrl} "
+                      + $"并发={reloaded.DownloadConcurrency} 超时={reloaded.HttpTimeoutSeconds} "
+                      + $"代理={Describe(reloaded.HttpProxy)} 默认内存={reloaded.DefaultMemoryMb}");
+
+            // 全局默认 Java 要真的影响启动计划（实例没有单独指定时才生效）
+            var javaChoice = viewModel.SettingsJavaChoices.FirstOrDefault(choice => choice.Path is not null);
+            if (javaChoice?.Path is { Length: > 0 } javaPath)
+            {
+                viewModel.SettingsJavaChoice = javaChoice;
+                viewModel.SaveSettingsPageNowAsync().GetAwaiter().GetResult();
+
+                var target = viewModel.Instances.FirstOrDefault(item => item.JavaPath is null);
+                if (target is not null)
+                {
+                    var version = GameLauncher.TryLoadInstalledVersionAsync(
+                        new LauncherPaths(root), target.VersionId).GetAwaiter().GetResult();
+
+                    if (version is not null)
+                    {
+                        var prepared = GameLauncher.Prepare(
+                            new LauncherPaths(root), target.Model, version, settingsStore.Load());
+
+                        lines.Add($"    默认 Java 生效：{target.Name} → {prepared.Plan.JavaPath}");
+                        lines.Add($"    与所选一致={string.Equals(prepared.Plan.JavaPath, javaPath, StringComparison.OrdinalIgnoreCase)}");
+                    }
+                }
+            }
+
+            // 还原用户原来的设置：诊断不该顺手改掉别人的配置
+            settingsStore.SaveAsync(original).GetAwaiter().GetResult();
+            lines.Add($"    已还原原设置：源={original.PreferredSource} 并发={original.DownloadConcurrency} "
+                      + $"默认内存={original.DefaultMemoryMb} Java={Describe(original.DefaultJavaPath)}");
         }
 
         // 逐个页签走一遍刷新，验证内容扫描这条链路
@@ -737,7 +806,7 @@ internal static class InstanceDump
 
                 var tab = viewModel.ContentTabs.FirstOrDefault(item => item.ContentKind == ContentKind.DataPack);
                 lines.Add($"    {candidate.Name}（{candidate.VersionId}）");
-                lines.Add($"      数据包页签 可用={tab?.IsEnabled}  提示={tab?.TabTip ?? "-"}");
+                lines.Add($"      数据包页签 可用={tab?.IsEnabled}  提示={tab?.TabTip ?? "-"}  页签数字={tab?.DisplayTitle}");
                 lines.Add($"      世界 {viewModel.Worlds.Count} 个");
 
                 if (tab is { IsEnabled: true })
@@ -761,7 +830,37 @@ internal static class InstanceDump
                     viewModel.BackToWorldsCommand.Execute(null);
                     Thread.Sleep(300);
                     lines.Add($"      → 返回后：世界列表视图={viewModel.ShowWorldPicker} 管理视图={viewModel.IsManagingDataPacks} 内容 {viewModel.Content.Count} 个");
+                    lines.Add($"      → 返回后页签数字={tab.DisplayTitle}");
                 }
+            }
+
+            // 跨实例切换：先进入"有存档的实例"的世界数据包，再切到"没有存档的实例"。
+            // 数字以前会留着上一个实例/世界的数据包数（实例 0 个存档却写「存档 1」）。
+            var withWorlds = viewModel.Instances.FirstOrDefault(item =>
+                                 item.Name == "26.1.2" || item.SaveCount > 0);
+            var withoutWorlds = viewModel.Instances.FirstOrDefault(item => item.SaveCount == 0);
+
+            if (withWorlds is not null && withoutWorlds is not null)
+            {
+                var tab = viewModel.ContentTabs.First(item => item.ContentKind == ContentKind.DataPack);
+
+                viewModel.SelectedInstance = withWorlds;
+                Thread.Sleep(1200);
+                viewModel.SelectedTab = tab;
+                Thread.Sleep(1200);
+                viewModel.Worlds.FirstOrDefault()?.ManageDataPacksCommand.Execute(null);
+                Thread.Sleep(1500);
+                var whileManaging = tab.DisplayTitle;
+
+                // 仍然停在存档页签，只换实例
+                viewModel.SelectedInstance = withoutWorlds;
+                Thread.Sleep(1500);
+
+                lines.Add("");
+                lines.Add($"[存档数字] {withWorlds.Name}（管理世界时 页签={whileManaging}）"
+                          + $" → {withoutWorlds.Name}：世界 {viewModel.Worlds.Count} 个，"
+                          + $"页签={tab.DisplayTitle}，管理视图={viewModel.IsManagingDataPacks}");
+                lines.Add($"    期望：{withoutWorlds.Name} 没有存档时页签不再显示数字，也不保留上一个实例的世界");
             }
         }
         // 验证实例页的 Java 候选列表
@@ -883,4 +982,6 @@ internal static class InstanceDump
 
     private static string CurrentDirectory(MainWindowViewModel viewModel, ContentKind kind)
         => viewModel.SelectedInstance?.DirectoryFor(kind) ?? "(无选中实例)";
+
+    private static string Describe(string? value) => string.IsNullOrWhiteSpace(value) ? "(空)" : value;
 }

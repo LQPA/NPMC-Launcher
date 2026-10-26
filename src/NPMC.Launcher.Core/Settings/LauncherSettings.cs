@@ -23,6 +23,24 @@ public sealed record LauncherSettings
     /// <summary>并发下载数（资源对象、运行时文件）。</summary>
     public int DownloadConcurrency { get; init; } = 12;
 
+    /// <summary>
+    /// HTTP 超时（秒）。启动器与 Modrinth / 镜像 / 运行时源共用。
+    /// 只在启动时读一次（HttpClient 建好之后改不了），界面上会注明"重启后生效"。
+    /// </summary>
+    public int HttpTimeoutSeconds { get; init; } = 600;
+
+    /// <summary>
+    /// HTTP 代理（如 http://127.0.0.1:7890）。留空 = 直连。
+    /// 同样只在启动时生效。
+    /// </summary>
+    public string? HttpProxy { get; init; }
+
+    /// <summary>
+    /// 全局默认 Java（实例没有单独指定时使用）。留空 = 由版本元数据决定。
+    /// 实例自己的 JavaPath / JavaComponent 优先级更高。
+    /// </summary>
+    public string? DefaultJavaPath { get; init; }
+
     public string Language { get; init; } = "zh-CN";
 
     /// <summary>转成镜像路由设置。</summary>

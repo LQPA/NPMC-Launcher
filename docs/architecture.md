@@ -323,15 +323,30 @@ npmc launch <版本> --instance <Id>
 
 ---
 
-## 8. 设置项（两级继承）
+## 8. 设置项（两级继承，已实现）
 
-| 分类 | 项 |
-|---|---|
-| 全局 | 下载源、并发数、代理、数据目录 |
-| Java | 内置运行时优先 / 系统探测 / 实例覆盖 |
-| 内存 | Xmx、Xms（默认 4096 MB，上限 = 物理内存 − 1.5 GB） |
-| 窗口 | 预设分辨率、自定义宽高、全屏 ← 依赖 `has_custom_resolution` feature |
-| 高级 | 额外 JVM 参数、环境变量、启动前后钩子 |
+**全局**放在 `<root>\settings.json`（`JsonSettingsStore`，原子写入）。界面入口是左侧「设置」，
+CLI 是 `npmc settings show` / `npmc settings set <键> <值>`。
+
+| 项 | 字段 | 生效时机 |
+|---|---|---|
+| 首选下载源 | `PreferredSource`（Official / Bmclapi） | 每次建安装器时读 → 立即生效 |
+| 镜像地址 / 失败回退 | `BmclapiBaseUrl` / `AllowSourceFallback` | 同上 |
+| 并发下载 | `DownloadConcurrency`（1–64） | 同上；预下载 Java 运行时也用它 |
+| 请求超时 | `HttpTimeoutSeconds`（30–3600 秒） | **启动时**建 HttpClient 时设定 → 重启生效 |
+| 代理 | `HttpProxy`（如 `http://127.0.0.1:7890`；空 = 直连） | **启动时** → 重启生效 |
+| 默认内存 | `DefaultMemoryMb` | 新建实例的初始内存；实例内存 ≤0 时也是启动兜底 |
+| 全局默认 Java | `DefaultJavaPath` | 启动计划：实例 JavaPath → 实例 JavaComponent → 全局默认 → 版本元数据 |
+| 语言 | `Language` | 目前只影响 Modrinth 描述的翻译语种；界面文案未抽，只有简体中文 |
+
+实例级设置（`instances.json`）覆盖内存 / 窗口 / Java / 额外 JVM 参数；两侧各写各的文件，互不覆盖。
+
+界面约定：**改一项立刻存**（没有"保存"按钮，文件只有几 KB），底部显示"已保存 · 时间"；
+另有「恢复默认」「打开设置文件所在目录」。代理与超时在控件下方明确写"重启后生效"，
+不要假装能热切换 —— HttpClient 建好之后改不了这两项。
+
+`--exercise-global-settings` 会走一遍：读文件 → 改字段 → 落盘 → 直接读文件核对 →
+验证全局默认 Java 进了启动计划 → **把原设置写回去**（诊断不该改掉用户的配置）。
 
 ---
 

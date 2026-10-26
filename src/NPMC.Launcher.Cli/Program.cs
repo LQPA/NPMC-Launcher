@@ -1723,6 +1723,9 @@ internal static class Program
             Info($"允许回退     {YesNo(current.AllowSourceFallback)}");
             Info($"默认内存     {current.DefaultMemoryMb} MB");
             Info($"并发下载     {current.DownloadConcurrency}");
+            Info($"请求超时     {current.HttpTimeoutSeconds} 秒");
+            Info($"代理         {(string.IsNullOrWhiteSpace(current.HttpProxy) ? "(直连)" : current.HttpProxy)}");
+            Info($"默认 Java    {(string.IsNullOrWhiteSpace(current.DefaultJavaPath) ? "(由版本决定)" : current.DefaultJavaPath)}");
             Info($"语言         {current.Language}");
             Dim(store.FilePath);
             return 0;
@@ -1731,7 +1734,7 @@ internal static class Program
         if (args[0] != "set" || args.Length < 3)
         {
             Error("用法: npmc settings show  |  npmc settings set <键> <值>");
-            Dim("键: source(official|bmclapi) / memory / concurrency / mirror / fallback(true|false)");
+            Dim("键: source(official|bmclapi) / memory / concurrency / timeout / proxy / java / mirror / fallback(true|false)");
             return 1;
         }
 
@@ -1766,6 +1769,47 @@ internal static class Program
                     return 1;
                 }
                 settings = settings with { DownloadConcurrency = concurrency };
+                break;
+
+            case "timeout":
+                if (!int.TryParse(value, out var timeout) || timeout is < 30 or > 3600)
+                {
+                    Error("超时必须在 30~3600 秒之间");
+                    return 1;
+                }
+                settings = settings with { HttpTimeoutSeconds = timeout };
+                break;
+
+            case "proxy":
+                if (value is "" or "none" or "off")
+                {
+                    settings = settings with { HttpProxy = null };
+                }
+                else if (!Uri.TryCreate(value, UriKind.Absolute, out _))
+                {
+                    Error("代理必须是绝对地址，例如 http://127.0.0.1:7890");
+                    return 1;
+                }
+                else
+                {
+                    settings = settings with { HttpProxy = value.Trim() };
+                }
+                break;
+
+            case "java":
+                if (value is "" or "auto" or "none")
+                {
+                    settings = settings with { DefaultJavaPath = null };
+                }
+                else if (!File.Exists(value))
+                {
+                    Error($"找不到 {value}");
+                    return 1;
+                }
+                else
+                {
+                    settings = settings with { DefaultJavaPath = value };
+                }
                 break;
 
             case "mirror":

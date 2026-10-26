@@ -46,13 +46,15 @@
             <TextBlock Text="下载" FontSize="13" Foreground="{Binding DownloadsNavForeground}" />
           </Button>
 
-          <Border CornerRadius="6" Padding="12,9" IsEnabled="False">
-            <TextBlock Text="设置" FontSize="13" Foreground="#949CA9" />
-          </Border>
+          <Button Command="{Binding ShowSettingsCommand}"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                  Background="{Binding SettingsNavBackground}" BorderThickness="0" Padding="12,9">
+            <TextBlock Text="设置" FontSize="13" Foreground="{Binding SettingsNavForeground}" />
+          </Button>
 
           <TextBlock Margin="12,20,12,0" FontSize="11" Foreground="#6E7684"
                      TextWrapping="Wrap" LineHeight="17"
-                     Text="设置页在后续阶段接入。模组/资源包/光影管理在实例右侧页签里。" />
+                     Text="模组/资源包/光影/存档在实例右侧页签里。下载源、并发、代理、默认 Java 在「设置」。" />
         </StackPanel>
       </Border>
 
@@ -733,8 +735,7 @@
         </StackPanel>
       </Grid>
 
-      <!-- 下载页：整合包（本地 .mrpack，可选择或拖入） -->
-      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
+      <!-- 下载页：整合包（本地 .mrpack，可选择或拖入） -->      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
             IsVisible="{Binding IsModpacksMode}">
         <StackPanel Grid.Row="0" Spacing="4">
           <TextBlock Text="整合包" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
@@ -791,6 +792,184 @@
         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">
           <Button Content="安装整合包" Command="{Binding InstallModpackCommand}"
                   IsEnabled="{Binding !IsInstallingModpack}" />
+        </StackPanel>
+      </Grid>
+
+      <!-- ================= 设置页 ================= -->
+      <Grid Grid.Column="1" Grid.ColumnSpan="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
+            IsVisible="{Binding IsSettingsPage}">
+
+        <StackPanel Grid.Row="0" Spacing="4">
+          <TextBlock Text="设置" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
+          <TextBlock Text="{Binding SettingsPath}" FontSize="11" Foreground="#949CA9"
+                     TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
+          <StackPanel Spacing="12" MaxWidth="1000" HorizontalAlignment="Stretch">
+
+            <!-- 下载源 -->
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16,14">
+              <StackPanel Spacing="10">
+                <TextBlock Text="下载源" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
+
+                <Grid ColumnDefinitions="110,*">
+                  <TextBlock Text="首选源" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" SelectedIndex="{Binding SettingsSourceIndex, Mode=TwoWay}"
+                            Width="220" HorizontalAlignment="Left" FontSize="12">
+                    <ComboBoxItem Content="官方（Mojang）" />
+                    <ComboBoxItem Content="BMCLAPI 镜像" />
+                  </ComboBox>
+                </Grid>
+
+                <Grid ColumnDefinitions="110,*">
+                  <TextBlock Text="镜像地址" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding SettingsMirrorUrl, Mode=TwoWay}"
+                           FontSize="12" Watermark="https://bmclapi2.bangbang93.com" />
+                </Grid>
+
+                <CheckBox Content="首选源失败时自动回退到另一个源" Margin="110,0,0,0"
+                          IsChecked="{Binding SettingsAllowFallback, Mode=TwoWay}" FontSize="12" />
+
+                <TextBlock Text="{Binding SettingsSourceText}" Margin="110,0,0,0"
+                           FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <!-- 下载与网络 -->
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16,14">
+              <StackPanel Spacing="10">
+                <TextBlock Text="下载与网络" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
+
+                <Grid ColumnDefinitions="110,*">
+                  <TextBlock Text="并发下载" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <NumericUpDown Value="{Binding SettingsConcurrency, Mode=TwoWay}"
+                                   Minimum="1" Maximum="64" Increment="1" FormatString="0"
+                                   Width="120" FontSize="12" />
+                    <TextBlock Text="同时下载的文件数（1~64）" FontSize="11" Foreground="#6E7684"
+                               VerticalAlignment="Center" />
+                  </StackPanel>
+                </Grid>
+
+                <Grid ColumnDefinitions="110,*">
+                  <TextBlock Text="请求超时" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <NumericUpDown Value="{Binding SettingsTimeoutSeconds, Mode=TwoWay}"
+                                   Minimum="30" Maximum="3600" Increment="30" FormatString="0"
+                                   Width="120" FontSize="12" />
+                    <TextBlock Text="{Binding SettingsTimeoutText}" FontSize="11" Foreground="#6E7684"
+                               VerticalAlignment="Center" />
+                  </StackPanel>
+                </Grid>
+
+                <Grid ColumnDefinitions="110,*">
+                  <TextBlock Text="代理" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding SettingsProxy, Mode=TwoWay}" FontSize="12"
+                           Watermark="http://127.0.0.1:7890（留空 = 直连）" />
+                </Grid>
+
+                <TextBlock Text="{Binding SettingsProxyText}" Margin="110,0,0,0"
+                           FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+                <TextBlock Text="超时与代理在新建网络连接时读取，改完需要重启启动器。" Margin="110,0,0,0"
+                           FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <!-- 实例默认 -->
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16,14">
+              <StackPanel Spacing="10">
+                <TextBlock Text="实例默认" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
+
+                <Grid ColumnDefinitions="110,*">
+                  <TextBlock Text="默认内存" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <NumericUpDown Value="{Binding SettingsDefaultMemory, Mode=TwoWay}"
+                                   Minimum="512" Maximum="65536" Increment="256" FormatString="0"
+                                   Width="130" FontSize="12" />
+                    <TextBlock Text="MB · 新建实例时的默认值（实例页里可以单独改）"
+                               FontSize="11" Foreground="#6E7684" VerticalAlignment="Center" />
+                  </StackPanel>
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <!-- Java 全局默认与预下载 -->
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16,14">
+              <StackPanel Spacing="10">
+                <TextBlock Text="Java" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
+
+                <Grid ColumnDefinitions="110,*,Auto">
+                  <TextBlock Text="全局默认" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding SettingsJavaChoices}"
+                            SelectedItem="{Binding SettingsJavaChoice, Mode=TwoWay}"
+                            HorizontalAlignment="Stretch" FontSize="12">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:JavaChoice">
+                        <TextBlock Text="{Binding Label}" FontSize="12" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <Button Grid.Column="2" Content="浏览…" Click="OnPickSettingsJavaClick"
+                          Margin="8,0,0,0" FontSize="12" Height="30" Padding="12,0"
+                          VerticalContentAlignment="Center" />
+                </Grid>
+
+                <TextBlock Text="{Binding SettingsJavaHint}" Margin="110,0,0,0"
+                           FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+
+                <Border Background="#1B1D23" CornerRadius="6" Padding="12" Margin="110,4,0,0">
+                  <StackPanel Spacing="8">
+                    <TextBlock Text="预下载 Java 运行时" FontSize="12" Foreground="#B4BCC8" />
+                    <TextBlock Text="从 Mojang 官方源下载整套运行时到本启动器目录，之后启动对应版本的实例就不用现下。"
+                               FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" />
+
+                    <Grid ColumnDefinitions="*,Auto">
+                      <ComboBox ItemsSource="{Binding RuntimeChoices}"
+                                SelectedItem="{Binding SettingsRuntime, Mode=TwoWay}"
+                                HorizontalAlignment="Stretch" FontSize="12">
+                        <ComboBox.ItemTemplate>
+                          <DataTemplate x:DataType="vm:RuntimeChoiceItem">
+                            <TextBlock Text="{Binding Label}" FontSize="12" />
+                          </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                      </ComboBox>
+                      <Button Grid.Column="1" Content="下载" Command="{Binding InstallRuntimeCommand}"
+                              Margin="8,0,0,0" FontSize="12" Height="30" Padding="16,0"
+                              VerticalContentAlignment="Center" />
+                    </Grid>
+
+                    <ProgressBar Value="{Binding RuntimeInstallPercent}" Minimum="0" Maximum="100"
+                                 IsIndeterminate="{Binding RuntimeInstallIndeterminate}"
+                                 IsVisible="{Binding IsInstallingRuntime}" Height="6" />
+                    <TextBlock Text="{Binding RuntimeInstallStatus}" FontSize="11" Foreground="#949CA9"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+
+            <TextBlock Text="界面语言目前只有简体中文；多语言要等界面文案抽出来之后再做。"
+                       FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+          </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">
+          <Button Content="打开设置文件所在目录" Command="{Binding OpenSettingsFolderCommand}" FontSize="12" />
+          <Button Content="恢复默认" Command="{Binding ResetSettingsCommand}" FontSize="12" />
+          <TextBlock Text="{Binding SettingsStatus}" FontSize="11" Foreground="#7BC47F"
+                     VerticalAlignment="Center" Margin="6,0,0,0" />
         </StackPanel>
       </Grid>
     </Grid>
