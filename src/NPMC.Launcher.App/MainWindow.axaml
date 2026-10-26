@@ -107,7 +107,8 @@
           </ListBox.ItemsPanel>
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:ContentTabItem">
-              <TextBlock Text="{Binding DisplayTitle}" FontSize="12" Padding="12,5"
+              <TextBlock Text="{Binding DisplayTitle}" FontSize="12" Padding="0,5"
+                         Width="76" TextAlignment="Center"
                          Foreground="{Binding TitleColor}" />
             </DataTemplate>
           </ListBox.ItemTemplate>
@@ -117,6 +118,8 @@
               而"为什么不可用"恰恰要靠提示说清楚。改为可悬停 + 由 ViewModel 拒绝选中。
             -->
             <Style Selector="ListBoxItem" x:DataType="vm:ContentTabItem">
+              <Setter Property="MinWidth" Value="88" />
+              <Setter Property="HorizontalContentAlignment" Value="Center" />
               <Setter Property="ToolTip.Tip" Value="{Binding TabTip}" />
             </Style>
           </ListBox.Styles>
