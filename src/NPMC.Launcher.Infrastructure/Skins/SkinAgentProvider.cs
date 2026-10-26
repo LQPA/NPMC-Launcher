@@ -113,12 +113,26 @@ public static class SkinAgentProvider
             Directory.CreateDirectory(directory);
 
             using var archive = ZipFile.OpenRead(clientJarPath);
-            var entry = archive.GetEntry($"assets/minecraft/textures/entity/player/{folder}/{name}.png");
 
-            if (entry is null) return null;
+            // 1.7.10 的默认皮肤在 entity/steve.png（64x32），1.8+ 才在 player/... 下
+            var candidates = new List<string>
+            {
+                $"assets/minecraft/textures/entity/player/{folder}/{name}.png",
+                $"assets/minecraft/textures/entity/player/wide/{name}.png",
+                $"assets/minecraft/textures/entity/player/slim/{name}.png",
+                $"assets/minecraft/textures/entity/{name}.png",
+            };
 
-            entry.ExtractToFile(destination, overwrite: true);
-            return File.Exists(destination) ? (destination, model) : null;
+            foreach (var candidate in candidates)
+            {
+                var entry = archive.GetEntry(candidate);
+                if (entry is null) continue;
+
+                entry.ExtractToFile(destination, overwrite: true);
+                return File.Exists(destination) ? (destination, model) : null;
+            }
+
+            return null;
         }
         catch
         {
