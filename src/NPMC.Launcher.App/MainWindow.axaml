@@ -891,6 +891,13 @@
           <Button Content="{Binding CheckUpdatesText}" Command="{Binding CheckUpdatesCommand}"
                   IsVisible="{Binding IsModsTab}" />
 
+          <CheckBox Content="隐藏整合包自带模组" IsChecked="{Binding HidePackMods, Mode=TwoWay}"
+                    IsVisible="{Binding CanHidePackMods}" FontSize="11" VerticalAlignment="Center"
+                    ToolTip.Tip="只显示手动添加的模组，方便补装或删除" />
+
+          <TextBlock Text="{Binding PackModsHint}" IsVisible="{Binding CanHidePackMods}"
+                     FontSize="10" Foreground="#949CA9" VerticalAlignment="Center" />
+
           <TextBlock Text="{Binding UpdateSummaryText}" IsVisible="{Binding HasUpdates}"
                      Foreground="#7BC47F" FontSize="12" VerticalAlignment="Center" Margin="4,0,0,0" />
         </StackPanel>

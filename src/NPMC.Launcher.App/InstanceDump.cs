@@ -1171,6 +1171,52 @@ internal static class InstanceDump
             }
         }
 
+        // 整合包实例：折叠自带模组 + 只检查手动添加的
+        if (args.Any(arg => string.Equals(arg, "--exercise-pack-mods", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[整合包模组折叠]");
+
+            var pack = viewModel.Instances.FirstOrDefault(item => item.HasModpackInfo);
+
+            if (pack is null)
+            {
+                lines.Add("    没有整合包实例");
+            }
+            else
+            {
+                viewModel.SelectedInstance = pack;
+                Thread.Sleep(1000);
+                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
+                Thread.Sleep(1200);
+
+                lines.Add($"    默认隐藏={viewModel.HidePackMods}  可折叠={viewModel.CanHidePackMods}");
+                lines.Add($"    列表 {viewModel.Content.Count} 个；{viewModel.PackModsHint}");
+
+                viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
+                lines.Add($"    无手动模组时检查：{viewModel.Status}");
+
+                var dummy = Path.Combine(pack.ModsDirectory, "zzz-user-mod.jar");
+                File.WriteAllText(dummy, "not a real mod");
+
+                try
+                {
+                    viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+                    Thread.Sleep(800);
+
+                    lines.Add($"    加入手动模组后列表 {viewModel.Content.Count} 个");
+
+                    viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
+                    lines.Add($"    更新检查：{viewModel.Status}");
+                }
+                finally
+                {
+                    try { File.Delete(dummy); } catch { }
+                    viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+                }
+            }
+        }
+
         // 默认浏览器的下载目录 + 多目录导入
         if (args.Any(arg => string.Equals(arg, "--exercise-browser-dirs", StringComparison.OrdinalIgnoreCase)))
         {

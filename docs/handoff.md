@@ -277,7 +277,7 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 - ATM10 实测：列表与概览显示「缺少 6 个模组」，面板 6 条；手动放入正确 SHA1 的文件后应变为 0
   （合成测试已覆盖：错误内容被拒、正确内容导入）。
 
-### 9.2 设置页（原先左侧导航是灰的）
+### 9.1.4 整合包实例的模组整理（2026-10-26 晚）\n\n- 模组页默认勾选「隐藏整合包自带模组」：按 `.nmpc-modpack.json` 的 `PackFiles` 过滤，\n  ATM10 实测 495 个自带模组折叠后列表为 0；取消勾选可看全部。\n- 空列表提示改为「没有手动添加的模组；整合包自带的 N 个已折叠」。\n- 更新检查：整合包自带文件**不检查更新**（作者钉的是整套版本），只检查用户手动添加的文件；\n  没有手动模组时状态栏直接写明「整合包实例：整合包内模组不做单独更新检查」。\n  实测：折叠后 0 个 → 跳过；加一个 `zzz-user-mod.jar` → 只检查这 1 个。\n- 说明：`PackFiles` 在新安装时自动写入；老实例（如当前 ATM10）已按现有 mods 文件名补了一份。\n\n### 9.2 设置页（原先左侧导航是灰的）
 
 - 代码：`ViewModels/MainWindowViewModel.Settings.cs`（partial，设置页专用的字段/命令都在这）、
   `ViewModels/RuntimeChoiceItem.cs`；XAML 在 `MainWindow.axaml` 末尾的「设置页」块。

@@ -1450,10 +1450,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (version != _contentScanVersion) return;
 
+        // 整合包实例：默认折叠整合包自带的模组
+        var visibleEntries = entries.ToList();
+        ApplyPackModFilter(instance, resolvedKind, visibleEntries);
+
         Content.Clear();
         UpdateCount = 0;   // 列表重建后旧的升级标记已失效
-        foreach (var entry in entries)
+        foreach (var entry in visibleEntries)
             Content.Add(new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync));
+
+        RaisePackModFilterChanged();
 
         OnPropertyChanged(nameof(IsContentEmpty));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
@@ -1723,13 +1729,45 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             var items = Content.ToList();
+
+            // 整合包实例：整合包自带的模组不检查更新（作者钉的是整套版本），
+            // 只检查用户后来手动加进来的文件。
+            var modpack = InstanceModpackStore.Load(instance.GameDirectory);
+            var packNames = modpack?.PackFiles
+                .Select(file => file.FileName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var checkItems = items
+                .Where(item => !packNames.Contains(Path.GetFileName(item.Entry.Path)))
+                .ToList();
+
             if (items.Count == 0)
             {
-                Status = "mods 目录里没有文件";
+                Status = modpack is not null
+                    ? "整合包实例：整合包内模组不做单独更新检查（只检查手动添加的模组）"
+                    : "mods 目录里没有文件";
                 return;
             }
 
-            Status = $"正在检查 {items.Count} 个模组（Modrinth{( _updateService.CurseForgeEnabled ? " + CurseForge" : "") }）…";
+            if (modpack is not null && checkItems.Count == 0)
+            {
+                foreach (var item in items)
+                {
+                    item.SetUpdate(null);
+                    item.SetIdentification(null, null);
+                }
+
+                UpdateCount = 0;
+                Status = "整合包实例：整合包内模组不做单独更新检查（只检查手动添加的模组）";
+                LauncherLog.Write(_launcher.Root,
+                    $"检查更新 {instance.Id}：整合包实例，跳过 {items.Count} 个自带模组");
+                return;
+            }
+
+            Status = $"正在检查 {checkItems.Count} 个模组"
+                     + (packNames.Count > 0 ? $"（已跳过 {items.Count - checkItems.Count} 个整合包自带模组）" : "")
+                     + $"（Modrinth{( _updateService.CurseForgeEnabled ? " + CurseForge" : "") }）…";
 
             // 查询要用**游戏版本号**（1.20.1），不是加载器 profile 名（fabric-loader-...）
             var gameVersion = await ResolveGameVersionAsync(instance);
@@ -1740,14 +1778,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (version is not null) loaders = LoaderDetector.Detect(version);
 
             var report = await _updateService.CheckAsync(
-                items.Select(item => item.Entry.Path).ToList(),
+                checkItems.Select(item => item.Entry.Path).ToList(),
                 gameVersion,
                 loaders);
+
+            // 整合包自带的文件明确清掉"可升级"标记，避免旧检查结果残留
+            foreach (var item in items.Except(checkItems))
+            {
+                item.SetUpdate(null);
+                item.SetIdentification(null, null);
+            }
 
             // 就地贴到行上，不重建列表（升级提示 + 识别来源）
             var byPath = report.LocalMods.ToDictionary(local => local.Path, StringComparer.OrdinalIgnoreCase);
 
-            foreach (var item in items)
+            foreach (var item in checkItems)
             {
                 item.SetUpdate(report.Updates.FirstOrDefault(update => update.LocalPath == item.Entry.Path));
                 item.SetIdentification(
@@ -1756,13 +1801,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
 
             UpdateCount = report.Updates.Count;
-            Status = DescribeReport(items.Count, report);
+            Status = DescribeReport(checkItems.Count, report);
 
             // 图标后补：不影响列表出现
-            _ = SaveMetadataAsync(items, report);
+            _ = SaveMetadataAsync(checkItems, report);
 
             LauncherLog.Write(_launcher.Root,
-                $"检查更新 {instance.Id}：文件 {items.Count}，Modrinth {report.ModrinthMatches}，"
+                $"检查更新 {instance.Id}：文件 {checkItems.Count}，Modrinth {report.ModrinthMatches}，"
                 + $"CurseForge {report.CurseForgeMatches}，可升级 {report.Updates.Count}，"
                 + $"加载器 [{(loaders.Count == 0 ? "原版" : string.Join(",", loaders))}]"
                 + (report.CurseForgeNote is { } note ? $"，CF 说明 {note}" : ""));
@@ -3978,7 +4023,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 .ToList();
 
             InstanceModpackStore.Save(layout.GameDirectory, new InstanceModpackInfo(
-                _modpackSource, _modpackProjectId, plan.Name, plan.VersionLabel, missing));
+                _modpackSource, _modpackProjectId, plan.Name, plan.VersionLabel, missing)
+            {
+                PackFiles = plan.Index.Files
+                    .Select(file => new PackFileEntry(Path.GetFileName(file.Path), file.Sha1))
+                    .ToList(),
+            });
 
             // 回到实例页并选中它
             await LoadAsync();

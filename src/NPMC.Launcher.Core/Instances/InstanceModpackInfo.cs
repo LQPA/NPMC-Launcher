@@ -8,6 +8,8 @@ namespace NPMC.Launcher.Core.Instances;
 ///
 /// 存在实例目录的 <c>.nmpc-modpack.json</c>：不影响实例启动，删掉也只是少一个标记。
 /// </summary>
+public sealed record PackFileEntry(string FileName, string Sha1 = "");
+
 public sealed record InstanceModpackInfo(
     string Source,
     string ProjectId,
@@ -15,6 +17,9 @@ public sealed record InstanceModpackInfo(
     string Version,
     IReadOnlyList<BlockedModFile> Missing)
 {
+    /// <summary>整合包自带文件（安装时记录）；更新检查只跳过这些，用户后加的仍检查。</summary>
+    public IReadOnlyList<PackFileEntry> PackFiles { get; init; } = Array.Empty<PackFileEntry>();
+
     public bool IsCurseForge =>
         string.Equals(Source, "curseforge", StringComparison.OrdinalIgnoreCase);
 
