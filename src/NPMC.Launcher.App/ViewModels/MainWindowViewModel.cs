@@ -150,6 +150,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RefreshLoadersCommand = new RelayCommand(RefreshLoadersNow);
 
         InitializeAccountCommands();
+        InitializeModpackOnlineCommands();
         InstallModpackCommand = new AsyncRelayCommand(
             InstallModpackAsync,
             () => HasModpackPlan && !IsInstallingModpack);
@@ -3691,6 +3692,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _isInstallingModpack, value)) return;
             (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(IsModpackBusy));
+            (DownloadModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 

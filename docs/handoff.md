@@ -57,7 +57,7 @@ tools/sign-local.ps1              本地签名
 
 | 优先级 | 事项 | 备注 |
 |---|---|---|
-| 中 | 整合包在线列表 | Modrinth 搜索整合包，现在只能拖本地 `.mrpack` |
+| 中 | CurseForge 整合包 | 需要 `CURSEFORGE_API_KEY`（目前未配置）；且 CF 是 `manifest.json` + 逐文件申请下载地址，不能复用 `.mrpack` 解析 |
 | 中 | CLI 迁移到 `MinecraftInstaller` | 现在 CLI 有自己一份 install 实现（natives 就是两边都要改才暴露的） |
 | 低 | 界面多语言 | 文案还没抽出来；`Language` 目前只影响 Modrinth 描述翻译。设置页只写了一行说明，别做成"能选但没用"的下拉 |
 | 低 | CurseForge 数据包分类 | classId 未核实，宁可不提供也不猜 |

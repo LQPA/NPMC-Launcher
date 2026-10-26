@@ -1009,6 +1009,54 @@ internal static class InstanceDump
             }
         }
 
+        // 整合包在线搜索：Modrinth 搜索 → 选中第一个 → 读取版本列表（不下载）
+        if (args.Any(arg => string.Equals(arg, "--exercise-modpack-search", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[整合包在线搜索]");
+
+            var searchArgIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-modpack-search", StringComparison.OrdinalIgnoreCase));
+
+            viewModel.ModpackSearchQuery = searchArgIndex + 1 < args.Length ? args[searchArgIndex + 1] : "fabulously";
+
+            viewModel.SearchModpacksCommand.Execute(null);
+            Thread.Sleep(6000);
+
+            lines.Add($"    搜索「{viewModel.ModpackSearchQuery}」：{viewModel.ModpackSearchStatus}");
+            lines.Add($"    结果 {viewModel.ModpackHits.Count} 个"
+                      + (viewModel.ModpackHits.Count == 0
+                          ? ""
+                          : $"（首个：{viewModel.ModpackHits[0].Title} · {viewModel.ModpackHits[0].DownloadText}）"));
+
+            if (viewModel.SelectedModpackHit is not null)
+            {
+                Thread.Sleep(5000);
+                lines.Add($"    版本 {viewModel.ModpackVersions.Count} 个"
+                          + (viewModel.SelectedModpackVersion is { } version
+                              ? $"，默认 {version.DisplayText}"
+                              : ""));
+
+                if (viewModel.SelectedModpackVersion is { } picked
+                    && args.Any(arg => string.Equals(arg, "--download", StringComparison.OrdinalIgnoreCase)))
+                {
+                    try
+                    {
+                        var plan = viewModel
+                            .PrepareOnlineModpackAsync(viewModel.SelectedModpackHit.Slug, picked.Id)
+                            .GetAwaiter().GetResult();
+
+                        lines.Add($"    下载解析：{plan.Name} / {plan.Index.GameVersion} / {plan.Index.LoaderText}"
+                                  + $" / {plan.Index.Files.Count} 个文件 / {plan.Index.TotalBytes / 1024} KB");
+                    }
+                    catch (Exception ex)
+                    {
+                        lines.Add($"    下载解析失败：{ex.GetBaseException().Message}");
+                    }
+                }
+            }
+        }
+
         // 页签数量要跟实例走：停在「日志」页换实例时，数字不能留在上一个实例上
         if (args.Any(arg => string.Equals(arg, "--exercise-tab-counts", StringComparison.OrdinalIgnoreCase)))
         {

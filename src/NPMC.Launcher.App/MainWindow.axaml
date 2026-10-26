@@ -1064,6 +1064,68 @@
 
         <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
           <StackPanel Spacing="14">
+
+            <!-- 在线安装：Modrinth 搜索 → 选版本 → 下载并安装 -->
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="10">
+                <TextBlock Text="从 Modrinth 在线安装" FontSize="13" FontWeight="SemiBold"
+                           Foreground="#E8EAED" />
+
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBox Text="{Binding ModpackSearchQuery, Mode=TwoWay}" FontSize="12"
+                           Watermark="搜索整合包（留空按热门）" />
+                  <Button Grid.Column="1" Content="搜索" Command="{Binding SearchModpacksCommand}"
+                          Margin="8,0,0,0" FontSize="12" Height="30" MinWidth="72"
+                          HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                </Grid>
+
+                <ListBox ItemsSource="{Binding ModpackHits}"
+                         SelectedItem="{Binding SelectedModpackHit, Mode=TwoWay}"
+                         Height="150" Background="#1B1D23" BorderThickness="0"
+                         CornerRadius="6" Padding="4">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ModpackHitItem">
+                      <StackPanel Spacing="2" Margin="4,3">
+                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Description}" FontSize="10" Foreground="#949CA9"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding DownloadText}" FontSize="9" Foreground="#6E7684" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Grid ColumnDefinitions="*,Auto">
+                  <ComboBox ItemsSource="{Binding ModpackVersions}"
+                            SelectedItem="{Binding SelectedModpackVersion, Mode=TwoWay}"
+                            HorizontalAlignment="Stretch" FontSize="12">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ModpackVersionItem">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Border Width="16" Height="16" CornerRadius="3"
+                                  Background="{Binding ChannelColor}" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ChannelBadge}" FontSize="9" FontWeight="Bold"
+                                       Foreground="#FFFFFF" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                          </Border>
+                          <TextBlock Text="{Binding DisplayText}" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+
+                  <Button Grid.Column="1" Content="下载并安装" Command="{Binding DownloadModpackCommand}"
+                          Margin="8,0,0,0" FontSize="12" Height="30" MinWidth="100"
+                          HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                </Grid>
+
+                <TextBlock Text="{Binding ModpackSearchStatus}" FontSize="10" Foreground="#6E7684"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
             <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                     CornerRadius="8" Padding="24" MinHeight="170"
                     DragDrop.AllowDrop="True"
@@ -1101,7 +1163,7 @@
 
                 <ProgressBar Value="{Binding ModpackProgressPercent}" Minimum="0" Maximum="100"
                              IsIndeterminate="{Binding ModpackProgressIndeterminate}"
-                             IsVisible="{Binding IsInstallingModpack}"
+                             IsVisible="{Binding IsModpackBusy}"
                              Height="6" Margin="0,6,0,0" />
               </StackPanel>
             </Border>
