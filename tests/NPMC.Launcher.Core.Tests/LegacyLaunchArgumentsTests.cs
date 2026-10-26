@@ -128,7 +128,7 @@ public class LegacyLaunchArgumentsTests
     public void Splitting_happens_before_expansion(string arguments, string expectedFlag, string expectedValue)
     {
         var builder = ArgumentBuilder.CreateDefault(
-            @"C:\games", @"C:\assets", @"C:\natives", "test",
+            @"C:\games", @"C:\assets", @"C:\natives", @"C:\libraries", "test",
             new VersionJson { Type = "release" }, LaunchContext.OfflineProbe(), new[] { "a.jar" });
 
         var expanded = LaunchPlanFactory.ExpandLegacyArguments(builder, arguments);

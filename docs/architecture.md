@@ -256,6 +256,10 @@ HttpFileDownloader.EnsureAsync(url, dest, sha1)
 `${quickPlayPath}` `${quickPlaySingleplayer}` `${quickPlayMultiplayer}` `${quickPlayRealms}`
 
 > 每次组装完都应做一次残留检查（`FindUnresolvedPlaceholders`），有残留即视为 bug。
+>
+> **Forge 1.17+ 会用 `${library_directory}` 与 `${classpath_separator}`**（拼 `-p` 模块路径和
+> `-DignoreList`）。这两个占位符 2026-10-26 才真正在 `ArgumentBuilder.CreateDefault` 里设上 ——
+> 在那之前文档列了、代码没设，表现是 Forge 装好了也起不来（JVM 收到字面量 `${...}`）。
 
 ### 关键实现细节
 
@@ -440,7 +444,7 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 | M3 | 实例管理与三级隔离 | ✅ 模型 / 目录 / JSON 持久化 / CLI 均已完成，28 个相关测试通过 |
 | M4 | Modrinth 搜索与依赖安装 | ⏳ API 已核实 |
 | M5 | 正版登录 | 🔒 **阻塞于外部审批** |
-| M6 | Forge / Fabric / NeoForge 安装 | ⏳ Fabric 可通过 launcherMeta 直接合成，无需跑安装器 |
+| M6 | Forge / Fabric / NeoForge 安装 | ✅ Fabric 直接合成 profile；**Forge ≤1.12 解安装包、1.13+ 跑官方安装器**（`--installClient`，需 Java）；NeoForge 未接 |
 | M7 | 整合包导入（`.mrpack` 优先） | ⏳ |
 
 ---

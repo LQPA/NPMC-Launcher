@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
+using NPMC.Launcher.Core.Launch;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
 using NPMC.Launcher.Infrastructure.Launch;
@@ -930,6 +931,153 @@ internal static class InstanceDump
         viewModel.ShowModpacksModeCommand.Execute(null);
         lines.Add($"[导航] 下载/整合包 版本区块={viewModel.IsVersionsMode} "
                   + $"整合包区块={viewModel.IsModpacksMode} 版本列表={viewModel.ShowVersionList}");
+
+        // 走界面同一条路：下载本体 → 装 Forge → 建实例（可用 --exercise-download-forge <mc> [loader] 限定版本）
+        if (args.Any(arg => string.Equals(arg, "--exercise-download-forge", StringComparison.OrdinalIgnoreCase)))
+        {
+            var forgeIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-download-forge", StringComparison.OrdinalIgnoreCase));
+            var minecraft = forgeIndex + 1 < args.Length ? args[forgeIndex + 1] : "1.20.1";
+            var wantedLoader = forgeIndex + 2 < args.Length ? args[forgeIndex + 2] : null;
+
+            lines.Add("");
+            lines.Add($"[下载 + Forge] {minecraft}");
+
+            viewModel.ShowDownloadsCommand.Execute(null);
+            for (var i = 0; i < 300 && viewModel.DownloadVersions.Count == 0; i++) Thread.Sleep(100);
+
+            var item = viewModel.DownloadVersions.FirstOrDefault(version => version.Id == minecraft);
+
+            if (item is null)
+            {
+                lines.Add($"    版本清单里没有 {minecraft}");
+            }
+            else
+            {
+                viewModel.SelectedDownloadVersion = item;
+                viewModel.InstallFabric = false;
+                viewModel.InstallForge = true;
+
+                for (var i = 0; i < 300 && viewModel.ForgeLoaderVersions.Count == 0; i++) Thread.Sleep(100);
+
+                var loader = (wantedLoader is null
+                                 ? null
+                                 : viewModel.ForgeLoaderVersions.FirstOrDefault(version => version.Loader == wantedLoader))
+                             ?? viewModel.ForgeLoaderVersions.FirstOrDefault();
+
+                if (loader is null)
+                {
+                    lines.Add($"    Forge 加载器清单为空（{viewModel.DownloadStatus}）");
+                }
+                else
+                {
+                    viewModel.SelectedForgeLoader = loader;
+                    lines.Add($"    加载器 {loader.Loader}  实例名 {viewModel.DownloadInstanceName}");
+
+                    viewModel.DownloadCommand.Execute(null);
+
+                    for (var i = 0; i < 900 && viewModel.IsDownloading; i++) Thread.Sleep(500);
+
+                    var created = viewModel.Instances.FirstOrDefault(instance =>
+                        instance.Name == viewModel.DownloadInstanceName);
+
+                    lines.Add($"    状态：{viewModel.DownloadStatus}");
+                    lines.Add($"    实例「{viewModel.DownloadInstanceName}」存在={created is not null}"
+                              + $"  版本={created?.VersionId}");
+                }
+            }
+        }
+
+        // Forge 加载器清单（maven-metadata.xml）：只读清单，不下载安装包
+        if (args.Any(arg => string.Equals(arg, "--exercise-forge-versions", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[Forge 版本清单]");
+
+            foreach (var minecraft in new[] { "1.20.1", "1.16.5", "1.7.10" })
+            {
+                try
+                {
+                    var versions = viewModel.ListForgeVersionsAsync(minecraft).GetAwaiter().GetResult();
+
+                    lines.Add($"    {minecraft}：{versions.Count} 个"
+                              + (versions.Count == 0
+                                  ? ""
+                                  : $"  最新 {versions[0].Loader}（{versions[0].MavenVersion}）"
+                                    + $"  最早 {versions[^1].Loader}（{versions[^1].MavenVersion}）"));
+                }
+                catch (Exception ex)
+                {
+                    lines.Add($"    {minecraft}：读取失败 {ex.GetBaseException().Message}");
+                }
+            }
+        }
+
+        // 只组装启动计划、不真跑：核对命令行（尤其 Forge 1.17+ 的 -p 模块路径与占位符）        if (args.Any(arg => string.Equals(arg, "--exercise-launch-plan", StringComparison.OrdinalIgnoreCase)))
+        {
+            var planIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-launch-plan", StringComparison.OrdinalIgnoreCase));
+            var requested = planIndex >= 0 && planIndex + 1 < args.Length ? args[planIndex + 1] : null;
+
+            var target = (requested is null
+                             ? null
+                             : viewModel.Instances.FirstOrDefault(item => item.Name == requested))
+                         ?? viewModel.Instances.FirstOrDefault(item =>
+                             item.VersionId.Contains("forge", StringComparison.OrdinalIgnoreCase))
+                         ?? viewModel.Instances.FirstOrDefault();
+
+            lines.Add("");
+            lines.Add("[启动计划]");
+
+            if (target is null)
+            {
+                lines.Add("    没有实例");
+            }
+            else
+            {
+                var paths = new LauncherPaths(root);
+                var version = GameLauncher.TryLoadInstalledVersionAsync(paths, target.VersionId)
+                    .GetAwaiter().GetResult();
+
+                if (version is null)
+                {
+                    lines.Add($"    {target.Name}：版本 {target.VersionId} 未安装");
+                }
+                else
+                {
+                    var prepared = GameLauncher.Prepare(
+                        paths, target.Model, version, new JsonSettingsStore(paths).Load());
+
+                    var unresolved = LaunchPlanFactory.FindUnresolvedPlaceholders(prepared.Plan);
+
+                    lines.Add($"    实例={target.Name}  版本={version.Id}  根版本={version.RootVersionId ?? "(自身)"}");
+                    lines.Add($"    mainClass={version.MainClass}");
+                    lines.Add($"    java={prepared.Plan.JavaPath}");
+                    lines.Add($"    未替换占位符={(unresolved.Count == 0 ? "无" : string.Join(", ", unresolved))}");
+                    lines.Add($"    JVM 参数 {prepared.Plan.JvmArguments.Count} 个 / 游戏参数 {prepared.Plan.GameArguments.Count} 个");
+
+                    foreach (var problem in prepared.Problems) lines.Add($"    问题: {problem}");
+
+                    // -p / -cp 里列出的文件是否都在 —— Forge 的模块路径少一个 jar 就起不来
+                    var missing = new List<string>();
+                    var jvm = prepared.Plan.JvmArguments;
+
+                    for (var i = 0; i + 1 < jvm.Count; i++)
+                    {
+                        if (jvm[i] is not ("-p" or "-cp" or "--module-path" or "--class-path")) continue;
+
+                        foreach (var entry in jvm[i + 1].Split(Path.PathSeparator,
+                                     StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            if (!File.Exists(entry)) missing.Add(entry);
+                        }
+                    }
+
+                    foreach (var entry in missing.Take(8)) lines.Add($"    缺文件: {entry}");
+                    lines.Add($"    -p/-cp 缺失 {missing.Count} 个");
+                }
+            }
+        }
 
         // 真跑一次启动（界面同一条路径），确认游戏能起来、锁文件到位
         if (args.Any(arg => string.Equals(arg, "--exercise-launch", StringComparison.OrdinalIgnoreCase)))

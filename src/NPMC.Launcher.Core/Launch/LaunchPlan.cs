@@ -155,6 +155,7 @@ public sealed class ArgumentBuilder
         string gameDirectory,
         string assetsDirectory,
         string nativesDirectory,
+        string librariesDirectory,
         string versionId,
         VersionJson version,
         LaunchContext context,
@@ -166,6 +167,9 @@ public sealed class ArgumentBuilder
         builder.Set("${version_name}", versionId);
         builder.Set("${game_directory}", gameDirectory);
         builder.Set("${assets_root}", assetsDirectory);
+        // Forge 1.17+ 的版本 JSON 用这两个占位符拼 -p 模块路径与 ignoreList（PCL2/HMCL 同样要替换）
+        builder.Set("${library_directory}", librariesDirectory);
+        builder.Set("${classpath_separator}", Path.PathSeparator.ToString());
         builder.Set("${assets_index_name}", version.AssetIndex?.Id ?? version.Assets ?? versionId);
         builder.Set("${auth_uuid}", context.Uuid);
         builder.Set("${auth_access_token}", context.AccessToken);
@@ -235,7 +239,7 @@ public static class LaunchPlanFactory
         var gameDir = gameDirectory ?? paths.Root;
 
         var builder = ArgumentBuilder.CreateDefault(
-            gameDir, paths.Assets, natives, versionId, version, context, classpath);
+            gameDir, paths.Assets, natives, paths.Libraries, versionId, version, context, classpath);
 
         var jvm = new List<string>
         {

@@ -1163,7 +1163,10 @@ internal static class Program
         return 0;
     }
 
-    /// <summary>安装旧版 Forge（1.13 之前）：解安装包 → 写版本 JSON → 放库。</summary>
+    /// <summary>
+    /// 安装 Forge。1.12 及以前解安装包即可（纯离线）；
+    /// 1.13+ 由官方安装器完成（需要 Java 与已经装好的游戏本体）。
+    /// </summary>
     private static async Task<int> ForgeLoaderAsync(string[] args)
     {
         var gameVersion = Opt(args, "--version") ?? Opt(args, "--mc") ?? Required(args);
@@ -1173,6 +1176,7 @@ internal static class Program
         {
             Error("用法: npmc loader forge --version <游戏版本> --loader <forge 版本> [--root <目录>]");
             Dim("  例如: npmc loader forge --version 1.7.10 --loader 10.13.4.1614");
+            Dim("        npmc loader forge --version 1.20.1 --loader 47.2.0");
             return 1;
         }
 
@@ -1194,19 +1198,42 @@ internal static class Program
             Info($"库         {plan.Profile.Version.Libraries.Count} 个");
             Info($"universal  {plan.UniversalJarPath ?? "(安装包里没有)"}");
 
+            // 1.13+：准备 Java 与游戏本体（安装器要拿原版 client jar 当输入）
+            string? javaPath = null;
+
             if (!plan.Profile.CanInstallOffline)
             {
-                Error("该 Forge 版本需要运行官方安装器（1.13+ processors），暂不支持自动安装");
-                return 1;
+                var vanillaJson = paths.VersionJson(plan.Profile.MinecraftVersion);
+                var vanillaJar = paths.ClientJar(plan.Profile.MinecraftVersion);
+
+                if (!File.Exists(vanillaJson) || !File.Exists(vanillaJar))
+                {
+                    Error($"需要先安装游戏本体 {plan.Profile.MinecraftVersion}（npmc install）");
+                    return 1;
+                }
+
+                var vanillaVersion = Core.Models.VersionJsonSerializer.Parse(
+                    await File.ReadAllTextAsync(vanillaJson));
+
+                javaPath = ForgeInstaller.ResolveInstallerJava(paths, vanillaVersion);
+
+                if (javaPath is null)
+                {
+                    Error("找不到可用的 Java；可在界面设置页预下载运行时，或用 npmc runtime 安装");
+                    return 1;
+                }
+
+                Info($"安装器    官方 installer.jar（Java：{javaPath}）");
             }
 
             var progress = new Progress<string>(message => Dim(message));
-            var result = await installer.InstallAsync(paths, plan, progress);
+            var result = await installer.InstallAsync(paths, plan, progress, javaPath: javaPath);
 
             Section("结果");
             Ok($"已写入版本 {result.VersionId}");
+            Info($"方式       {(result.UsedOfficialInstaller ? "官方安装器" : "解安装包")}");
             Info($"库        下载 {result.LibrariesDownloaded} 个 / 跳过 {result.LibrariesSkipped} 个");
-            Info($"universal {result.UniversalJarPath}");
+            if (!string.IsNullOrEmpty(result.UniversalJarPath)) Info($"universal {result.UniversalJarPath}");
             Info($"版本 JSON {paths.VersionJson(result.VersionId)}");
 
             if (result.Failures.Count > 0)

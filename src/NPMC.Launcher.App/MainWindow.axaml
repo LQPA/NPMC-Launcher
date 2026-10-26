@@ -697,6 +697,16 @@
                   </ComboBox>
                 </Grid>
 
+                <CheckBox Content="同时安装 Forge 加载器（1.13+ 由官方安装器完成，需要 Java）"
+                          IsChecked="{Binding InstallForge}" FontSize="12" />
+
+                <Grid ColumnDefinitions="64,*" IsVisible="{Binding HasForgeLoaderVersions}">
+                  <TextBlock Text="Forge" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding ForgeLoaderVersions}"
+                            SelectedItem="{Binding SelectedForgeLoader}"
+                            FontSize="12" HorizontalAlignment="Stretch" />
+                </Grid>
+
                 <Grid ColumnDefinitions="64,*">
                   <TextBlock Text="实例名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                   <TextBox Grid.Column="1" Text="{Binding DownloadInstanceName}"

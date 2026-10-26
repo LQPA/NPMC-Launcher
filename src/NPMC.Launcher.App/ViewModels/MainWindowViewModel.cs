@@ -2571,6 +2571,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(HasFabricLoaderVersions));
             if (_installFabric) _ = LoadFabricLoaderVersionsAsync();
 
+            // Forge 的可用版本同样绑在游戏版本上
+            ForgeLoaderVersions.Clear();
+            SelectedForgeLoader = null;
+            OnPropertyChanged(nameof(HasForgeLoaderVersions));
+            if (_installForge) _ = LoadForgeLoaderVersionsAsync();
+
             (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
@@ -2580,7 +2586,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ? $"{version.TypeLabel} · 发布于 {version.ReleasedText}"
         : "请选择一个版本";
 
-    // ---- Fabric 加载器版本 ----
+    // ---- Fabric / Forge 加载器版本 ----
 
     private FabricLoaderVersion? _selectedFabricLoader;
     private bool _instanceNameEdited;
@@ -2602,15 +2608,37 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>默认实例名：版本号；勾了 Fabric 时再带上加载器版本。</summary>
+    private bool _installForge;
+    private ForgeLoaderVersion? _selectedForgeLoader;
+
+    public ObservableCollection<ForgeLoaderVersion> ForgeLoaderVersions { get; } = new();
+
+    public bool HasForgeLoaderVersions => ForgeLoaderVersions.Count > 0;
+
+    public ForgeLoaderVersion? SelectedForgeLoader
+    {
+        get => _selectedForgeLoader;
+        set
+        {
+            if (!SetProperty(ref _selectedForgeLoader, value)) return;
+
+            SyncInstanceNameFromSelection();
+        }
+    }
+
+    /// <summary>默认实例名：版本号；勾了加载器时再带上加载器版本。</summary>
     private string DefaultInstanceName()
     {
         var version = _selectedDownloadVersion?.Id ?? "";
         if (string.IsNullOrWhiteSpace(version)) return "";
 
-        return _installFabric && _selectedFabricLoader is { } loader
-            ? $"{version}-fabric-{loader.Version}"
-            : version;
+        if (_installFabric && _selectedFabricLoader is { } loader)
+            return $"{version}-fabric-{loader.Version}";
+
+        if (_installForge && _selectedForgeLoader is { } forge)
+            return $"{version}-forge-{forge.Loader}";
+
+        return version;
     }
 
     /// <summary>用户没手改过名称时，让它跟着版本/加载器走。</summary>
@@ -2721,10 +2749,66 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _installFabric, value)) return;
 
+            // 两个加载器互斥：同一个实例只可能是一个 loader 的 profile
+            if (value) InstallForge = false;
+
             OnPropertyChanged(nameof(HasFabricLoaderVersions));
             SyncInstanceNameFromSelection();
 
             if (value && FabricLoaderVersions.Count == 0) _ = LoadFabricLoaderVersionsAsync();
+        }
+    }
+
+    /// <summary>是否顺便装 Forge（1.13+ 由官方安装器完成，安装阶段需要 Java）。</summary>
+    public bool InstallForge
+    {
+        get => _installForge;
+        set
+        {
+            if (!SetProperty(ref _installForge, value)) return;
+
+            if (value) InstallFabric = false;
+
+            OnPropertyChanged(nameof(HasForgeLoaderVersions));
+            SyncInstanceNameFromSelection();
+
+            if (value && ForgeLoaderVersions.Count == 0) _ = LoadForgeLoaderVersionsAsync();
+        }
+    }
+
+    /// <summary>供诊断用：列出某个游戏版本可用的 Forge 加载器（不下载安装包）。</summary>
+    public Task<IReadOnlyList<ForgeLoaderVersion>> ListForgeVersionsAsync(string minecraftVersion)
+        => ForgeVersions.GetAsync(_downloader.GetStringAsync, minecraftVersion);
+
+    private async Task LoadForgeLoaderVersionsAsync()    {
+        if (_selectedDownloadVersion is not { } version) return;
+
+        try
+        {
+            DownloadStatus = "正在获取 Forge 加载器版本…";
+
+            var versions = await ForgeVersions.GetAsync(_downloader.GetStringAsync, version.Id);
+
+            ForgeLoaderVersions.Clear();
+            foreach (var loader in versions) ForgeLoaderVersions.Add(loader);
+
+            OnPropertyChanged(nameof(HasForgeLoaderVersions));
+            SelectedForgeLoader = ForgeLoaderVersions.FirstOrDefault();
+
+            if (versions.Count == 0)
+            {
+                InstallForge = false;
+                DownloadStatus = $"Forge 不支持 {version.Id}（maven 上没有对应的安装包）";
+                LauncherLog.Write(_launcher.Root, $"Forge 不支持 {version.Id}，已取消勾选");
+                return;
+            }
+
+            DownloadStatus = $"共 {versions.Count} 个 Forge 加载器版本";
+        }
+        catch (Exception ex)
+        {
+            InstallForge = false;
+            DownloadStatus = $"获取 Forge 加载器版本失败：{ex.GetBaseException().Message}";
         }
     }
 
@@ -2946,6 +3030,37 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 instanceVersionId = fabricResult.ProfileId;
                 DownloadStatus = $"Fabric {fabricResult.LoaderVersion} 已安装（库 {fabricResult.LibrariesDownloaded} 个）";
+            }
+            else if (_installForge && _selectedForgeLoader is { } forgeChoice)
+            {
+                DownloadStatus = $"正在安装 Forge {forgeChoice.Loader}（游戏 {choice.Id}）…";
+                DownloadProgressText = "";
+
+                var forge = new ForgeInstaller(_downloader);
+                var forgePlan = await forge.PrepareAsync(
+                    choice.Id, forgeChoice.Loader, Path.Combine(_launcher.Root, "cache", "forge"));
+
+                // 1.13+ 的安装器是 java 程序；缺运行时就按本体的 javaVersion 补一个
+                var forgeJava = ForgeInstaller.ResolveInstallerJava(_launcher, version);
+
+                if (forgeJava is null)
+                {
+                    DownloadStatus = "正在补装 Forge 安装所需的 Java…";
+                    var javaProblem = await EnsureJavaForVersionAsync(version);
+
+                    if (javaProblem is not null) throw new InvalidOperationException(javaProblem);
+
+                    forgeJava = ForgeInstaller.ResolveInstallerJava(_launcher, version);
+                }
+
+                var forgeProgress = new Progress<string>(message => DownloadStatus = message);
+                var forgeResult = await forge.InstallAsync(
+                    _launcher, forgePlan, forgeProgress, javaPath: forgeJava);
+
+                instanceVersionId = forgeResult.VersionId;
+                DownloadStatus = forgeResult.UsedOfficialInstaller
+                    ? $"Forge {forgeChoice.Loader} 已安装（官方安装器，版本 {forgeResult.VersionId}）"
+                    : $"Forge {forgeChoice.Loader} 已安装（库 {forgeResult.LibrariesDownloaded} 个）";
             }
 
             // 建实例：版本指向 fabric profile（若有），这样页签能力检测能识别到加载器
@@ -3210,7 +3325,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             else if (plan.Index.LoaderName is { } otherLoader
                      && otherLoader.Contains("forge", StringComparison.OrdinalIgnoreCase))
             {
-                // Forge：1.13 之前可以纯离线安装（解安装包即可），1.13+ 需要跑官方安装器
+                // Forge：1.12 及以前解安装包即可；1.13+ 要跑官方安装器（需要 Java）
                 var forge = new ForgeInstaller(_downloader);
                 var forgeCache = Path.Combine(_launcher.Root, "cache", "forge");
 
@@ -3225,31 +3340,42 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         plan.Index.LoaderVersion ?? "",
                         forgeCache);
 
+                    // 1.13+ 的安装器是 java 程序：缺运行时就先按版本要求补一个
+                    var forgeJava = ForgeInstaller.ResolveInstallerJava(_launcher, version);
+
+                    if (forgeJava is null)
+                    {
+                        ModpackStatus = "正在补装 Forge 安装所需的 Java…";
+                        var javaProblem = await EnsureJavaForVersionAsync(version);
+
+                        if (javaProblem is not null)
+                            throw new InvalidOperationException(javaProblem);
+
+                        forgeJava = ForgeInstaller.ResolveInstallerJava(_launcher, version);
+                    }
+
                     var forgeProgress = new Progress<string>(message => ModpackProgress = message);
-                    var forgeResult = await forge.InstallAsync(_launcher, forgePlan, forgeProgress);
+                    var forgeResult = await forge.InstallAsync(_launcher, forgePlan, forgeProgress, javaPath: forgeJava);
 
                     instanceVersion = forgeResult.VersionId;
 
                     ModpackProgress = "";
-                    ModpackStatus = $"Forge {plan.Index.LoaderVersion} 已安装（库 {forgeResult.LibrariesDownloaded} 个"
-                                    + (forgeResult.Failures.Count > 0 ? $"，失败 {forgeResult.Failures.Count} 个" : "")
-                                    + "）";
-                }
-                catch (NotSupportedException)
-                {
-                    ModpackStatus = $"该整合包需要 Forge {plan.Index.LoaderVersion}，"
-                                    + "但 1.13 之后的 Forge 需要运行官方安装器，暂不支持自动安装；"
-                                    + "将按原版创建，Forge 需另行安装。";
+                    ModpackStatus = forgeResult.UsedOfficialInstaller
+                        ? $"Forge {plan.Index.LoaderVersion} 已安装（由官方安装器完成，版本 {forgeResult.VersionId}）"
+                        : $"Forge {plan.Index.LoaderVersion} 已安装（库 {forgeResult.LibrariesDownloaded} 个"
+                          + (forgeResult.Failures.Count > 0 ? $"，失败 {forgeResult.Failures.Count} 个" : "")
+                          + "）";
                 }
                 catch (Exception ex)
                 {
-                    ModpackStatus = $"安装 Forge 失败：{ex.GetBaseException().Message}；将按原版创建。";
+                    ModpackStatus = $"安装 Forge 失败：{ex.GetBaseException().Message}；将按原版创建。"
+                                    + "（1.13+ 的 Forge 需要 Java 与官方安装器）";
                     LauncherLog.Write(_launcher.Root, $"整合包 Forge 安装失败 → {ex.GetBaseException().Message}");
                 }
             }
             else if (plan.Index.LoaderName is { } unsupportedLoader)
             {
-                ModpackStatus = $"该整合包需要 {unsupportedLoader}，目前只能自动安装 Fabric / Forge（1.13 之前）；"
+                ModpackStatus = $"该整合包需要 {unsupportedLoader}，目前只能自动安装 Fabric / Forge；"
                                 + "将按原版创建，加载器需另行安装。";
             }
 

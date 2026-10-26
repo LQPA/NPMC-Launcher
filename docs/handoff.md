@@ -38,7 +38,7 @@ tools/sign-local.ps1              本地签名
 | 版本下载 | 官方 + BMCLAPI 镜像；版本类型筛选（仅正式 / 正式+快照 / 全部 / 仅愚人节） |
 | Java | 本地运行时自动发现 / 系统 JDK / 自定义路径；**启动时按需自动下载**对应版本；候选列表按实例缓存（706ms → 151ms） |
 | Fabric | 安装、加载器版本选择、按 intermediary 检测版本是否受支持 |
-| Forge | **仅 ≤1.12**（读 `install_profile.json`，内嵌 universal jar，不需要跑安装器）；1.13+ 需要 processors，**未实现** |
+| Forge | ≤1.12 解安装包（内嵌 universal jar，不需要 java）；**1.13+ 跑官方安装器**（`--installClient`，安装阶段需要 Java）；下载页现在可选 Forge 版本 |
 | 旧版本启动 | `minecraftArguments` 旧格式、`-cp`/`-Djava.library.path` 手补、natives 解压、`${user_properties}` 等旧占位符 |
 | 内容管理 | 模组 / 资源包 / 光影 / 数据包：搜索安装（Modrinth）、启停、删除、图标、更新检查、R·B·A 通道标记 |
 | 数据包 | 按世界管理：存档页签列世界 → 行内「数据包」进入该世界的数据包页 → 「← 返回存档」 |
@@ -54,7 +54,6 @@ tools/sign-local.ps1              本地签名
 
 | 优先级 | 事项 | 备注 |
 |---|---|---|
-| 中 | 1.13+ Forge | 必须跑官方安装器 jar 的 processors；目前直接拒绝并有提示 |
 | 中 | 整合包在线列表 | Modrinth 搜索整合包，现在只能拖本地 `.mrpack` |
 | 中 | CLI 迁移到 `MinecraftInstaller` | 现在 CLI 有自己一份 install 实现（natives 就是两边都要改才暴露的） |
 | 低 | 界面多语言 | 文案还没抽出来；`Language` 目前只影响 Modrinth 描述翻译。设置页只写了一行说明，别做成"能选但没用"的下拉 |
@@ -129,6 +128,9 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 | `--exercise-datapack-race` | 紧邻点击（切页签立即点数据包）是否还能扫到内容 |
 | `--exercise-nav` | 面板/头部/列表/空提示/日志的可见性随导航变化，**并核对 PropertyChanged 是否真的发出** |
 | `--exercise-global-settings` | 设置页：字段 ↔ `settings.json` ↔ 启动计划（默认 Java）；改完**还原原设置** |
+| `--exercise-forge-versions [mc]` | Forge 加载器清单（maven-metadata.xml）：数量、最新/最早（不下载安装包） |
+| `--exercise-download-forge <mc> [loader]` | 走界面同一条路：下载本体 → 装 Forge（1.13+ 官方安装器）→ 建实例 |
+| `--exercise-launch-plan [实例名]` | 只组装启动计划：占位符残留、`-p`/`-cp` 里缺失的 jar、问题列表 |
 | `--exercise-world-import` | 文件夹 / zip(根) / zip(嵌套) / 坏包 四种导入 |
 | `--exercise-launch [实例名]` | 真实启动并等 45 秒，返回 PID 与日志尾部 |
 | `--print-launch-command` | 只打印命令行，不启动 |
@@ -153,6 +155,13 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
     `OnPropertyChanged(nameof(SelectedTab))` 因为源值没变，绑定不会把目标值拉回去 ——
     界面上就是"光影高亮、内容还是日志"。回退必须在控件层做（`MainWindow.OnTabSelectionChanged`）。
     用 `Dispatcher.Post` 推迟通知也**不管用**，别白试。
+11. **Forge 1.13+ 的 install_profile 里没有 `versionInfo`**：版本 JSON 在安装包的 `version.json`，
+    要安装器写出来；顶层字段是 `spec` / `version` / `minecraft` / `processors`（1.12 及以前才是
+    `install` + `versionInfo`）。写解析代码时别只认老结构。
+12. **Forge 1.17+ 的启动参数依赖 `${library_directory}` 与 `${classpath_separator}`**：
+    它们拼在 `-p` 模块路径与 `-DignoreList` 里。漏设不会报错，只会把字面量 `${...}` 交给 JVM，
+    表现是"启动闪退 / 找不到主类"。`architecture.md` 的占位符全集里一直列着这两个，
+    但代码 2026-10-26 之前从没 `Set` 过 —— 文档全 ≠ 实现全。
 
 ---
 
@@ -242,3 +251,49 @@ dotnet src\NPMC.Launcher.App\bin\Release\net8.0\NPMC.Launcher.App.dll `
 改法：`RaiseDownloadModeChanged()` 统一通知这 7 个属性（两个分区可见性 + 4 个颜色 + 版本列表），
 `Navigate` 与 `SetDownloadMode` 都调它。`--exercise-nav` 在"下载页"这一步额外核对这 4 个颜色属性
 （缺了会打印"缺 VersionsModeBackground / …"）。
+
+---
+
+## 10. 2026-10-26：Forge 1.13+ 自动安装（已实现）
+
+### 10.1 以前为什么只能手动装
+
+1.12 及以前，Forge 安装包是"傻瓜包"：`install_profile.json` 里带 `versionInfo`（现成的版本 JSON）
+和 `install.filePath`（内嵌 universal jar），所以解包 + 放库 + 写 JSON 就够了，**不用跑 java**。
+
+1.13 起改成了 `processors` 模型：安装器要下载一堆工具（installertools、mcp 数据、srg 映射），
+再跑若干个 java 程序去**给 client.jar 打二进制补丁**、合并 mapping，最后才生成
+`forge-<mc>-<ver>-client.jar` 与版本 JSON。我们旧代码只认 `versionInfo`，看到 processors 就直接
+报"暂不支持"，于是 1.13+ 只能手动装。
+
+### 10.2 现在的做法
+
+不自己实现那套工具链，而是把**官方安装器当黑盒**：
+
+```
+java -jar forge-<mc>-<ver>-installer.jar --installClient <启动器根目录>
+```
+
+- 安装前检查 `versions/<mc>/<mc>.json` 与 client jar 是否存在（processors 的输入）；
+- 缺 `launcher_profiles.json` 就写一个最小的（安装器会往里注入 profile，没有这个文件会失败）；
+- Java 由 `ForgeInstaller.ResolveInstallerJava` 选：优先版本元数据的 `javaVersion.component`
+  （&lt;root&gt;\runtime\&lt;组件&gt;），其次同主版本的系统 Java；界面上缺运行时会先自动下载；
+- 安装器自己下库、跑 processors、写 `versions/<新版本>/`；我们只核对产物 JSON 是否存在；
+- 版本 id 先取 `install_profile.version`，取不到再按 `versions/<mc>-forge*` 找最新的一个。
+
+入口三处都通了：**下载页勾选 Forge**（列出 `maven-metadata.xml` 里该游戏版本的全部加载器）、
+**Forge 整合包**（`.mrpack` 声明 forge 时自动装）、**CLI**（`npmc loader forge`）。
+
+### 10.3 代价与限制（别当成 bug）
+
+- 安装阶段**必须有 Java**（1.13~1.16 的安装器按 Java 8 编译，1.17+ 通常要 17/21）；
+- 安装器的下载走 **Forge 官方源**，不受启动器的 BMCLAPI 镜像设置影响（要镜像得自己实现 processors）；
+- 安装器会往根目录 `launcher_profiles.json` 注入一个带大图标的 profile，属正常副作用；
+- 每个 Forge 版本首次安装要跑几十秒到几分钟（补丁是逐类打的，输出很长，进度区会刷屏）。
+
+### 10.4 顺带修的启动参数缺口
+
+Forge 1.17+ 的版本 JSON 用 `${library_directory}` / `${classpath_separator}` 拼 `-p` 与 `ignoreList`。
+`architecture.md` 的"占位符全集"里一直写着这两个，但 `ArgumentBuilder.CreateDefault` **从来没设**，
+所以哪怕安装成功也起不来。现已补上，`--exercise-launch-plan` 会打印未替换占位符与 `-p` 缺失文件数
+（实测 1.20.1 + Forge 47.2.0：占位符无残留、缺失 0 个，真实启动到游戏窗口并加载 Forge）。
