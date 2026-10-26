@@ -193,12 +193,14 @@
                   <Grid ColumnDefinitions="96,*">
                     <TextBlock Text="用户名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                     <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
-                      <TextBox Text="{Binding AccountNameEdit, Mode=TwoWay}" FontSize="12" Height="30"
-                               VerticalAlignment="Center" />
+                      <!-- 不写死 Height：让输入框和按钮都撑到同一行高，避免按钮比输入框高出一截 -->
+                      <TextBox Text="{Binding AccountNameEdit, Mode=TwoWay}" FontSize="12"
+                               MinHeight="30" VerticalAlignment="Stretch" />
                       <Button Grid.Column="1" Content="保存" Command="{Binding SaveAccountNameCommand}"
-                              Margin="8,0,0,0" FontSize="12" Height="30" Width="104"
-                              HorizontalAlignment="Right" VerticalAlignment="Center"
-                              HorizontalContentAlignment="Center" Padding="0" />
+                              Margin="8,0,0,0" FontSize="12" Width="104" MinHeight="30"
+                              HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                              HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                              Padding="0" />
                     </Grid>
                   </Grid>
 
@@ -209,9 +211,10 @@
                                  Foreground="#DCE4F5" VerticalAlignment="Center"
                                  TextTrimming="CharacterEllipsis" />
                       <Button Grid.Column="1" Content="复制 UUID" Command="{Binding CopyAccountUuidCommand}"
-                              Margin="8,0,0,0" FontSize="12" Height="30" Width="104"
-                              HorizontalAlignment="Right" VerticalAlignment="Center"
-                              HorizontalContentAlignment="Center" Padding="0" />
+                              Margin="8,0,0,0" FontSize="12" Width="104" MinHeight="30"
+                              HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                              HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                              Padding="0" />
                     </Grid>
                   </Grid>
 

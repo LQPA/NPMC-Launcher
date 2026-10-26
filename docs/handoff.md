@@ -397,6 +397,21 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
   - 右侧有预览图；Steve / Alex 只做内置预览。
   - **限制**：离线账号进游戏时，原版客户端不会读取启动器的皮肤设置；
     要让皮肤真的显示，需要皮肤站 / CustomSkinLoader 之类的模组（后续接 authlib-injector 时一并处理）。
+
+  原版取皮肤的链路是：客户端按自己的 UUID 请求
+  `sessionserver.mojang.com/session/minecraft/profile/<uuid>`，离线 UUID 在 Mojang 不存在，
+  所以永远回落到默认 Steve/Alex。要改变这一点，常见有三条路（按"现在能不能做"排序）：
+
+  1. **CustomSkinLoader 本地皮肤**（不需要外置登录，只要有模组）：把 PNG 放到实例的
+     `CustomSkinLoader/LocalSkin/skins/<玩家名>.png`，并按模组文档在
+     `CustomSkinLoader.json` 的 loadlist 里启用 `local`。具体目录/字段以所用 CSL 版本为准。
+  2. **authlib-injector + 皮肤站**：启动加 `-javaagent:authlib-injector.jar=<皮肤站 API>`，
+     游戏改从皮肤站取皮肤；需要外置登录账号与可访问的皮肤站（用户目前没有测试环境）。
+  3. **自建本地 Yggdrasil/皮肤服务**：能完全离线自控，但要实现签名、材质代理等，工作量大。
+
+  参考：[CustomSkinLoader 离线皮肤讨论](https://www.mcmod.cn/post/6366.html)、
+  [authlib-injector 离线按名字查皮肤](https://github.com/yushijinhun/authlib-injector/issues/256)、
+  [XMCL 自定义皮肤指南](https://xmcl.app/zh/guide/custom-skins)。
 - **账号解析优先级**（启动时）：实例的 `Settings.AccountId` → 全局 `settings.json` 的
   `DefaultAccountId` → 账号列表第一个；一个账号都没有时退回 `Player` 这个名字（不阻断启动）。
 - 实例概览新增「账号」下拉；第一项"跟随默认账号"。选择会写进该实例的 `AccountId`。
