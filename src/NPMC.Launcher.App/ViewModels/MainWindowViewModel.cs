@@ -1431,9 +1431,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             RaiseCommandStates();
             UpdateLogTimer();
 
-            // 离开内容页签就把搜索面板收起来（结果保留，同一实例下仍有效）
-            if (!IsContentList) IsSearchPanelExpanded = false;
-
             // 内容类型变了（模组 → 资源包）→ 搜索结果与待确认计划都不再适用
             if (previousKind != value.ContentKind)
             {
@@ -1443,6 +1440,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 if (value.ContentKind is { } tabKind && tabKind.CurseForgeClassId() is null)
                     SearchSourceIndex = 0;
             }
+
+            // 搜索面板跟随页签：离开内容页签收起（结果保留，同一实例下仍有效），
+            // 回到内容页签且还有结果时再展开。
+            // 「收起」按钮已经移除，收起状态下的这批结果没有任何入口能重新打开 ——
+            // 不展开就等于把用户搜到的东西弄丢了。
+            if (!IsContentList) IsSearchPanelExpanded = false;
+            else if (SearchResults.Count > 0) IsSearchPanelExpanded = true;
 
             if (IsLogTab) _ = RefreshLogAsync();
             else if (!IsExportTab) _ = RefreshContentAsync();
@@ -3186,11 +3190,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             IsPlanVisible = false;
             _pendingPlan = null;
             PlanLines.Clear();
-            SearchResults.Clear();
-            OnPropertyChanged(nameof(HasSearchResults));
-            OnPropertyChanged(nameof(SearchPanelToggleText));
-            SearchSummaryText = "";
 
+            // 装完**不清空**搜索结果。
+            //
+            // 用户常连着装好几个（主体、依赖，再回头装另一个），清掉列表后只剩搜索框和
+            // "第 N 页"，看上去就是搜索列表自己收起来了 —— 查询词、分类、排序、页码全都
+            // 还在，只有结果没了，是最难理解的一种状态。这批结果在同一个实例下依然成立
+            // （同一游戏版本 + 加载器），所以原样留着，让用户接着看、接着装。
             await RefreshContentAsync();
             await RefreshCountsAsync(instance);
         }
