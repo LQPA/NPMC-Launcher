@@ -2334,6 +2334,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!SetProperty(ref _isSearching, value)) return;
             OnPropertyChanged(nameof(SearchButtonText));
             (SearchCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (PreviousSearchPageCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (NextSearchPageCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
