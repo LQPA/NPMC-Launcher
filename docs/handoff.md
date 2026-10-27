@@ -800,6 +800,8 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
   - `MicrosoftAccountService`（登录、刷新、取 Minecraft token）
   - `MicrosoftTokenStore` + `WindowsDpapi`（refresh token，`<root>\microsoft-tokens\`）
   - 账号页「微软正版登录」+ 设备码面板；同名离线号登录后升级，保留 Id/实例绑定
+  - 创建账号改为**先选验证方式**：离线 → 填用户名后点「创建账号」；微软 → 直接设备码，
+    不再“填名字自动保存”。设备码面板移到右侧详情区，失败可关闭重试。
   - `LaunchContext.Online`；微软账号不再注入离线皮肤 agent，SkinPort 本地缓存清理
   - CLI：`npmc auth microsoft --save`、`npmc auth refresh <账号>`
 - 已验证：DPAPI 往返、账号升级、编译；探针全链路成功。

@@ -51,6 +51,15 @@ public sealed partial class MainWindowViewModel
     public ICommand FetchMojangSkinCommand { get; private set; }
     public ICommand MicrosoftLoginCommand { get; private set; }
     public ICommand CancelMicrosoftLoginCommand { get; private set; }
+    public ICommand ChooseOfflineAccountCommand { get; private set; }
+    public ICommand ChooseMicrosoftAccountCommand { get; private set; }
+    public ICommand BackToAccountTypeCommand { get; private set; }
+    public ICommand ConfirmOfflineAccountCommand { get; private set; }
+    public ICommand CloseMicrosoftLoginCommand { get; private set; }
+
+    private bool _isChoosingAccountType;
+    private bool _isOfflineAccountForm;
+    private bool _microsoftLoginHasError;
 
     private CancellationTokenSource? _microsoftLoginCts;
     private bool _isMicrosoftLoginBusy;
@@ -93,7 +102,34 @@ public sealed partial class MainWindowViewModel
             () => !IsMicrosoftLoginBusy);
         CancelMicrosoftLoginCommand = new RelayCommand(CancelMicrosoftLogin,
             () => IsMicrosoftLoginBusy);
+        ChooseOfflineAccountCommand = new RelayCommand(ChooseOfflineAccount);
+        ChooseMicrosoftAccountCommand = new RelayCommand(ChooseMicrosoftAccount);
+        BackToAccountTypeCommand = new RelayCommand(BackToAccountType);
+        ConfirmOfflineAccountCommand = new AsyncRelayCommand(ConfirmOfflineAccountAsync);
+        CloseMicrosoftLoginCommand = new RelayCommand(CloseMicrosoftLogin);
     }
+
+    public bool IsChoosingAccountType
+    {
+        get => _isChoosingAccountType;
+        private set
+        {
+            if (!SetProperty(ref _isChoosingAccountType, value)) return;
+            OnPropertyChanged(nameof(ShowAccountEmptyHint));
+        }
+    }
+
+    public bool IsOfflineAccountForm
+    {
+        get => _isOfflineAccountForm;
+        private set
+        {
+            if (!SetProperty(ref _isOfflineAccountForm, value)) return;
+            OnPropertyChanged(nameof(ShowAccountEmptyHint));
+        }
+    }
+
+    public bool ShowMicrosoftLoginPanel => IsMicrosoftLoginBusy || _microsoftLoginHasError;
 
     public bool IsMicrosoftLoginBusy
     {
@@ -102,6 +138,7 @@ public sealed partial class MainWindowViewModel
         {
             if (!SetProperty(ref _isMicrosoftLoginBusy, value)) return;
             OnPropertyChanged(nameof(ShowMicrosoftLoginPanel));
+            OnPropertyChanged(nameof(ShowAccountEmptyHint));
             (MicrosoftLoginCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
             (CancelMicrosoftLoginCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
@@ -129,8 +166,6 @@ public sealed partial class MainWindowViewModel
         private set => SetProperty(ref _microsoftLoginStatus, value);
     }
 
-    public bool ShowMicrosoftLoginPanel => IsMicrosoftLoginBusy;
-
     private async Task StartMicrosoftLoginAsync()
     {
         if (IsMicrosoftLoginBusy) return;
@@ -139,11 +174,13 @@ public sealed partial class MainWindowViewModel
         using var cts = new CancellationTokenSource();
         _microsoftLoginCts = cts;
 
+        _microsoftLoginHasError = false;
         IsMicrosoftLoginBusy = true;
         MicrosoftLoginCode = "";
         MicrosoftLoginUrl = "";
         MicrosoftLoginStatus = "正在申请微软设备码…";
         AccountStatus = "请在浏览器中完成微软登录。";
+        OnPropertyChanged(nameof(ShowMicrosoftLoginPanel));
 
         try
         {
@@ -180,21 +217,25 @@ public sealed partial class MainWindowViewModel
             SelectedAccount = Accounts.FirstOrDefault(item => item.Id == account.Id);
             AccountStatus = $"微软账号「{account.Username}」登录成功，所有权 {login.Minecraft.EntitlementCount} 项";
             MicrosoftLoginStatus = "登录成功";
+            _microsoftLoginHasError = false;
         }
         catch (OperationCanceledException)
         {
             AccountStatus = "已取消微软登录";
             MicrosoftLoginStatus = "已取消";
+            _microsoftLoginHasError = false;
         }
         catch (MicrosoftDeviceCodeAuth.AuthException ex)
         {
             AccountStatus = "微软登录失败：" + ex.Message;
             MicrosoftLoginStatus = ex.Message;
+            _microsoftLoginHasError = true;
         }
         catch (Exception ex)
         {
             AccountStatus = "微软登录失败：" + ex.GetBaseException().Message;
             MicrosoftLoginStatus = ex.GetBaseException().Message;
+            _microsoftLoginHasError = true;
         }
         finally
         {
@@ -203,6 +244,7 @@ public sealed partial class MainWindowViewModel
             MicrosoftLoginCode = "";
             MicrosoftLoginUrl = "";
             OnPropertyChanged(nameof(ShowMicrosoftLoginPanel));
+            OnPropertyChanged(nameof(ShowAccountEmptyHint));
         }
     }
 
@@ -210,6 +252,57 @@ public sealed partial class MainWindowViewModel
     {
         _microsoftLoginCts?.Cancel();
         MicrosoftLoginStatus = "正在取消…";
+    }
+
+    private void CloseMicrosoftLogin()
+    {
+        _microsoftLoginHasError = false;
+        MicrosoftLoginStatus = "";
+        MicrosoftLoginCode = "";
+        MicrosoftLoginUrl = "";
+        OnPropertyChanged(nameof(ShowMicrosoftLoginPanel));
+        OnPropertyChanged(nameof(ShowAccountEmptyHint));
+    }
+
+    private void ChooseOfflineAccount()
+    {
+        IsChoosingAccountType = false;
+        IsOfflineAccountForm = true;
+        AccountStatus = "填写离线用户名后点「创建账号」。";
+    }
+
+    private void ChooseMicrosoftAccount()
+    {
+        IsCreatingAccount = false;
+        IsChoosingAccountType = false;
+        IsOfflineAccountForm = false;
+        _ = StartMicrosoftLoginAsync();
+    }
+
+    private void BackToAccountType()
+    {
+        IsOfflineAccountForm = false;
+        IsChoosingAccountType = true;
+        AccountStatus = "选择验证方式：离线账号，或微软正版登录。";
+    }
+
+    private async Task ConfirmOfflineAccountAsync()
+    {
+        var name = NewAccountName.Trim();
+
+        if (name.Length == 0)
+        {
+            AccountStatus = "请输入用户名。";
+            return;
+        }
+
+        if (!PlayerAccount.IsValidUsername(name))
+        {
+            AccountStatus = "用户名只能是 1~16 位字母、数字或下划线。";
+            return;
+        }
+
+        await AutoCreateAccountAsync(name);
     }
 
     // ---- 导航与页面状态 ----
@@ -301,9 +394,7 @@ public sealed partial class MainWindowViewModel
         set
         {
             if (!SetProperty(ref _newAccountName, value)) return;
-
-            // 新建档案：名字一填好就自动落盘（见 ScheduleAutoCreate）
-            if (IsCreatingAccount) ScheduleAutoCreate();
+            (ConfirmOfflineAccountCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
@@ -352,11 +443,12 @@ public sealed partial class MainWindowViewModel
         }
     }
 
-    public string NewAccountHint => "填写用户名后自动保存；名称为空则取消，不会留下空档案。验证方式未选时按离线创建。";
+    public string NewAccountHint => "离线账号：1~16 位字母、数字或下划线；点「创建账号」后写入。";
 
     public bool ShowAccountDetail => HasSelectedAccount && !IsCreatingAccount;
 
-    public bool ShowAccountEmptyHint => !ShowAccountDetail && !IsCreatingAccount;
+    public bool ShowAccountEmptyHint =>
+        !ShowAccountDetail && !IsCreatingAccount && !ShowMicrosoftLoginPanel;
 
     // ---- 选中的账号（右侧详情）----
 
@@ -396,7 +488,7 @@ public sealed partial class MainWindowViewModel
         : SelectedAccount?.Username ?? "账号";
 
     public string AccountDetailSubtitle => IsCreatingAccount
-        ? "选择验证方式（目前只有离线），填写用户名后自动保存"
+        ? "先选择验证方式；离线填用户名，微软正版走设备码授权。"
         : SelectedAccount is { } account
             ? $"{account.KindText}账号 · UUID {account.UuidDisplay}"
             : "在左侧选择一个账号";
@@ -719,11 +811,11 @@ public sealed partial class MainWindowViewModel
 
         _newAccountName = "";
         OnPropertyChanged(nameof(NewAccountName));
-        _newAccountVerificationIndex = 0;
-        OnPropertyChanged(nameof(NewAccountVerificationIndex));
 
+        IsChoosingAccountType = true;
+        IsOfflineAccountForm = false;
         IsCreatingAccount = true;
-        AccountStatus = NewAccountHint;
+        AccountStatus = "选择验证方式：离线账号，或微软正版登录。";
     }
 
     /// <summary>取消新建：丢弃草稿（从未落盘）。</summary>
@@ -735,6 +827,8 @@ public sealed partial class MainWindowViewModel
         if (!IsCreatingAccount) return;
 
         IsCreatingAccount = false;
+        IsChoosingAccountType = false;
+        IsOfflineAccountForm = false;
 
         _newAccountName = "";
         OnPropertyChanged(nameof(NewAccountName));
@@ -750,6 +844,8 @@ public sealed partial class MainWindowViewModel
         _autoCreateCts?.Cancel();
         _autoCreateCts = null;
         IsCreatingAccount = false;
+        IsChoosingAccountType = false;
+        IsOfflineAccountForm = false;
 
         _newAccountName = "";
         OnPropertyChanged(nameof(NewAccountName));
@@ -809,6 +905,8 @@ public sealed partial class MainWindowViewModel
 
             // 先收起草稿再刷新列表，否则 Rebuild 的选中逻辑会把它当成"点列表取消创建"
             IsCreatingAccount = false;
+            IsChoosingAccountType = false;
+            IsOfflineAccountForm = false;
 
             _newAccountName = "";
             OnPropertyChanged(nameof(NewAccountName));

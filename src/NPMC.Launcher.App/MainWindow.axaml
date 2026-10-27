@@ -119,21 +119,6 @@
 
           <TextBlock Text="{Binding AccountStatus}" FontSize="10" Foreground="#7BC47F"
                      TextWrapping="Wrap" IsVisible="{Binding HasAccountStatus}" />
-
-          <Border Background="#1F2A3A" BorderBrush="#315A86" BorderThickness="1"
-                  CornerRadius="6" Padding="10" IsVisible="{Binding ShowMicrosoftLoginPanel}">
-            <StackPanel Spacing="6">
-              <TextBlock Text="在浏览器打开下面的地址，并输入代码：" FontSize="10" Foreground="#B4BCC8"
-                         TextWrapping="Wrap" />
-              <TextBox Text="{Binding MicrosoftLoginUrl}" IsReadOnly="True" FontSize="10" MinHeight="26" />
-              <TextBox Text="{Binding MicrosoftLoginCode}" IsReadOnly="True" FontSize="20"
-                       FontWeight="SemiBold" HorizontalContentAlignment="Center" MinHeight="40" />
-              <TextBlock Text="{Binding MicrosoftLoginStatus}" FontSize="10" Foreground="#7BC47F"
-                         TextWrapping="Wrap" />
-              <Button Content="取消登录" Command="{Binding CancelMicrosoftLoginCommand}"
-                      FontSize="11" HorizontalAlignment="Left" />
-            </StackPanel>
-          </Border>
         </StackPanel>
 
         <ListBox Grid.Row="1" Margin="4,0,4,10"
@@ -178,29 +163,61 @@
         <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
           <StackPanel Spacing="14">
 
-            <!-- 新建空档案：填用户名 + 验证方式；名字一填好就自动保存 -->
+            <!-- 微软登录：设备码面板放在右侧详情区，空间足够显示 URL 和 code -->
+            <Border Background="#1F2A3A" BorderBrush="#315A86" BorderThickness="1"
+                    CornerRadius="8" Padding="18,16" IsVisible="{Binding ShowMicrosoftLoginPanel}">
+              <StackPanel Spacing="10">
+                <TextBlock Text="微软正版登录" FontSize="16" FontWeight="SemiBold" Foreground="#F2F3F5" />
+                <TextBlock Text="在浏览器打开下面的地址，并输入代码：" FontSize="11" Foreground="#B4BCC8"
+                           TextWrapping="Wrap" />
+                <TextBox Text="{Binding MicrosoftLoginUrl}" IsReadOnly="True" FontSize="12" MinHeight="30" />
+                <TextBox Text="{Binding MicrosoftLoginCode}" IsReadOnly="True" FontSize="28"
+                         FontWeight="SemiBold" HorizontalContentAlignment="Center" MinHeight="52" />
+                <TextBlock Text="{Binding MicrosoftLoginStatus}" FontSize="11" Foreground="#7BC47F"
+                           TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="取消登录" Command="{Binding CancelMicrosoftLoginCommand}"
+                          FontSize="12" IsVisible="{Binding IsMicrosoftLoginBusy}" />
+                  <Button Content="关闭" Command="{Binding CloseMicrosoftLoginCommand}"
+                          FontSize="12" IsVisible="{Binding !IsMicrosoftLoginBusy}" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- 新建档案：先选验证方式；离线才显示用户名表单 -->
             <StackPanel Spacing="14" IsVisible="{Binding IsCreatingAccount}">
               <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                       CornerRadius="8" Padding="16,14">
                 <StackPanel Spacing="12">
 
-                  <Grid ColumnDefinitions="96,*">
-                    <TextBlock Text="用户名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
-                    <TextBox Grid.Column="1" Text="{Binding NewAccountName, Mode=TwoWay}" FontSize="12"
-                             Height="30" Watermark="1~16 位字母 / 数字 / 下划线" />
-                  </Grid>
+                  <StackPanel Spacing="10" IsVisible="{Binding IsChoosingAccountType}">
+                    <TextBlock Text="选择验证方式" FontSize="14" FontWeight="SemiBold" Foreground="#E8EAED" />
+                    <TextBlock Text="离线账号不联网、不需要令牌；微软正版会打开浏览器完成设备码授权。"
+                               FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" />
+                    <Button Content="离线账号" Command="{Binding ChooseOfflineAccountCommand}"
+                            HorizontalAlignment="Stretch" Height="36" FontSize="13"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                    <Button Content="微软正版登录" Command="{Binding ChooseMicrosoftAccountCommand}"
+                            HorizontalAlignment="Stretch" Height="36" FontSize="13"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                  </StackPanel>
 
-                  <Grid ColumnDefinitions="96,*">
-                    <TextBlock Text="验证方式" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
-                    <ComboBox Grid.Column="1" SelectedIndex="{Binding NewAccountVerificationIndex, Mode=TwoWay}"
-                              HorizontalAlignment="Stretch" FontSize="12">
-                      <ComboBoxItem Content="离线（默认）" />
-                      <ComboBoxItem Content="微软正版（请用上方按钮登录）" IsEnabled="False" />
-                    </ComboBox>
-                  </Grid>
-
-                  <TextBlock Text="{Binding NewAccountHint}" FontSize="10" Foreground="#6E7684"
-                             TextWrapping="Wrap" />
+                  <StackPanel Spacing="10" IsVisible="{Binding IsOfflineAccountForm}">
+                    <TextBlock Text="离线账号" FontSize="14" FontWeight="SemiBold" Foreground="#E8EAED" />
+                    <Grid ColumnDefinitions="96,*">
+                      <TextBlock Text="用户名" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                      <TextBox Grid.Column="1" Text="{Binding NewAccountName, Mode=TwoWay}" FontSize="12"
+                               Height="30" Watermark="1~16 位字母 / 数字 / 下划线" />
+                    </Grid>
+                    <TextBlock Text="{Binding NewAccountHint}" FontSize="10" Foreground="#6E7684"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Button Content="创建账号" Command="{Binding ConfirmOfflineAccountCommand}"
+                              FontSize="12" Height="30" Padding="14,0" />
+                      <Button Content="返回" Command="{Binding BackToAccountTypeCommand}"
+                              FontSize="12" Height="30" Padding="14,0" />
+                    </StackPanel>
+                  </StackPanel>
                 </StackPanel>
               </Border>
 

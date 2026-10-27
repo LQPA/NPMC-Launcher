@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
@@ -1584,12 +1584,14 @@ internal static class InstanceDump
 
             var before = viewModel.Accounts.Select(item => item.Username).ToList();
 
-            // 先点「创建账号」打开空档案，再填用户名 —— 填完自动保存
+            // 先点「创建账号」选择离线方式，再填用户名并点创建
             viewModel.CreateAccountCommand.Execute(null);
             Thread.Sleep(200);
             lines.Add($"    空档案：IsCreatingAccount={viewModel.IsCreatingAccount} 账号数={viewModel.Accounts.Count}");
 
+            viewModel.ChooseOfflineAccountCommand.Execute(null);
             viewModel.NewAccountName = "DiagAcc";
+            viewModel.ConfirmOfflineAccountCommand.Execute(null);
             Thread.Sleep(1400);
 
             var created = viewModel.Accounts.FirstOrDefault(item => item.Username == "DiagAcc");
@@ -1607,7 +1609,9 @@ internal static class InstanceDump
                 // 第二个账号 + 默认切换：徽标应该从上一个账号搬到新账号
                 viewModel.CreateAccountCommand.Execute(null);
                 Thread.Sleep(200);
+                viewModel.ChooseOfflineAccountCommand.Execute(null);
                 viewModel.NewAccountName = "DiagAcc2";
+                viewModel.ConfirmOfflineAccountCommand.Execute(null);
                 Thread.Sleep(1400);
 
                 var second = viewModel.Accounts.FirstOrDefault(item => item.Username == "DiagAcc2");
@@ -1644,6 +1648,12 @@ internal static class InstanceDump
 
                 // 删除临时账号（两次点击确认）
                 viewModel.SelectedAccount = viewModel.Accounts.FirstOrDefault(item => item.Username == "DiagAcc");
+                viewModel.DeleteAccountCommand.Execute(null);
+                Thread.Sleep(250);
+                viewModel.DeleteAccountCommand.Execute(null);
+                Thread.Sleep(900);
+
+                viewModel.SelectedAccount = viewModel.Accounts.FirstOrDefault(item => item.Username == "DiagAcc2");
                 viewModel.DeleteAccountCommand.Execute(null);
                 Thread.Sleep(250);
                 viewModel.DeleteAccountCommand.Execute(null);
@@ -1686,7 +1696,9 @@ internal static class InstanceDump
 
             viewModel.CreateAccountCommand.Execute(null);
             Thread.Sleep(200);
+            viewModel.ChooseOfflineAccountCommand.Execute(null);
             viewModel.NewAccountName = name;
+            viewModel.ConfirmOfflineAccountCommand.Execute(null);
             Thread.Sleep(1400);
 
             var account = viewModel.Accounts.FirstOrDefault(item => item.Username == name);
