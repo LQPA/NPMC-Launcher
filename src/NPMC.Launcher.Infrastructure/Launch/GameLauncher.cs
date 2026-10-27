@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Launch;
@@ -109,6 +109,11 @@ public static class GameLauncher
     {
         var layout = instance is null ? null : new InstanceLayout(launcher, instance);
         layout?.EnsureDirectories();
+
+        // 1.7.10 + SkinPort：它不认 authlib 的皮肤替换，但有本地 cachedImages 目录。
+        // 启动前把账号皮肤复制进去，优先于它的 Mojang/DefaultAlex 回退。
+        if (layout is not null)
+            SkinPortProvisioner.Provision(layout.GameDirectory, account);
 
         var paths = layout?.Paths ?? launcher;
         var instanceSettings = instance?.Settings ?? new InstanceSettings();

@@ -25,6 +25,13 @@ final class SkinTransformer implements ClassFileTransformer {
     private static final String YGGDRASIL = "com/mojang/authlib/yggdrasil/YggdrasilMinecraftSessionService";
     private static final String SKIN_MANAGER = "net/minecraft/client/resources/SkinManager";
 
+    /** 1.7.10 常见整合包的 SkinPort；它的默认皮肤会按 UUID 哈希选 Alex/Steve。 */
+    private static final String SKINPORT_DEFAULT =
+            "lain/mods/skinport/init/forge/ForgeSkinPort$DefaultSkinProvider";
+
+    private static final String SKINPORT_GET_DESCRIPTOR =
+            "(Llain/mods/skins/api/interfaces/IPlayerProfile;)Llain/mods/skins/api/interfaces/ISkin;";
+
     private static final String OLD_METHOD = "getTextures";
     private static final String OLD_DESCRIPTOR =
             "(Lcom/mojang/authlib/GameProfile;Z)Ljava/util/Map;";
@@ -36,19 +43,47 @@ final class SkinTransformer implements ClassFileTransformer {
     private static final String GET_DESCRIPTOR =
             "(Lcom/mojang/authlib/GameProfile;)Ljava/util/concurrent/CompletableFuture;";
 
+    /**
+     * 1.7.10 的 Forge/LaunchWrapper 会先加载它自带的旧版 ASM（5.x），
+     * 而 agent jar 里带的是 ASM 9.11；两边 API 常量不能混用，
+     * 否则 ClassVisitor 构造直接 IllegalArgumentException。
+     * 运行时探测实际加载的 ASM 支持的最高 API。
+     */
+    private static final int ASM_API = ResolveAsmApi();
+
+    private static int ResolveAsmApi()
+    {
+        for (int version = 9; version >= 4; version--)
+        {
+            try
+            {
+                return Opcodes.class.getField("ASM" + version).getInt(null);
+            }
+            catch (Throwable ignored)
+            {
+                // 该版本不存在，继续往下试
+            }
+        }
+
+        return 5 << 16; // ASM5 的 API 数值
+    }
+
     @Override
     public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
                             ProtectionDomain domain, byte[] bytes) {
         boolean isYggdrasil = YGGDRASIL.equals(className);
         boolean isSkinManager = SKIN_MANAGER.equals(className);
+        boolean isSkinPort = SKINPORT_DEFAULT.equals(className);
 
-        if (!isYggdrasil && !isSkinManager) return null;
+        if (!isYggdrasil && !isSkinManager && !isSkinPort) return null;
+
+        SkinAgent.log("transforming " + className + " loader=" + loader);
 
         try {
             ClassReader reader = new ClassReader(bytes);
             ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
 
-            reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            reader.accept(new ClassVisitor(ASM_API, writer) {
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String descriptor,
                                                  String signature, String[] exceptions) {
@@ -57,6 +92,11 @@ final class SkinTransformer implements ClassFileTransformer {
                     if (isSkinManager && "get".equals(name) && GET_DESCRIPTOR.equals(descriptor)) {
                         SkinAgent.log("replacing " + className + "." + name + descriptor);
                         return replaceGet(target);
+                    }
+
+                    if (isSkinPort && "getSkin".equals(name) && SKINPORT_GET_DESCRIPTOR.equals(descriptor)) {
+                        SkinAgent.log("replacing " + className + "." + name + descriptor);
+                        return replaceSkinPort(target);
                     }
 
                     if (!isYggdrasil) return target;
@@ -77,14 +117,18 @@ final class SkinTransformer implements ClassFileTransformer {
 
             return writer.toByteArray();
         } catch (Throwable error) {
-            SkinAgent.log("transform failed: " + error);
+            StringBuilder builder = new StringBuilder("transform failed: ").append(error);
+            for (StackTraceElement frame : error.getStackTrace())
+                builder.append("\n  at ").append(frame);
+
+            SkinAgent.log(builder.toString());
             return null;
         }
     }
 
     /** return SkinBridge.textures(profile) */
     private static MethodVisitor replaceOld(MethodVisitor target) {
-        return new MethodVisitor(Opcodes.ASM9) {
+        return new MethodVisitor(ASM_API) {
             @Override
             public void visitEnd() {
                 target.visitCode();
@@ -100,7 +144,7 @@ final class SkinTransformer implements ClassFileTransformer {
 
     /** return SkinBridgeModern.textures() */
     private static MethodVisitor replaceModern(MethodVisitor target) {
-        return new MethodVisitor(Opcodes.ASM9) {
+        return new MethodVisitor(ASM_API) {
             @Override
             public void visitEnd() {
                 target.visitCode();
@@ -113,9 +157,27 @@ final class SkinTransformer implements ClassFileTransformer {
         };
     }
 
+    /** return (ISkin) SkinPortBridge.get(provider, profile) */
+    private static MethodVisitor replaceSkinPort(MethodVisitor target) {
+        return new MethodVisitor(ASM_API) {
+            @Override
+            public void visitEnd() {
+                target.visitCode();
+                target.visitVarInsn(Opcodes.ALOAD, 0);
+                target.visitVarInsn(Opcodes.ALOAD, 1);
+                target.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinPortBridge", "get",
+                        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false);
+                target.visitTypeInsn(Opcodes.CHECKCAST, "lain/mods/skins/api/interfaces/ISkin");
+                target.visitInsn(Opcodes.ARETURN);
+                target.visitMaxs(2, 2);
+                target.visitEnd();
+            }
+        };
+    }
+
     /** return SkinBridgeModern.get(skinManager, profile) */
     private static MethodVisitor replaceGet(MethodVisitor target) {
-        return new MethodVisitor(Opcodes.ASM9) {
+        return new MethodVisitor(ASM_API) {
             @Override
             public void visitEnd() {
                 target.visitCode();

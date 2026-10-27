@@ -746,6 +746,33 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
 - 验证：`--exercise-accounts` 走"新建 → 设默认 → 绑定实例 → 解析启动账号 → 还原/删除"，
   自测新增离线 UUID（对照 Java 规则）、账号目录增删改、`LaunchContext.Offline` 等用例。
 
+### 10.9 SkinPort（1.7.10）与离线皮肤（2026-10-27）
+
+用户报账号 12 在 1.7.10 永远显示 Alex，而 LQPA_ 的自定义皮肤正常。排查结果：
+
+- 1.7.10 实例装了 **SkinPort**（`lain.mods.skinport`）。它的 provider 顺序是：
+  `UserManaged(cachedImages) → 自定义服务器 → Mojang → Crafatar → DefaultSkinProvider`。
+- `DefaultSkinProvider` 按 `UUID.hashCode() & 1` 选 `DefaultAlex` / `DefaultSteve`。
+  账号 12 的 UUID `1e83…fe62`，Java hashCode = **-840800897**，最低位 1 → **DefaultAlex**。
+- LQPA_ 在 Mojang 真实存在，`MojangSkinProvider` 先返回了正版皮肤，轮不到 Default，
+  所以看起来“自定义皮肤正常”；12 是纯离线号，才暴露 Alex 回退。
+- 因此不是启动器皮肤保存失败，也不是 1.7.10 原版默认皮肤。
+
+两层修复：
+
+1. **legacy agent 的 ASM**：1.7.10 的 LaunchWrapper 会先加载 Forge 自带旧 ASM，
+   与 agent 里的 ASM 9.11 API 常量不一致，`ClassVisitor` 构造抛
+   `IllegalArgumentException`。改成运行时探测最高可用 `ASMx` 再传 API（`ResolveAsmApi`）。
+2. **SkinPort 本地皮肤目录**：`SkinPortProvisioner` 在 `GameLauncher.Prepare` 里检测
+   `<gameDir>\config\skinport.cfg`，把账号皮肤复制到
+   `<gameDir>\cachedImages\skins\<用户名>.png` 和 `skins\uuid\<uuid>.png`。
+   这是 SkinPort 的第一优先级 provider，先于 Mojang 与 DefaultAlex。
+- 另外 agent 也 hook 了 `ForgeSkinPort$DefaultSkinProvider.getSkin` 作为兜底
+  （`SkinPortBridge`，反射构造 `SkinData`，不依赖编译期 SkinPort）。
+- 实测：12 的 `cachedImages\skins\12.png` 与 uuid 文件已按 1836 字节写入；
+  启动日志 `replacing ... DefaultSkinProvider.getSkin` 出现，ASM 不再报错。
+  进游戏的实际外观需再截图确认（本机启动器自动进存档，F5 截图被游戏菜单挡过）。
+
 ---
 
 ## 11. 2026-10-27：工作区完整性级别调整
