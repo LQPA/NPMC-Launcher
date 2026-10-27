@@ -48,6 +48,7 @@ public sealed partial class MainWindowViewModel
     public ICommand DeleteAccountCommand { get; private set; }
     public ICommand SetDefaultAccountCommand { get; private set; }
     public ICommand CopyAccountUuidCommand { get; private set; }
+    public ICommand ToggleUuidVisibilityCommand { get; private set; }
     public ICommand FetchMojangSkinCommand { get; private set; }
     public ICommand MicrosoftLoginCommand { get; private set; }
     public ICommand CancelMicrosoftLoginCommand { get; private set; }
@@ -60,6 +61,7 @@ public sealed partial class MainWindowViewModel
     private bool _isChoosingAccountType;
     private bool _isOfflineAccountForm;
     private bool _microsoftLoginHasError;
+    private bool _isUuidVisible;
 
     private CancellationTokenSource? _microsoftLoginCts;
     private bool _isMicrosoftLoginBusy;
@@ -96,6 +98,8 @@ public sealed partial class MainWindowViewModel
             () => SelectedAccount is not null);
         CopyAccountUuidCommand = new RelayCommand(CopyAccountUuid,
             () => SelectedAccount is not null && CopyToClipboard is not null);
+        ToggleUuidVisibilityCommand = new RelayCommand(ToggleUuidVisibility,
+            () => SelectedAccount is not null);
         FetchMojangSkinCommand = new AsyncRelayCommand(FetchMojangSkinAsync,
             () => SelectedAccount is not null && !IsFetchingSkin);
         MicrosoftLoginCommand = new AsyncRelayCommand(StartMicrosoftLoginAsync,
@@ -192,7 +196,10 @@ public sealed partial class MainWindowViewModel
                 {
                     MicrosoftLoginCode = code.UserCode;
                     MicrosoftLoginUrl = code.VerificationUri;
-                    MicrosoftLoginStatus = "等待浏览器授权…";
+                    MicrosoftLoginStatus = "验证码已复制到剪贴板，可直接粘贴。等待授权…";
+
+                    if (CopyToClipboard is not null)
+                        _ = CopyToClipboard(code.UserCode);
                 });
 
                 try
@@ -474,7 +481,11 @@ public sealed partial class MainWindowViewModel
             OnPropertyChanged(nameof(AccountDetailSubtitle));
             OnPropertyChanged(nameof(SelectedAccountIsDefault));
             OnPropertyChanged(nameof(IsMicrosoftAccount));
-            OnPropertyChanged(nameof(AccountDetailHint));
+
+            _isUuidVisible = false;
+            OnPropertyChanged(nameof(IsUuidVisible));
+            OnPropertyChanged(nameof(UuidDisplayText));
+            OnPropertyChanged(nameof(UuidToggleText));
 
             RaiseAccountCommandStates();
             RefreshSkinView();
@@ -490,10 +501,27 @@ public sealed partial class MainWindowViewModel
     public string AccountDetailSubtitle => IsCreatingAccount
         ? "先选择验证方式；离线填用户名，微软正版走设备码授权。"
         : SelectedAccount is { } account
-            ? $"{account.KindText}账号 · UUID {account.UuidDisplay}"
+            ? $"{account.KindText}账号"
             : "在左侧选择一个账号";
 
     public bool SelectedAccountIsDefault => SelectedAccount?.IsDefault ?? false;
+
+    public bool IsUuidVisible
+    {
+        get => _isUuidVisible;
+        private set
+        {
+            if (!SetProperty(ref _isUuidVisible, value)) return;
+            OnPropertyChanged(nameof(UuidDisplayText));
+            OnPropertyChanged(nameof(UuidToggleText));
+        }
+    }
+
+    public string UuidDisplayText => IsUuidVisible
+        ? SelectedAccount?.UuidDisplay ?? ""
+        : "••••••••-••••-••••-••••••••••••";
+
+    public string UuidToggleText => IsUuidVisible ? "隐藏" : "显示";
 
     public bool IsMicrosoftAccount =>
         SelectedAccount?.Account.Kind == AccountKind.Microsoft;
@@ -1059,12 +1087,15 @@ public sealed partial class MainWindowViewModel
         AccountStatus = $"已复制 UUID：{selected.UuidDisplay}";
     }
 
+    private void ToggleUuidVisibility() => IsUuidVisible = !IsUuidVisible;
+
     private void RaiseAccountCommandStates()
     {
         (DeleteAccountCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (SaveAccountNameCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (SetDefaultAccountCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (CopyAccountUuidCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (ToggleUuidVisibilityCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (FetchMojangSkinCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }
 

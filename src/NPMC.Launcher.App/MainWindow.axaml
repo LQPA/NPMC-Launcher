@@ -133,7 +133,7 @@
                   </Border>
                 </StackPanel>
                 <TextBlock Text="{Binding KindText}" FontSize="11" Foreground="#B4BCC8" />
-                <TextBlock Text="{Binding UuidShort}" FontSize="10" Foreground="#949CA9" />
+
               </StackPanel>
             </DataTemplate>
           </ListBox.ItemTemplate>
@@ -242,15 +242,21 @@
 
                   <Grid ColumnDefinitions="96,*">
                     <TextBlock Text="UUID" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
-                    <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
-                      <TextBlock Text="{Binding SelectedAccount.UuidDisplay}" FontSize="12"
+                    <Grid Grid.Column="1" ColumnDefinitions="*,Auto,Auto">
+                      <TextBlock Text="{Binding UuidDisplayText}" FontSize="12"
                                  Foreground="#DCE4F5" VerticalAlignment="Center"
                                  TextTrimming="CharacterEllipsis" />
-                      <Button Grid.Column="1" Content="复制 UUID" Command="{Binding CopyAccountUuidCommand}"
-                              Margin="8,0,0,0" FontSize="12" Width="104" MinHeight="30"
+                      <Button Grid.Column="1" Content="{Binding UuidToggleText}"
+                              Command="{Binding ToggleUuidVisibilityCommand}"
+                              Margin="8,0,0,0" FontSize="12" Width="64" MinHeight="30"
                               HorizontalAlignment="Right" VerticalAlignment="Stretch"
                               HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                               Padding="0" />
+                      <Button Grid.Column="2" Content="复制 UUID" Command="{Binding CopyAccountUuidCommand}"
+                              Margin="8,0,0,0" FontSize="12" Width="104" MinHeight="30"
+                              HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                              HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                              Padding="0" IsVisible="{Binding IsUuidVisible}" />
                     </Grid>
                   </Grid>
 
@@ -311,8 +317,6 @@
                     </StackPanel>
                   </Grid>
 
-                  <TextBlock Text="{Binding AccountDetailHint}"
-                             FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" />
                 </StackPanel>
               </Border>
 
