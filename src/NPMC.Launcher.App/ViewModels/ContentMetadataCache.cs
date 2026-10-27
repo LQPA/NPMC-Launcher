@@ -12,7 +12,22 @@ internal sealed record ContentMetadata(
     bool Identified,
     UpdateSource? Source,
     ReleaseChannel? Channel,
-    string IconUrl);
+    string IconUrl)
+{
+    /// <summary>
+    /// 平台上的项目标识（Modrinth 的 projectId/slug、CurseForge 的 modId）。
+    ///
+    /// 用来从本地列表一键跳到"这个项目的其他版本"：没有它就只能按文件名猜名字再搜一次，
+    /// 同名/改名/中文名的情况下经常搜不到。旧缓存没有这个字段，反序列化后是空串。
+    /// </summary>
+    public string ProjectRef { get; init; } = "";
+
+    /// <summary>
+    /// 项目标题（如 "Sodium"）。本地列表里的名字是文件名，带版本号，填进搜索框既长又搜不准；
+    /// 这个字段用来把搜索框/计划标题换成人看得懂的项目名。
+    /// </summary>
+    public string Title { get; init; } = "";
+}
 
 /// <summary>
 /// 「文件名 → 识别结果」的持久化缓存（`cache/content-metadata.json`）。

@@ -914,11 +914,17 @@
 
                       <!--
                         项目图标 + 识别徽标。
-                        图标未就绪时留空但保持 26px 占位，避免徽标左右跳动。
+                        图标本身就是按钮：点了跳到该项目的下载界面（换版本 / 补依赖）。
+                        未就绪时留空但保持 26px 占位，避免徽标左右跳动。
                       -->
                       <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4"
                                   VerticalAlignment="Center">
-                        <Image Source="{Binding Icon}" Width="26" Height="26" />
+                        <Button Command="{Binding DownloadCommand}" Padding="0"
+                                Width="26" Height="26" CornerRadius="4"
+                                Background="Transparent" BorderThickness="0"
+                                ToolTip.Tip="下载其他版本：跳到这个项目的下载界面">
+                          <Image Source="{Binding Icon}" Width="26" Height="26" />
+                        </Button>
                         <Border Width="26" Height="26" CornerRadius="6"
                                 Background="#2E7D46"
                                 IsVisible="{Binding IsFromModrinth}"

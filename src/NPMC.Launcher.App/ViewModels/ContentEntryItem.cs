@@ -29,13 +29,15 @@ public sealed class ContentEntryItem : ObservableObject
         ContentEntry entry,
         Func<ContentEntryItem, Task> toggle,
         Func<ContentEntryItem, Task> delete,
-        Func<ContentEntryItem, Task>? upgrade = null)
+        Func<ContentEntryItem, Task>? upgrade = null,
+        Func<ContentEntryItem, Task>? download = null)
     {
         _entry = entry;
 
         ToggleCommand = new AsyncRelayCommand(() => toggle(this));
         DeleteCommand = new AsyncRelayCommand(() => delete(this));
         UpgradeCommand = new AsyncRelayCommand(() => upgrade?.Invoke(this) ?? Task.CompletedTask);
+        DownloadCommand = new AsyncRelayCommand(() => download?.Invoke(this) ?? Task.CompletedTask);
     }
 
     public ContentEntry Entry => _entry;
@@ -75,6 +77,9 @@ public sealed class ContentEntryItem : ObservableObject
     public ICommand ToggleCommand { get; }
     public ICommand DeleteCommand { get; }
     public ICommand UpgradeCommand { get; }
+
+    /// <summary>图标的点击行为：跳到该项目的下载界面（换版本/装依赖用）。</summary>
+    public ICommand DownloadCommand { get; }
 
     // ---- 识别状态（检查更新后才会有结论）----
 

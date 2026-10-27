@@ -1715,7 +1715,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     && !entry.FileName.Contains(query, StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                Content.Add(new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync));
+                Content.Add(new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync, OpenDownloadForAsync));
             }
 
             RaisePackModFilterChanged();
@@ -2796,11 +2796,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     item.SetIdentification(local.Matched?.Source, local.Matched?.Channel);
 
                 var iconUrl = "";
+                var projectTitle = "";
 
                 if (local.Matched is { Source: UpdateSource.Modrinth } matched
                     && projects.TryGetValue(matched.ProjectId, out var project))
                 {
                     iconUrl = project.IconUrl;
+                    projectTitle = project.DisplayName;
                     // 图标地址只落盘，不在这里解码：行可见时由 EnsureIconAsync 取
                 }
 
@@ -2809,7 +2811,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     Identified: true,
                     local.Matched?.Source,
                     local.Matched?.Channel,
-                    iconUrl));
+                    iconUrl)
+                {
+                    ProjectRef = local.Matched?.ProjectId ?? "",
+                    Title = projectTitle,
+                });
 
                 // 这一行正好在屏幕上（识别结果刚回来）→ 补一次图标；其余行等滚到可见时再取
                 if (item.IsRowVisible) await EnsureIconAsync(item);
@@ -2865,11 +2871,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 if (!byPath.TryGetValue(item.Entry.Path, out var local)) continue;
 
                 var iconUrl = "";
+                var projectTitle = "";
 
                 if (local.Matched is { Source: UpdateSource.Modrinth } matched
                     && projects.TryGetValue(matched.ProjectId, out var project))
                 {
                     iconUrl = project.IconUrl;
+                    projectTitle = project.DisplayName;
                     // 同上：只记地址，不在这里解码 495 个图标
                 }
 
@@ -2877,7 +2885,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     Identified: true,
                     local.Matched?.Source,
                     local.Matched?.Channel,
-                    iconUrl));
+                    iconUrl)
+                {
+                    ProjectRef = local.Matched?.ProjectId ?? "",
+                    Title = projectTitle,
+                });
 
                 if (item.IsRowVisible) await EnsureIconAsync(item);
             }
@@ -3499,10 +3511,70 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 Identified: true,
                 item.Source,
                 isRoot ? channel : null,
-                isRoot ? item.IconUrl : ""));
+                isRoot ? item.IconUrl : "")
+            {
+                // 刚下载的文件一定属于这次搜索到的项目：把项目 id 与标题记住，
+                // 之后在本地列表里点图标就能直接跳回该项目的其他版本。
+                ProjectRef = item.ProjectRef,
+                Title = item.Title,
+            });
         }
 
         _contentMetadata.Save();
+    }
+
+    /// <summary>
+    /// 从本地列表跳到"这个项目的下载界面"：点行前的图标 → 进入下载模式 → 直接把这个项目的
+    /// 版本下拉与安装计划摆出来，换版本/补依赖都不用重新搜一遍。
+    ///
+    /// 项目身份来自识别缓存（安装时写入，或哈希识别时写入 ProjectRef）；实在没有才退回按名字搜索。
+    /// </summary>
+    private async Task OpenDownloadForAsync(ContentEntryItem entry)
+    {
+        if (SelectedTab.ContentKind is not { } kind || !kind.SupportsDownload()) return;
+        if (SelectedInstance is null) return;
+
+        var metadata = _contentMetadata.TryGet(entry.Entry.FileName, out var cached) ? cached : null;
+        var source = metadata?.Source
+                     ?? (entry.IsFromCurseForge ? UpdateSource.CurseForge : UpdateSource.Modrinth);
+
+        // 文件名叫 sodium-neoforge-0.9.2+mc26.3，填进搜索框又长又搜不准；有项目标题就用它
+        var title = string.IsNullOrWhiteSpace(metadata?.Title) ? entry.Name : metadata!.Title;
+
+        if (!IsContentDownloadMode) IsContentDownloadMode = true;
+
+        SearchQuery = title;
+        SearchSourceIndex = source == UpdateSource.CurseForge ? 1 : 0;
+
+        var projectRef = metadata?.ProjectRef ?? "";
+        if (string.IsNullOrWhiteSpace(projectRef))
+        {
+            // 认不出是哪个平台项目：按名字搜一次，剩下的交给用户点"安装"
+            Status = $"{title} 还没识别到平台项目，先按名字搜索…";
+            await SearchModsAsync();
+            return;
+        }
+
+        var item = new ModSearchResultItem(
+            source,
+            projectRef,
+            title,
+            title,
+            0,
+            BeginInstallAsync)
+        {
+            PageUrl = source == UpdateSource.Modrinth
+                ? $"https://modrinth.com/{kind.ModrinthProjectType()}/{projectRef}"
+                : $"https://www.curseforge.com/minecraft/"
+                  + (kind == ContentKind.ResourcePack ? "texture-packs" : "mc-mods") + $"/{projectRef}",
+            IconUrl = metadata?.IconUrl ?? "",
+        };
+
+        Status = $"正在读取 {title} 的版本…";
+        await BeginInstallAsync(item);
+
+        if (IsPlanVisible)
+            SearchSummaryText = $"已定位到「{title}」，换版本后点确认安装；也可以直接改上面的搜索词";
     }
 
     /// <summary>

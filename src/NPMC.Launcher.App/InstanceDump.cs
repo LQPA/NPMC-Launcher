@@ -598,6 +598,23 @@ internal static class InstanceDump
                                   + $" 识别={row.IsIdentified} Modrinth={row.IsFromModrinth}"
                                   + $" CurseForge={row.IsFromCurseForge}");
                     }
+
+                    // 点图标 → 下载界面：应直接把这个项目的版本下拉摆出来（不用重新搜）
+                    var clickable = viewModel.Content.FirstOrDefault(row =>
+                        !before.Contains(Path.GetFileName(row.Entry.Path)));
+
+                    if (clickable is not null)
+                    {
+                        viewModel.InstallVersions.Clear();
+                        clickable.DownloadCommand.Execute(null);
+
+                        for (var i = 0; i < 120 && !viewModel.IsPlanVisible; i++) Thread.Sleep(100);
+
+                        lines.Add($"    [点图标] {clickable.Name} → 下载模式={viewModel.IsContentDownloadMode}"
+                                  + $" 计划可见={viewModel.IsPlanVisible}"
+                                  + $" 可选版本={viewModel.InstallVersions.Count}"
+                                  + $" 当前={viewModel.SelectedInstallVersion?.Display ?? "(无)"}");
+                    }
                 }
 
                 lines.Add($"    status = {viewModel.Status}");

@@ -199,7 +199,7 @@ public sealed partial class MainWindowViewModel
 
             if (!_modItemCache.TryGetValue(entry.Path, out var item))
             {
-                item = new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync);
+                item = new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync, OpenDownloadForAsync);
                 _modItemCache[entry.Path] = item;
             }
 

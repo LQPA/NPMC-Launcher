@@ -123,6 +123,13 @@
     （从 Modrinth 的 `name` 去掉项目名与版本号得到，取不到就用文件名）；版本号唯一时不补，
     模组列表保持干净。实测 sildur：`2.02 · Extreme / · High / · Lite`；sodium 仍是
     `mc26.3-0.9.3-beta.1-neoforge`。
+  - **点本地列表的图标 → 直达该项目的下载界面**：`ContentEntryItem.DownloadCommand`（行首图标
+    就是按钮，ToolTip「下载其他版本」）→ `OpenDownloadForAsync` 打开下载模式、把搜索框填成项目名、
+    并直接解析该项目在当前实例下的版本与安装计划（版本下拉立刻可用，换版本/补依赖都不用重搜）。
+    项目身份来自识别缓存的 `ProjectRef` + `Title`（安装时写 `item.ProjectRef` / `item.Title`，
+    哈希识别时写 `matched.ProjectId` 与项目名；旧缓存没有这两个字段，反序列化为空串）。
+    认不出项目时退回按名字搜索一次。实测：装好 Sodium 后点图标 → 计划可见、可选版本 3 个、
+    当前为最新正式版。
 
 ## 关键文件
 
