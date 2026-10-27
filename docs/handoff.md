@@ -826,7 +826,12 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
   `%APPDATA%\NPMC-Launcher\curseforge.key`，保存后立即重建 CurseForgeClient 并用
   `ATM10` 查询验证；输入框是密码样式，不显示已保存的 key。
 - 已实测：用户提供的 60 字符 `$2a$` key 可搜索到 ATM10（All the Mods 10，3 条结果）。
-- 待实测：用该 key 完整安装一个 CurseForge 整合包。
+- **ATM10 8.3 实测通过**（2026-10-27）：
+  `--exercise-cf-install` 搜索 → 下载/复用 200 MB 整合包 → 解析 manifest →
+  安装/复用实例 `All-the-Mods-10`（NeoForge 21.1.259 / 1.21.1）。
+  - 495 个 jar，marker `PackFiles=493`、`Missing=[]`；
+  - 493 个文件全部已存在时跳过，覆盖层 3467 个；
+  - 本次 blocked 文件为 0（之前 6 个已补齐）。
 
 ---
 
