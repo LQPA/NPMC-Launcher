@@ -4,8 +4,8 @@
 
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
-- 最新提交：`8e05a4f`
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:37）
+- 最新提交：`768fd0e`
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:38）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
 
@@ -40,7 +40,9 @@
 - 修复：
   - `CopyInstanceCommand` 加入 `RaiseCommandStates`，选中实例后按钮不再一直灰；
   - 下一页在整页返回时启用（`hits.Count >= SearchPageSize`）；
-  - 搜索面板 `Grid.RowSpan` + `*` 布局，翻页不会掉到窗口外。
+  - 搜索面板 `Grid.RowSpan` + `*` 布局，翻页不会掉到窗口外；
+  - 移除搜索面板的“收起”按钮（展开布局已取代它）；
+  - `IsSearching` 变化时刷新翻页命令，避免搜索结束时下一页仍灰。
 
 ## 关键文件
 
