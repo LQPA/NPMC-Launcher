@@ -110,11 +110,6 @@ public static class GameLauncher
         var layout = instance is null ? null : new InstanceLayout(launcher, instance);
         layout?.EnsureDirectories();
 
-        // 1.7.10 + SkinPort：它不认 authlib 的皮肤替换，但有本地 cachedImages 目录。
-        // 启动前把账号皮肤复制进去，优先于它的 Mojang/DefaultAlex 回退。
-        if (layout is not null)
-            SkinPortProvisioner.Provision(layout.GameDirectory, account);
-
         var paths = layout?.Paths ?? launcher;
         var instanceSettings = instance?.Settings ?? new InstanceSettings();
         var os = OsInfo.Windows64();
@@ -148,7 +143,14 @@ public static class GameLauncher
 
         // 离线皮肤：账号选了皮肤（自定义 / 同名正版）且该版本 authlib 支持时，挂上 javaagent。
         // 只在 JVM 参数里加一项，不动实例目录、不装模组。
-        var skinAgentArgument = SkinAgentProvider.TryCreateArgument(launcher, version, account, paths.ClientJar(rootVersionId));
+        var skinAgent = SkinAgentProvider.TryCreateLaunch(
+            launcher, version, account, paths.ClientJar(rootVersionId));
+        var skinAgentArgument = skinAgent?.Argument;
+
+        // 1.7.10 + SkinPort：本地 cachedImages + agent 的 /skins 端点。
+        // 本地账号走本地皮肤；其它 UUID 由 SkinPort 继续问 Mojang/Crafatar。
+        if (layout is not null)
+            SkinPortProvisioner.Provision(layout.GameDirectory, account, skinAgent?.Port);
 
         if (skinAgentArgument is not null)
             plan = plan with

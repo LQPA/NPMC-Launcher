@@ -16,8 +16,11 @@ namespace NPMC.Launcher.Infrastructure.Skins;
 /// </summary>
 public static class SkinPortProvisioner
 {
-    /// <summary>把当前账号的皮肤同步到 SkinPort 的 cachedImages；不适用时静默返回。</summary>
-    public static void Provision(string? gameDirectory, PlayerAccount? account)
+    /// <summary>
+    /// 把当前账号的皮肤同步到 SkinPort，并把它的 CustomServer2 指向 agent 的本地 HTTP 服务。
+    /// 本地服务只回本账号；其它 UUID 返回 404，SkinPort 会继续走 Mojang/Crafatar。
+    /// </summary>
+    public static void Provision(string? gameDirectory, PlayerAccount? account, int? agentPort)
     {
         if (string.IsNullOrWhiteSpace(gameDirectory) || account is null) return;
 
@@ -29,13 +32,25 @@ public static class SkinPortProvisioner
                            && !string.IsNullOrWhiteSpace(account.SkinPath)
                            && File.Exists(account.SkinPath);
 
-        // 有本地皮肤时，Mojang/Crafatar 只会重复查询甚至覆盖本地结果，直接关掉；
-        // 没有本地皮肤时保持它们开启，正版号仍能拿到真皮肤。
+        // 注意：这里**不**关闭 useMojang / useCrafatar。
+        // 其它玩家的 UUID 还要靠它们去正版服务器验证；本地账号由下方的
+        // CustomServer2（agent 的 /skins/%auto%）和 cachedImages 优先覆盖。
         try
         {
             var text = File.ReadAllText(config);
-            var updated = SetBoolean(text, "useMojang", enabled: !hasLocalSkin);
-            updated = SetBoolean(updated, "useCrafatar", enabled: !hasLocalSkin);
+            var updated = SetBoolean(text, "useMojang", enabled: true);
+            updated = SetBoolean(updated, "useCrafatar", enabled: true);
+
+            if (hasLocalSkin && agentPort is > 0)
+            {
+                updated = SetBoolean(updated, "useCustomServer2", enabled: true);
+                updated = SetString(updated, "hostCustomServer2Skin",
+                    $"http://127.0.0.1:{agentPort}/skins/%auto%");
+            }
+            else if (!hasLocalSkin)
+            {
+                updated = SetBoolean(updated, "useCustomServer2", enabled: false);
+            }
 
             if (!string.Equals(text, updated, StringComparison.Ordinal))
                 File.WriteAllText(config, updated);
@@ -81,5 +96,13 @@ public static class SkinPortProvisioner
             return Regex.Replace(text, pattern, m => m.Groups[1].Value + value);
 
         return text;
+    }
+
+    private static string SetString(string text, string key, string value)
+    {
+        var pattern = $@"(?m)^(\s*S:{Regex.Escape(key)}\s*=\s*).*$";
+        if (!Regex.IsMatch(text, pattern)) return text;
+
+        return Regex.Replace(text, pattern, m => m.Groups[1].Value + value);
     }
 }

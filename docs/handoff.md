@@ -767,15 +767,22 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
    `<gameDir>\config\skinport.cfg`，把账号皮肤复制到
    `<gameDir>\cachedImages\skins\<用户名>.png` 和 `skins\uuid\<uuid>.png`。
    这是 SkinPort 的第一优先级 provider，先于 Mojang 与 DefaultAlex。
-3. **关掉远端的 Mojang/Crafatar 查询**：有本地皮肤时，启动器把
-   `skinport.cfg` 的 `useMojang` / `useCrafatar` 改成 `false`；
-   没有本地皮肤（例如显式选 Steve/Alex）时再改回 `true`，正版号仍能取真皮肤。
-   实测启动准备后两项都是 `false`，离线号不再访问 `api.mojang.com` / `crafatar.com`。
+3. **按 UUID 路由的本地皮肤服务器**：agent 的 HTTP 服务新增 `/skins/<name|uuid>`：
+   - 本账号 → 返回启动器的 PNG；
+   - 其它 UUID → 返回 404。
+   `SkinAgentProvider` 现在把 agent 端口一起返回，`SkinPortProvisioner` 把
+   `skinport.cfg` 设为：
+   `useCustomServer2=true`、`hostCustomServer2Skin=http://127.0.0.1:<port>/skins/%auto%`，
+   同时 **保留** `useMojang=true` / `useCrafatar=true`。
+   于是本地号走本地服务，其它玩家 404 后继续由 SkinPort 问正版服务器。
+   实测日志：
+   `skinport request 12 -> local skin (1836 bytes)`、
+   `skinport request Notch -> 404 (not local)`。
 - 另外 agent 也 hook 了 `ForgeSkinPort$DefaultSkinProvider.getSkin` 作为兜底
   （`SkinPortBridge`，反射构造 `SkinData`，不依赖编译期 SkinPort）。
 - 实测：12 的 `cachedImages\skins\12.png` 与 uuid 文件已按 1836 字节写入；
-  启动日志 `replacing ... DefaultSkinProvider.getSkin` 出现，ASM 不再报错。
-  进游戏的实际外观需再截图确认（本机启动器自动进存档，F5 截图被游戏菜单挡过）。
+  启动日志 `replacing ... DefaultSkinProvider.getSkin` 出现，ASM 不再报错；
+  `/skins/12` 由本地服务提供、`/skins/Notch` 返回 404，后者会继续走 Mojang/Crafatar。
 
 ---
 

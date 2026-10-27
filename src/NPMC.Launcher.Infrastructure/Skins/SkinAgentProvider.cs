@@ -27,8 +27,15 @@ public static class SkinAgentProvider
     private static readonly Lazy<byte[]> ModernBytes = new(() => ReadResource(ModernResource));
     private static readonly Lazy<byte[]> LegacyBytes = new(() => ReadResource(LegacyResource));
 
+    /// <summary>agent 的启动参数 + 本地端口（SkinPort 的 CustomServer2 要用端口）。</summary>
+    public sealed record SkinAgentLaunch(string Argument, int Port);
+
     /// <summary>给启动计划准备 <c>-javaagent:</c> 参数；不适用时返回 null。</summary>
     public static string? TryCreateArgument(
+        LauncherPaths launcher, VersionJson version, PlayerAccount? account, string? clientJarPath)
+        => TryCreateLaunch(launcher, version, account, clientJarPath)?.Argument;
+
+    public static SkinAgentLaunch? TryCreateLaunch(
         LauncherPaths launcher, VersionJson version, PlayerAccount? account, string? clientJarPath)
     {
         if (account is null) return null;
@@ -61,8 +68,10 @@ public static class SkinAgentProvider
 
         var log = Path.Combine(logDirectory, "skin-agent.log");
 
-        return $"-javaagent:{jar}=port={port};name={account.Username};uuid={account.Uuid}"
-               + $";skin={skin.Item1};model={skin.Item2};log={log}";
+        var argument = $"-javaagent:{jar}=port={port};name={account.Username};uuid={account.Uuid}"
+                       + $";skin={skin.Item1};model={skin.Item2};log={log}";
+
+        return new SkinAgentLaunch(argument, port.Value);
     }
 
     /// <summary>agent 支持的 authlib 主版本：1~7。</summary>

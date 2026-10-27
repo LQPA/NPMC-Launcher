@@ -22,6 +22,9 @@ final class SkinHttpServer {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
         server.createContext("/session/minecraft/profile/", new ProfileHandler());
         server.createContext("/textures/", new TextureHandler());
+        // SkinPort 的 CustomServer2 会按 /skins/%auto% 取当前玩家皮肤。
+        // 只回本账号，其它 UUID 一律 404，让 SkinPort 继续走 Mojang/Crafatar。
+        server.createContext("/skins/", new SkinPortHandler());
         server.createContext("/player/attributes", exchange -> reply(exchange, 200, "application/json", "{}"));
         server.createContext("/publickeys", exchange -> reply(exchange, 200, "application/json",
                 "{\"profilePropertyKeys\":[],\"playerCertificateKeys\":[]}"));
@@ -74,6 +77,38 @@ final class SkinHttpServer {
 
             byte[] data = Files.readAllBytes(skin);
             SkinAgent.log("texture " + skin + " (" + data.length + " bytes)");
+            exchange.getResponseHeaders().add("Content-Type", "image/png");
+            exchange.sendResponseHeaders(200, data.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(data);
+            }
+        }
+    }
+
+    private static final class SkinPortHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String path = exchange.getRequestURI().getPath();
+            String requested = path.substring(path.lastIndexOf('/') + 1);
+            String normalized = requested.replace("-", "");
+
+            boolean local = normalized.equalsIgnoreCase(SkinAgent.uuid)
+                    || requested.equalsIgnoreCase(SkinAgent.name);
+
+            if (!local) {
+                SkinAgent.log("skinport request " + requested + " -> 404 (not local)");
+                reply(exchange, 404, "text/plain", "unknown player");
+                return;
+            }
+
+            Path skin = SkinAgent.skin;
+            if (skin == null || !Files.isReadable(skin)) {
+                reply(exchange, 404, "text/plain", "no skin");
+                return;
+            }
+
+            byte[] data = Files.readAllBytes(skin);
+            SkinAgent.log("skinport request " + requested + " -> local skin (" + data.length + " bytes)");
             exchange.getResponseHeaders().add("Content-Type", "image/png");
             exchange.sendResponseHeaders(200, data.length);
             try (OutputStream out = exchange.getResponseBody()) {
