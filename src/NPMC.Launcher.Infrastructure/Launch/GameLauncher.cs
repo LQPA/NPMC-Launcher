@@ -113,7 +113,7 @@ public static class GameLauncher
 
         var paths = layout?.Paths ?? launcher;
         var instanceSettings = instance?.Settings ?? new InstanceSettings();
-        var os = OsInfo.Windows64();
+        var os = OsInfo.Current();
         var logConfig = version.Logging?.Client?.File is { } file ? paths.LogConfigFile(file.Id) : null;
 
         LaunchContext baseContext;
@@ -223,6 +223,12 @@ public static class GameLauncher
             problems.Add($"缺少 client jar：{clientJar}（可运行 npmc install {rootVersionId}）");
 
         Directory.CreateDirectory(paths.NativesDir(rootVersionId));
+
+        // LWJGL 3.4 用 <build>/<arch>/ 子目录缓存本机库；同目录里若还留着 3.3 时代的平铺 dll，
+        // 它的平台探测会认错架构（实测 26.3 报 windows/arm64 后崩在 FML 早期窗口）。
+        var cleanedNatives = NativeLibraryCache.RemoveStaleFlatFiles(version, plan.JvmArguments);
+        if (cleanedNatives > 0)
+            notices.Add($"已清理 {cleanedNatives} 个旧布局的本机库缓存文件（否则 LWJGL 会把架构认错）");
 
         return new PreparedLaunch
         {

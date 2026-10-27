@@ -80,15 +80,17 @@ internal static class Program
         var version = await LoadVersionAsync(source, downloader, paths, versionId, router);
 
         var context = LaunchContext.OfflineProbe();
-        var os = OsInfo.Windows64();
+        var os = OsInfo.Current();
         var plan = LaunchPlanFactory.Create(paths, versionId, version, context, os,
             memoryMb: OptInt(args, "--memory", launcherSettings.DefaultMemoryMb),
             hasCustomResolution: true,
             logConfigFile: version.Logging?.Client?.File is { } f ? paths.LogConfigFile(f.Id) : null);
 
-        var effective = version.Libraries
-            .Where(lib => RuleEvaluator.IsAllowed(lib.Rules, os, FeatureSet.ForLaunch(true)))
-            .ToList();
+        var effective = NativeVariants.SelectForArchitecture(
+            version.Libraries
+                .Where(lib => RuleEvaluator.IsAllowed(lib.Rules, os, FeatureSet.ForLaunch(true)))
+                .ToList(),
+            os);
 
         Section("探针结果");
         Info($"版本            {version.Id} ({version.Type})");
@@ -133,7 +135,7 @@ internal static class Program
         var source = CreateSource(router, downloader);
 
         var version = await LoadVersionAsync(source, downloader, paths, versionId, router);
-        var os = OsInfo.Windows64();
+        var os = OsInfo.Current();
 
         // 统计每个文件最终从哪个源拿到，便于判断镜像是否真的帮上忙
         var mirrorHits = 0;
@@ -152,9 +154,11 @@ internal static class Program
                 fallbacks.Add($"{label}：{outcome.Attempts[0].Error} → 改用 {ShortHost(outcome.Url)}");
         }
 
-        var effective = version.Libraries
-            .Where(lib => RuleEvaluator.IsAllowed(lib.Rules, os, FeatureSet.ForLaunch(true)))
-            .ToList();
+        var effective = NativeVariants.SelectForArchitecture(
+            version.Libraries
+                .Where(lib => RuleEvaluator.IsAllowed(lib.Rules, os, FeatureSet.ForLaunch(true)))
+                .ToList(),
+            os);
 
         // 1) client jar
         if (version.Downloads?.Client is { } client)
@@ -243,7 +247,7 @@ internal static class Program
         Directory.CreateDirectory(paths.NativesDir(versionId));
 
         var natives = await new NativesInstaller(downloader)
-            .EnsureAsync(paths, versionId, version, OsInfo.Windows64(), cancellationToken: default)
+            .EnsureAsync(paths, versionId, version, OsInfo.Current(), cancellationToken: default)
             .ConfigureAwait(false);
 
         if (natives.Extracted > 0)
@@ -359,7 +363,7 @@ internal static class Program
         var source = CreateSource(router, downloader);
 
         var version = await LoadVersionAsync(source, downloader, paths, versionId, router);
-        var os = OsInfo.Windows64();
+        var os = OsInfo.Current();
         var logConfig = version.Logging?.Client?.File is { } f ? paths.LogConfigFile(f.Id) : null;
         var settings = instance?.Settings ?? new InstanceSettings();
 

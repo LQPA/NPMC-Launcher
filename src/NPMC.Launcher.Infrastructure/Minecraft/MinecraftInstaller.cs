@@ -88,7 +88,7 @@ public sealed class MinecraftInstaller
         IProgress<MinecraftInstallProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var os = OsInfo.Windows64();
+        var os = OsInfo.Current();
 
         var mirrorHits = 0;
         var officialHits = 0;
@@ -111,9 +111,13 @@ public sealed class MinecraftInstaller
                 failures.Add($"{label}：{outcome.Attempts[0].Error}");
         }
 
-        var effective = version.Libraries
-            .Where(library => RuleEvaluator.IsAllowed(library.Rules, os, FeatureSet.ForLaunch(true)))
-            .ToList();
+        // 只下载与当前架构匹配的那一个 natives 变体（26.3 的元数据里 windows 与
+        // windows-arm64 两条规则都只按操作系统过滤，两个变体会一起命中）。
+        var effective = NativeVariants.SelectForArchitecture(
+            version.Libraries
+                .Where(library => RuleEvaluator.IsAllowed(library.Rules, os, FeatureSet.ForLaunch(true)))
+                .ToList(),
+            os);
 
         // 1) client.jar
         if (version.Downloads?.Client is { } client)

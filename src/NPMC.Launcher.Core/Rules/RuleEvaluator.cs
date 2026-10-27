@@ -9,7 +9,26 @@ namespace NPMC.Launcher.Core.Rules;
 /// </summary>
 public readonly record struct OsInfo(string Name, string Arch, string Version)
 {
+    /// <summary>Windows x64（历史用法，测试与旧调用点仍可用）。</summary>
     public static OsInfo Windows64(string version = "10.0") => new("windows", "x86_64", version);
+
+    /// <summary>
+    /// 当前进程的真实架构。Mojang 的 rules 用 "x86" / "arm64" 这样的取值，
+    /// native 变体选择（<see cref="NativeVariants"/>）也依赖它区分 x64 与 arm64。
+    /// </summary>
+    public static OsInfo Current(string version = "10.0")
+    {
+        var arch = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture switch
+        {
+            System.Runtime.InteropServices.Architecture.Arm64 => "arm64",
+            System.Runtime.InteropServices.Architecture.X64 => "x86_64",
+            System.Runtime.InteropServices.Architecture.X86 => "x86",
+            System.Runtime.InteropServices.Architecture.Arm => "arm32",
+            _ => "x86_64",
+        };
+
+        return new("windows", arch, version);
+    }
 }
 
 /// <summary>

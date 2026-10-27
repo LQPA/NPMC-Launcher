@@ -247,9 +247,13 @@ public static class LaunchPlanFactory
 
         var features = FeatureSet.ForLaunch(hasCustomResolution);
 
-        var effectiveLibraries = version.Libraries
-            .Where(lib => RuleEvaluator.IsAllowed(lib.Rules, os, features))
-            .ToList();
+        // 同一个库的多个 natives 变体（windows / windows-arm64）只留与当前架构匹配的那个，
+        // 否则 LWJGL 会在 classpath 上看到 arm64 的本机库并拒绝启动。
+        var effectiveLibraries = NativeVariants.SelectForArchitecture(
+            version.Libraries
+                .Where(lib => RuleEvaluator.IsAllowed(lib.Rules, os, features))
+                .ToList(),
+            os);
 
         var clientJar = paths.ClientJar(versionId);
         var classpath = ClasspathBuilder.Build(paths, effectiveLibraries, clientJar);

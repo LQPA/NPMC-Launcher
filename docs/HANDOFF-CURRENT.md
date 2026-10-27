@@ -80,9 +80,21 @@
   - 诊断：新增离屏渲染 `--render-search-panel <png> [--render-height N] [--render-no-plan]
     [--render-font 字体名] [--render-kind mod|resourcepack|shader] [--render-list]`
     （窗口放到屏幕外、不进任务栏），用来核对这类"布局挤在一起"的问题。
-  - 诊断：`--exercise-search` 支持 `--exercise-kind` / `--exercise-query`，
+  - **诊断：`--exercise-search` 支持 `--exercise-kind` / `--exercise-query`，
     现在模组 / 资源包 / 光影都能跑「搜索 → 计划 → 真下载 → 认领」整条链路。
     实测资源包（faithful，19.4 MB）与光影（bliss，1.79 MB）都落进了正确目录，新行当场认领。
+  - **26.3 启动崩溃（FML 早期窗口 / arm64 报错）根因与修复**：
+    `versions/26.3/natives/lwjgl` 里留着 LWJGL 3.3 时代**平铺**的 dll（10 个，21:41 那次启动留下），
+    而 3.4 的缓存布局是 `<build>/<arch>/`。两者混在一起时 3.4 的平台探测会认错架构，
+    报 `Platform available on classpath: windows/arm64`，FML 早期窗口随即崩在
+    `DisplayWindow.shutdownAutomaticRenderer`。复现与二分（改造后命令行、临时 gameDir）：
+    平铺 dll 在 → 必崩；换空 extract 目录 → 正常到渲染后端；只删平铺 dll → 正常。
+    `NativeLibraryCache.RemoveStaleFlatFiles`（`GameLauncher.Prepare` 里调用）现在启动前
+    清掉 extract 目录里平铺的动态库，子目录缓存保留，并只在 LWJGL ≥ 3.4 时动手。
+  - **同一个库的多个 natives 变体只留一个**：26.3 与 1.20.1 的元数据都只按 `os.name` 过滤，
+    `natives-windows` / `-arm64` / `-x86` 三个变体会全部命中。`NativeVariants.SelectForArchitecture`
+    按当前架构只留一个（`OsInfo.Current()` 现在读真实进程架构，不再硬编码 x86_64）。
+    1.20.1 的 classpath 基准从 65 条变成 51 条（50 个 jar + client.jar），测试注释已说明原因。
 
 ## 关键文件
 
@@ -142,6 +154,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
     2026-10-27 的「下载模组」按钮变灰就是踩了这个：按钮在概览页就挂上了（CanExecute=false），
     切到模组页没人通知它，于是永远是灰的。现在那个命令不挂 CanExecute，靠
     `IsContentFilterVisible` 控制显隐。
+12. 复现启动问题时**不要**直接用真实实例跑：我按 `nmpc-command.txt` 复现时，虽然换了 gameDir 与
+    org.lwjgl extract 路径，但 `-Djna.tmpdir` / `-Dio.netty.native.workdir` 仍指向实例所在的
+    `versions\26.3\natives\{jna,netty}`，于是往 `E:\aaaa` 写了这两个缓存目录。复现请在临时根里
+    把这四个 -D 参数一起改掉。
+13. 两个**既有**测试失败（与本次改动无关）：`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`
+    与 `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`，
+    它们仍断言"Full 隔离时 runtime 留在启动器根目录"，与现在的实现不一致。
+14. 26.3 + Sodium 0.9.2 的 mixin 崩溃是模组侧不兼容（`LevelExtractorMixin` 找不到
+    `extractVisibleBlockEntities`），与本机库缓存问题无关；建议换 Sodium 更新版本或反馈上游。
 
 ## 用户偏好
 

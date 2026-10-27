@@ -172,6 +172,12 @@ public class LaunchPlanFactoryTests
 /// 该元数据文件位于 .data/（本机运行数据，不入库），所以文件不存在时测试直接返回。
 /// 一旦存在，就用它钉住我们实测过的基准数字：
 ///   88 个库 → Windows x64 生效 64 个 → 游戏参数 26 个，且无残留占位符。
+///
+/// 注意 classpath 条目数（51）比"生效库数 + 1"少：1.20.1 的元数据给每个 LWJGL 模块都列了
+/// natives-windows / -arm64 / -x86 三个变体，且三条规则都只按操作系统过滤。按官方行为，
+/// 每个模块只留与当前架构匹配的那一个（见 <see cref="NPMC.Launcher.Core.Rules.NativeVariants"/>），
+/// 所以 64 个生效库里有 14 个是多余的架构变体，最终 classpath = 50 个 jar + client.jar。
+/// 旧基准 65 是"三种架构全塞进去"的数字，LWJGL 恰好也能跑，但那不是正确行为。
 /// </summary>
 public class RealVersionMetadataTests
 {
@@ -207,8 +213,8 @@ public class RealVersionMetadataTests
         Assert.Equal(26, plan.GameArguments.Count);
         Assert.Empty(LaunchPlanFactory.FindUnresolvedPlaceholders(plan));
 
-        // classpath 条目 = 64 个库 + client.jar
-        Assert.Equal(65, plan.JvmArguments.Last().Split(';').Length);
+        // classpath 条目 = 50 个库 + client.jar（每模块只留一个架构变体，见类型注释）
+        Assert.Equal(51, plan.JvmArguments.Last().Split(';').Length);
     }
 
     /// <summary>从测试程序集目录向上找含解决方案文件的目录。</summary>
