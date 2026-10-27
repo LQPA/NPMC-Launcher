@@ -461,6 +461,22 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
   client id 是构建时注入的私有值（开源版从 `PCL_MS_CLIENT_ID` 读取）。
   因此“复刻 PCL2”仍需要自己的、具备 `XboxLive.signin` 的 client id，不能借用别人的。
 
+### 9.2 实测通过（2026-10-27）
+
+`npmc auth microsoft --client-id cb163b2f-828f-4355-b861-1341ee2153ce --tenant consumers`
+完整跑通：
+
+```
+devicecode → token → XBL → XSTS → login_with_xbox → entitlements → profile
+Minecraft  LQPA_ / 100303ffe5b74ef09becd74a2f1e54eb
+所有权     6 项
+```
+
+说明这个 Entra 应用（`NPMC Launcher`，所有 Microsoft 账户用户）已经具备
+`XboxLive.signin`，且 Mojang allow list 的 AppID 与它一致。剩余工作不是审批，
+而是把探针接成正式账号：设备码 UI、DPAPI 保存 refresh token、启动时使用
+Minecraft access token / UUID / name，并停止对正版账号注入离线皮肤 agent。
+
 ---
 
 ## 10. 数据与配置（待实现）
