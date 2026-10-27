@@ -237,6 +237,34 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnExportInstanceClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+        if (viewModel.SelectedInstance is not { } instance) return;
+
+        try
+        {
+            var files = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "导出实例",
+                SuggestedFileName = instance.Name + ".zip",
+                DefaultExtension = "zip",
+                FileTypeChoices = new[]
+                {
+                    new FilePickerFileType("ZIP 压缩包") { Patterns = new[] { "*.zip" } },
+                },
+            });
+
+            var path = files?.TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(path))
+                await viewModel.ExportInstanceAsync(path);
+        }
+        catch (Exception ex)
+        {
+            viewModel.ReportModpackFailure($"无法打开保存对话框：{ex.GetBaseException().Message}");
+        }
+    }
+
     /// <summary>选择“手动下载的模组”所在目录（默认监听系统下载目录）。</summary>
     private async void OnPickBlockedFolderClick(object? sender, RoutedEventArgs e)
     {

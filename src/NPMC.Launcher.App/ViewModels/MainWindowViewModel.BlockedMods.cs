@@ -177,7 +177,25 @@ public sealed partial class MainWindowViewModel
 
         if (_blockedGameDirectory is { } directory && InstanceModpackStore.Load(directory) is { } info)
         {
-            InstanceModpackStore.Save(directory, info with { Missing = _blockedImporter.Pending });
+            var importedFiles = _blockedImporter.Imported.ToList();
+            var packFiles = info.PackFiles.ToList();
+
+            // 手动补齐的文件也是整合包自带文件，不是用户后加的模组：
+            // 写进 PackFiles，否则「隐藏整合包自带模组」会把它当成用户模组。
+            foreach (var file in importedFiles)
+            {
+                if (packFiles.All(entry =>
+                        !string.Equals(entry.FileName, file.FileName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    packFiles.Add(new PackFileEntry(file.FileName, file.Sha1));
+                }
+            }
+
+            InstanceModpackStore.Save(directory, info with
+            {
+                Missing = _blockedImporter.Pending,
+                PackFiles = packFiles,
+            });
 
             foreach (var instance in Instances)
             {

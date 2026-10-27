@@ -13,6 +13,9 @@ public enum DetailTabKind
 
     /// <summary>游戏日志。</summary>
     Log = 2,
+
+    /// <summary>导出当前实例。</summary>
+    Export = 3,
 }
 
 /// <summary>右侧一个页签。</summary>

@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
-using Avalonia.Media.Imaging;
+using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
+using Avalonia.Media.Imaging;
 using System.Windows.Input;
 using Avalonia.Threading;
 using NPMC.Launcher.App.Diagnostics;
@@ -55,6 +57,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _status = "正在读取实例…";
     private bool _isBusy;
     private int _contentScanVersion;
+    private string _exportStatus = "";
 
     public MainWindowViewModel(LauncherPaths launcher)
     {
@@ -75,6 +78,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             new("光影", DetailTabKind.Content, ContentKind.ShaderPack),
             new("存档", DetailTabKind.Content, ContentKind.DataPack),
             new("日志", DetailTabKind.Log),
+            new("导出", DetailTabKind.Export),
         };
         _selectedTab = ContentTabs[0];
 
@@ -148,6 +152,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
         DeleteInstanceCommand = new AsyncRelayCommand(
             DeleteInstanceAsync,
+            () => SelectedInstance is not null && !IsGameRunning);
+        CopyInstanceCommand = new AsyncRelayCommand(
+            CopyInstanceAsync,
             () => SelectedInstance is not null && !IsGameRunning);
 
         BeginRenameCommand = new RelayCommand(BeginRename, () => SelectedInstance is not null);
@@ -547,6 +554,120 @@ public sealed partial class MainWindowViewModel : ObservableObject
             LauncherLog.Write(_launcher.Root, $"删除实例失败 → {ex.GetBaseException().Message}");
         }
     }
+    private async Task CopyInstanceAsync()
+    {
+        if (SelectedInstance is not { } source || IsGameRunning) return;
+
+        if (source.Model.Isolation == IsolationLevel.None)
+        {
+            Status = "无隔离实例与启动器共用游戏目录，不能直接复制；请先改成版本隔离。";
+            return;
+        }
+
+        Status = $"正在复制实例「{source.Name}」…";
+
+        try
+        {
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+            var name = UniqueName(catalog, source.Name + " 副本");
+            var settings = source.Model.Settings with
+            {
+                ExtraJvmArguments = source.Model.Settings.ExtraJvmArguments.ToList(),
+            };
+
+            var clone = catalog.Add(name, source.VersionId, source.Model.Isolation, settings);
+            await store.SaveAsync(catalog.Instances);
+
+            var destination = new InstanceLayout(_launcher, clone).GameDirectory;
+            new InstanceLayout(_launcher, clone).EnsureDirectories();
+
+            await Task.Run(() => CopyInstanceDirectory(source.GameDirectory, destination));
+
+            await LoadAsync();
+            SelectedInstance = Instances.FirstOrDefault(item => item.Id == clone.Id);
+            Status = $"已复制实例「{source.Name}」→「{clone.Name}」";
+            LauncherLog.Write(_launcher.Root,
+                $"复制实例 {source.Name} → {clone.Name}：{source.GameDirectory} → {destination}");
+        }
+        catch (Exception ex)
+        {
+            Status = $"复制实例失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"复制实例失败 → {ex.GetBaseException().Message}");
+        }
+    }
+
+    private static void CopyInstanceDirectory(string source, string destination)
+    {
+        if (!Directory.Exists(source)) return;
+
+        foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(source, directory);
+            if (relative.Split(Path.DirectorySeparatorChar).Any(part => part is "logs" or "crash-reports"))
+                continue;
+
+            Directory.CreateDirectory(Path.Combine(destination, relative));
+        }
+
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(source, file);
+            if (relative.Split(Path.DirectorySeparatorChar).Any(part => part is "logs" or "crash-reports"))
+                continue;
+
+            var target = Path.Combine(destination, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, overwrite: true);
+        }
+    }
+
+    /// <summary>把当前实例的游戏目录（不含日志/崩溃报告）打包成 ZIP。</summary>
+    public async Task ExportInstanceAsync(string targetPath)
+    {
+        if (SelectedInstance is not { } instance) return;
+
+        ExportStatus = $"正在导出「{instance.Name}」…";
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                if (File.Exists(targetPath)) File.Delete(targetPath);
+
+                using var archive = ZipFile.Open(targetPath, ZipArchiveMode.Create);
+
+                foreach (var file in Directory.EnumerateFiles(instance.GameDirectory, "*", SearchOption.AllDirectories))
+                {
+                    var relative = Path.GetRelativePath(instance.GameDirectory, file);
+                    if (relative.Split(Path.DirectorySeparatorChar).Any(part => part is "logs" or "crash-reports"))
+                        continue;
+
+                    archive.CreateEntryFromFile(file, relative);
+                }
+
+                var marker = archive.CreateEntry("instance.nmpc.json");
+                using var writer = new StreamWriter(marker.Open(), new UTF8Encoding(false));
+                writer.Write(JsonSerializer.Serialize(new
+                {
+                    instance.Name,
+                    instance.VersionId,
+                    Isolation = instance.Model.Isolation.ToString(),
+                    ExportedAt = DateTimeOffset.Now,
+                }, new JsonSerializerOptions { WriteIndented = true }));
+            });
+
+            ExportStatus = $"已导出：{targetPath}";
+            Status = ExportStatus;
+            LauncherLog.Write(_launcher.Root, $"导出实例 {instance.Name} → {targetPath}");
+        }
+        catch (Exception ex)
+        {
+            ExportStatus = $"导出失败：{ex.GetBaseException().Message}";
+            Status = ExportStatus;
+        }
+    }
+
     private async Task LaunchGameAsync()
     {
         var instance = SelectedInstance;
@@ -853,6 +974,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsModFilterVisible));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         OnPropertyChanged(nameof(ShowLog));
+        OnPropertyChanged(nameof(ShowExport));
     }
 
     /// <summary>数据包是 1.13 才有的功能。</summary>
@@ -1281,6 +1403,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(IsOverview));
             OnPropertyChanged(nameof(IsContentList));
             OnPropertyChanged(nameof(IsLogTab));
+            OnPropertyChanged(nameof(IsExportTab));
+            OnPropertyChanged(nameof(ShowExport));
             OnPropertyChanged(nameof(IsModsTab));
             OnPropertyChanged(nameof(IsDataPackTab));
             if (value.ContentKind == ContentKind.DataPack)
@@ -1313,7 +1437,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
 
             if (IsLogTab) _ = RefreshLogAsync();
-            else _ = RefreshContentAsync();
+            else if (!IsExportTab) _ = RefreshContentAsync();
         }
     }
 
@@ -1322,6 +1446,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool IsContentList => SelectedTab.Kind == DetailTabKind.Content;
 
     public bool IsLogTab => SelectedTab.Kind == DetailTabKind.Log;
+
+    public bool IsExportTab => SelectedTab.Kind == DetailTabKind.Export;
+
+    public bool ShowExport => IsInstancePage && HasSelection && IsExportTab;
 
     /// <summary>当前是否在模组页签（"检查更新"只对模组有意义）。</summary>
     public bool IsModsTab => SelectedTab.ContentKind == ContentKind.Mod;
@@ -1414,6 +1542,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         get => _status;
         private set => SetProperty(ref _status, value);
+    }
+
+    public string ExportStatus
+    {
+        get => _exportStatus;
+        private set => SetProperty(ref _exportStatus, value);
     }
 
     // ---- 命令 ----
@@ -2203,6 +2337,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     public ICommand DeleteInstanceCommand { get; }
+    public ICommand CopyInstanceCommand { get; }
     public ICommand OpenDetailInBrowserCommand { get; }
 
     /// <summary>详情面板里的项目图标。</summary>

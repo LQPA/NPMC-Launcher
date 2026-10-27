@@ -933,6 +933,19 @@
                    Padding="10" VerticalContentAlignment="Top" />
         </Grid>
 
+        <!-- 导出实例 -->
+        <Grid Grid.Row="2" Margin="0,14,0,0" IsVisible="{Binding ShowExport}">
+          <StackPanel Spacing="12">
+            <TextBlock Text="导出实例" FontSize="16" FontWeight="SemiBold" Foreground="#F2F3F5" />
+            <TextBlock Text="把当前实例的 mods / config / resourcepacks / shaderpacks / saves 等打包成 ZIP；不会包含 logs 和 crash-reports。"
+                       FontSize="11" Foreground="#949CA9" TextWrapping="Wrap" MaxWidth="620" />
+            <Button Content="选择导出位置…" Click="OnExportInstanceClick"
+                    FontSize="12" HorizontalAlignment="Left" Padding="14,4" />
+            <TextBlock Text="{Binding ExportStatus}" FontSize="11" Foreground="#7BC47F"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </Grid>
+
         <!-- 操作 -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
                     IsVisible="{Binding ShowOverview}">
@@ -949,9 +962,11 @@
           <Button Content="打开存档" Command="{Binding OpenSavesFolderCommand}"
                   IsVisible="{Binding HasSavesDirectory}"
                   ToolTip.Tip="打开 saves 目录（世界存档都在这里）" />
+          <Button Content="复制实例" Command="{Binding CopyInstanceCommand}"
+                  Margin="18,0,0,0" />
           <!-- 删除实例：两次点击确认，避免误删 -->
           <Button Content="{Binding DeleteInstanceText}" Command="{Binding DeleteInstanceCommand}"
-                  Margin="18,0,0,0" Foreground="#E06C6C" />
+                  Margin="8,0,0,0" Foreground="#E06C6C" />
         </StackPanel>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
