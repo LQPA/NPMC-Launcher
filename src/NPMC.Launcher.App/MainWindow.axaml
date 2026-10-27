@@ -1180,12 +1180,21 @@
         <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
           <StackPanel Spacing="14">
 
-            <!-- 在线安装：Modrinth 搜索 → 选版本 → 下载并安装 -->
+            <!-- 在线安装：Modrinth / CurseForge 搜索 → 选版本 → 下载并安装 -->
             <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                     CornerRadius="8" Padding="16">
               <StackPanel Spacing="10">
-                <TextBlock Text="从 Modrinth 在线安装" FontSize="13" FontWeight="SemiBold"
+                <Grid ColumnDefinitions="64,*">
+                  <TextBlock Text="来源" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding ModpackSources}"
+                            SelectedIndex="{Binding SelectedModpackSourceIndex, Mode=TwoWay}"
+                            HorizontalAlignment="Stretch" FontSize="12" />
+                </Grid>
+
+                <TextBlock Text="{Binding ModpackSourceTitle}" FontSize="13" FontWeight="SemiBold"
                            Foreground="#E8EAED" />
+                <TextBlock Text="{Binding ModpackSourceHint}" FontSize="10" Foreground="#6E7684"
+                           TextWrapping="Wrap" />
 
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBox Text="{Binding ModpackSearchQuery, Mode=TwoWay}" FontSize="12"

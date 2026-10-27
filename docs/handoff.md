@@ -813,6 +813,19 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
 
 ---
 
+## 10.11 CurseForge 整合包在线安装（2026-10-27）
+
+- 整合包页新增来源下拉：Modrinth / CurseForge。
+- CurseForge 搜索用 `classId=4471`（整合包），版本列表用
+  `GetFilesAsync(modId)`；选中后走 `PrepareCurseForgeModpackAsync`
+  （下载 zip、解析 manifest、换文件下载地址、blocked 文件/Modrinth 回退沿用原逻辑）。
+- 下载完成仍复用 `InstallModpackAsync`，实例标记写入 `_modpackSource="curseforge"`。
+- 需要 `CURSEFORGE_API_KEY` 或 `%APPDATA%\NPMC-Launcher\curseforge.key`；
+  未配置时选中 CurseForge 会直接提示，不发请求。
+- 待实测：配好 key 后搜索 ATM10 等整合包并完整安装。
+
+---
+
 ## 11. 2026-10-27：工作区完整性级别调整
 
 `D:\Agents` 整个目录原先带 `Low` 完整性标签，导致：

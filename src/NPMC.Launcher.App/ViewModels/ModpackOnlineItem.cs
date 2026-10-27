@@ -1,18 +1,35 @@
 using NPMC.Launcher.Core.Mods;
+using NPMC.Launcher.Infrastructure.CurseForge;
 
 namespace NPMC.Launcher.App.ViewModels;
 
-/// <summary>Modrinth 整合包搜索结果的一行。</summary>
+/// <summary>整合包搜索结果的一行（Modrinth 或 CurseForge）。</summary>
 public sealed class ModpackHitItem
 {
     public ModpackHitItem(ModrinthSearchHit hit)
     {
+        Source = "modrinth";
         Slug = hit.Slug;
         Title = hit.DisplayName;
         Description = hit.Description;
         IconUrl = hit.IconUrl;
         Downloads = hit.Downloads;
     }
+
+    public ModpackHitItem(CurseForgeSearchHit hit)
+    {
+        Source = "curseforge";
+        ModId = hit.ModId;
+        Slug = hit.Slug;
+        Title = hit.DisplayName;
+        Description = hit.Summary;
+        IconUrl = hit.LogoUrl;
+        Downloads = hit.DownloadCount;
+    }
+
+    public string Source { get; }
+
+    public int ModId { get; }
 
     public string Slug { get; }
 
@@ -46,7 +63,30 @@ public sealed class ModpackVersionItem
         Loaders = version.Loaders;
     }
 
+    public ModpackVersionItem(CurseForgeFile file)
+    {
+        Id = file.FileId.ToString();
+        FileId = file.FileId;
+        VersionNumber = string.IsNullOrWhiteSpace(file.DisplayName) ? file.FileName : file.DisplayName;
+        VersionType = file.ReleaseType switch
+        {
+            2 => "beta",
+            3 => "alpha",
+            _ => "release",
+        };
+
+        string[] loaderNames = { "Forge", "Fabric", "Quilt", "NeoForge" };
+        GameVersions = file.GameVersions
+            .Where(value => !loaderNames.Contains(value, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        Loaders = file.GameVersions
+            .Where(value => loaderNames.Contains(value, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+    }
+
     public string Id { get; }
+
+    public int FileId { get; }
 
     public string VersionNumber { get; }
 
@@ -60,7 +100,9 @@ public sealed class ModpackVersionItem
         string.Equals(VersionType, "beta", StringComparison.OrdinalIgnoreCase)
         || string.Equals(VersionType, "alpha", StringComparison.OrdinalIgnoreCase);
 
-    public string ChannelBadge => IsPrerelease ? (VersionType.StartsWith("a", StringComparison.OrdinalIgnoreCase) ? "A" : "B") : "R";
+    public string ChannelBadge => IsPrerelease
+        ? (VersionType.StartsWith("a", StringComparison.OrdinalIgnoreCase) ? "A" : "B")
+        : "R";
 
     public string ChannelColor => IsPrerelease
         ? (ChannelBadge == "A" ? "#A93226" : "#94611A")
