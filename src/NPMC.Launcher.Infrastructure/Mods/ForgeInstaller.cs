@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
@@ -251,6 +252,11 @@ public sealed class ForgeInstaller
         // 安装过程要写库和版本目录；Low 完整性下的 java 处理文件会出问题（见 IntegrityGuard）
         IntegrityGuard.EnsureExecutableRunsAtLauncherLevel(javaPath);
 
+        // 官方安装器只会从 maven.neoforged.net 逐一下载；该域名在部分网络下会超时。
+        // 先按 installer 自带的 version.json 从 BMCLAPI 补齐缺失库，安装器随后会直接跳过网络。
+        await PrefetchInstallerLibrariesAsync(paths, plan.InstallerPath, progress, cancellationToken)
+            .ConfigureAwait(false);
+
         progress?.Report($"运行 Forge 官方安装器（{Path.GetFileName(plan.InstallerPath)}）…");
 
         var startInfo = new ProcessStartInfo(javaPath)
@@ -269,45 +275,68 @@ public sealed class ForgeInstaller
         startInfo.ArgumentList.Add("--installClient");
         startInfo.ArgumentList.Add(paths.Root);
 
-        using var process = Process.Start(startInfo)
-                            ?? throw new InvalidOperationException("启动 Forge 官方安装器失败");
-
         var output = new List<string>();
-        void OnLine(string? line)
-        {
-            if (string.IsNullOrWhiteSpace(line)) return;
 
-            lock (output)
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var process = Process.Start(startInfo)
+                                ?? throw new InvalidOperationException("启动 Forge 官方安装器失败");
+
+            void OnLine(string? line)
             {
-                output.Add(line);
-                if (output.Count > 200) output.RemoveAt(0);
+                if (string.IsNullOrWhiteSpace(line)) return;
+
+                lock (output)
+                {
+                    output.Add(line);
+                    if (output.Count > 2000) output.RemoveAt(0);
+                }
+
+                // 安装器的输出很长（逐条打补丁），只把每行原样丢给进度回调，界面自己截断
+                progress?.Report(line.Trim());
             }
 
-            // 安装器的输出很长（逐条打补丁），只把每行原样丢给进度回调，界面自己截断
-            progress?.Report(line.Trim());
-        }
+            process.OutputDataReceived += (_, e) => OnLine(e.Data);
+            process.ErrorDataReceived += (_, e) => OnLine(e.Data);
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
 
-        process.OutputDataReceived += (_, e) => OnLine(e.Data);
-        process.ErrorDataReceived += (_, e) => OnLine(e.Data);
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                TryKill(process);
+                throw;
+            }
 
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            TryKill(process);
-            throw;
-        }
+            if (process.ExitCode == 0) break;
 
-        if (process.ExitCode != 0)
-        {
-            string tail;
-            lock (output) tail = string.Join(" / ", output.TakeLast(4));
-            throw new InvalidOperationException(
-                $"Forge 官方安装器退出码 {process.ExitCode}：{tail}");
+            if (attempt == 1)
+            {
+                string tail;
+                lock (output) tail = string.Join(" / ", output.TakeLast(4));
+                throw new InvalidOperationException(
+                    $"Forge 官方安装器退出码 {process.ExitCode}：{tail}");
+            }
+
+            // 官方 maven.neoforged.net 在部分网络下会超时；用 BMCLAPI 镜像预下载失败清单，再跑一次
+            var missing = ParseMissingLibraries(output);
+            if (missing.Count == 0)
+            {
+                string tail;
+                lock (output) tail = string.Join(" / ", output.TakeLast(4));
+                throw new InvalidOperationException(
+                    $"Forge 官方安装器退出码 {process.ExitCode}：{tail}");
+            }
+
+            progress?.Report($"官方源下载失败，改用 BMCLAPI 预下载 {missing.Count} 个库…");
+            var mirrored = await PrefetchMirrorLibrariesAsync(
+                paths, missing, progress, cancellationToken).ConfigureAwait(false);
+            progress?.Report($"BMCLAPI 预下载完成：{mirrored}/{missing.Count}");
+
+            lock (output) output.Clear();
         }
 
         // 安装器写出的版本 id：profile 里有就用它，没有就在 versions/ 里找 <mc>-forge*
@@ -355,6 +384,170 @@ public sealed class ForgeInstaller
         {
             return null;
         }
+    }
+
+    private const string BamclapiMaven = "https://bmclapi2.bangbang93.com/maven/";
+
+    /// <summary>从 installer 的 version.json 读取库清单，用 BMCLAPI 补齐缺失文件。</summary>
+    private async Task PrefetchInstallerLibrariesAsync(
+        LauncherPaths paths,
+        string installerPath,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var archive = ZipFile.OpenRead(installerPath);
+            var candidates = new List<(string Path, string Sha1)>();
+            var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // version.json 是运行时库；install_profile.json 里还有处理器库（asm-analysis 等），两边都要补
+            foreach (var entryName in new[] { "version.json", "install_profile.json" })
+            {
+                var entry = archive.GetEntry(entryName);
+                if (entry is null) continue;
+
+                using var stream = entry.Open();
+                using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (!document.RootElement.TryGetProperty("libraries", out var libraries)
+                    || libraries.ValueKind != JsonValueKind.Array)
+                    continue;
+
+                foreach (var library in libraries.EnumerateArray())
+                {
+                    if (!library.TryGetProperty("downloads", out var downloads)
+                        || !downloads.TryGetProperty("artifact", out var artifact))
+                        continue;
+
+                    var path = artifact.TryGetProperty("path", out var pathElement)
+                        ? pathElement.GetString()
+                        : null;
+
+                    if (string.IsNullOrWhiteSpace(path)) continue;
+
+                    var sha1 = artifact.TryGetProperty("sha1", out var shaElement)
+                        ? shaElement.GetString()
+                        : null;
+
+                    var destination = paths.LibraryFile(path!);
+                    if (File.Exists(destination)) continue;
+                    if (!seenPaths.Add(path!)) continue;
+
+                    candidates.Add((path!, sha1 ?? ""));
+                }
+            }
+
+            if (candidates.Count == 0) return;
+
+            progress?.Report($"从 BMCLAPI 预补 {candidates.Count} 个安装器库…");
+
+            var gate = new SemaphoreSlim(8);
+            var downloaded = 0;
+
+            var tasks = candidates.Select(async item =>
+            {
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var result = await _downloader.EnsureFromAsync(
+                        new[] { BamclapiMaven + item.Path },
+                        paths.LibraryFile(item.Path),
+                        string.IsNullOrWhiteSpace(item.Sha1) ? null : item.Sha1,
+                        cancellationToken).ConfigureAwait(false);
+
+                    if (result.Downloaded) Interlocked.Increment(ref downloaded);
+                }
+                catch (Exception ex)
+                {
+                    progress?.Report($"预补失败 {item.Path}：{ex.GetBaseException().Message}");
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+            progress?.Report($"BMCLAPI 预补完成：{downloaded}/{candidates.Count}");
+        }
+        catch (Exception ex)
+        {
+            progress?.Report($"预补安装器库跳过：{ex.GetBaseException().Message}");
+        }
+    }
+
+    private static IReadOnlyList<string> ParseMissingLibraries(List<string> output)
+    {
+        lock (output)
+        {
+            var start = output.FindIndex(line =>
+                line.Contains("These libraries failed to download", StringComparison.OrdinalIgnoreCase));
+
+            if (start < 0) return Array.Empty<string>();
+
+            var result = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            for (var i = start + 1; i < output.Count; i++)
+            {
+                var line = output[i].Trim();
+
+                if (line.StartsWith("There was an error", StringComparison.OrdinalIgnoreCase)) break;
+                if (line.Length == 0 || line.Contains(' ') || line.Count(c => c == ':') < 2) continue;
+                if (seen.Add(line)) result.Add(line);
+            }
+
+            return result;
+        }
+    }
+
+    /// <summary>官方 maven 超时时，从 BMCLAPI 镜像把安装器清单里的库补到 libraries。</summary>
+    private async Task<int> PrefetchMirrorLibrariesAsync(
+        LauncherPaths paths,
+        IReadOnlyList<string> coordinates,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var gate = new SemaphoreSlim(8);
+        var downloaded = 0;
+
+        var tasks = coordinates.Select(async coordinate =>
+        {
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                var relative = MavenPath.FromCoordinate(coordinate);
+                var url = BamclapiMaven + relative;
+                var destination = paths.LibraryFile(relative);
+
+                // 失败清单里的文件即使存在也不可信（可能是上次中断的空文件）
+                if (File.Exists(destination)) File.Delete(destination);
+
+                var result = await _downloader
+                    .EnsureFromAsync(new[] { url }, destination, null, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (result.Downloaded)
+                {
+                    Interlocked.Increment(ref downloaded);
+                    progress?.Report($"镜像补齐 {coordinate}");
+                }
+            }
+            catch (Exception ex)
+            {
+                progress?.Report($"镜像补齐失败 {coordinate}：{ex.GetBaseException().Message}");
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+        return downloaded;
     }
 
     private static void EnsureLauncherProfiles(string root)

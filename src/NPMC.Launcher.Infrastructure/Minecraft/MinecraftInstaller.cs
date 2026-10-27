@@ -1,4 +1,4 @@
-﻿using NPMC.Launcher.Core.Mirrors;
+using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
@@ -125,29 +125,42 @@ public sealed class MinecraftInstaller
                 .ConfigureAwait(false);
         }
 
-        // 2) 库
+        // 2) 库：并发下载，避免几百个库一个个串行等
+        var libraryItems = effective
+            .Select(library => (Library: library, Artifact: library.Downloads?.Artifact))
+            .Where(item => item.Artifact is { Url.Length: > 0 })
+            .ToList();
+
+        var librariesSkipped = effective.Count - libraryItems.Count;
         var librariesDownloaded = 0;
-        var librariesSkipped = 0;
-        var index = 0;
+        var libraryCompleted = 0;
 
-        foreach (var library in effective)
+        using (var libraryGate = new SemaphoreSlim(_concurrency))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var artifact = library.Downloads?.Artifact;
-            if (artifact is null || string.IsNullOrEmpty(artifact.Url))
+            var libraryTasks = libraryItems.Select(async item =>
             {
-                librariesSkipped++;
-                continue;
-            }
+                await libraryGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-            index++;
-            progress?.Report(new MinecraftInstallProgress("libraries", index, effective.Count, 0));
+                try
+                {
+                    await DownloadAsync(
+                        item.Library.Name,
+                        item.Artifact!.Url,
+                        paths.LibraryFile(item.Artifact.Path),
+                        item.Artifact.Sha1).ConfigureAwait(false);
 
-            await DownloadAsync(library.Name, artifact.Url, paths.LibraryFile(artifact.Path), artifact.Sha1)
-                .ConfigureAwait(false);
+                    Interlocked.Increment(ref librariesDownloaded);
+                }
+                finally
+                {
+                    libraryGate.Release();
+                    var done = Interlocked.Increment(ref libraryCompleted);
+                    progress?.Report(new MinecraftInstallProgress(
+                        "libraries", done, libraryItems.Count, 0));
+                }
+            });
 
-            librariesDownloaded++;
+            await Task.WhenAll(libraryTasks).ConfigureAwait(false);
         }
 
         // 3) log4j 配置 —— 该类资源在 BMCLAPI 上是 404，路由表里因此不镜像它

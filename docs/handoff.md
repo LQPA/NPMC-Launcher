@@ -835,6 +835,21 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
 
 ---
 
+## 10.12 下载页/安装器反馈修复（2026-10-27）
+
+- CurseForge API key 输入移到**设置页 → CurseForge**；整合包页缺 key 时只显示
+  「去设置」提示，不再把 key 输入框放在下载页。
+- 整合包大小：CurseForge manifest 没有文件大小，`TotalBytes=0` 时显示
+  「大小未知」，不再误显示 `约 0 MB`。
+- 库下载改为按 `DownloadConcurrency` 并发；资源对象原本已并发。
+- 整合包安装新增「取消安装」按钮，取消会传递到本体/加载器/文件下载。
+- NeoForge 安装：官方 `maven.neoforged.net` 在部分网络下超时，
+  现在先从 installer 的 `version.json` + `install_profile.json` 读取库清单，
+  用 BMCLAPI 镜像预补缺失库；失败清单还会再兜底补一轮。
+  实测 `dist` 根目录从零补齐后成功安装 `neoforge-21.1.259`。
+
+---
+
 ## 11. 2026-10-27：工作区完整性级别调整
 
 `D:\Agents` 整个目录原先带 `Low` 完整性标签，导致：

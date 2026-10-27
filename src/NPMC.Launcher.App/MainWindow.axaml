@@ -1196,17 +1196,12 @@
                 <TextBlock Text="{Binding ModpackSourceHint}" FontSize="10" Foreground="#6E7684"
                            TextWrapping="Wrap" />
 
-                <Grid ColumnDefinitions="64,*,Auto">
-                  <TextBlock Text="API key" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
-                  <TextBox Grid.Column="1" Text="{Binding CurseForgeApiKey, Mode=TwoWay}"
-                           PasswordChar="●" FontSize="12"
-                           Watermark="粘贴 CurseForge API key（$2a$...）" />
-                  <Button Grid.Column="2" Content="保存并测试" Command="{Binding SaveCurseForgeKeyCommand}"
-                          Margin="8,0,0,0" FontSize="12" Height="30" Padding="10,0" />
-                </Grid>
-
-                <TextBlock Text="{Binding CurseForgeKeyStatus}" FontSize="10" Foreground="#6E7684"
-                           TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsCurseForgeKeyMissing}">
+                  <TextBlock Text="缺少 CurseForge API key，请先到设置填写。" FontSize="10" Foreground="#E0A94A"
+                             VerticalAlignment="Center" />
+                  <Button Content="去设置" Command="{Binding ShowSettingsCommand}"
+                          FontSize="11" Height="24" Padding="8,0" />
+                </StackPanel>
 
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBox Text="{Binding ModpackSearchQuery, Mode=TwoWay}" FontSize="12"
@@ -1348,6 +1343,8 @@
         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">
           <Button Content="安装整合包" Command="{Binding InstallModpackCommand}"
                   IsEnabled="{Binding !IsInstallingModpack}" />
+          <Button Content="取消安装" Command="{Binding CancelModpackInstallCommand}"
+                  IsVisible="{Binding IsInstallingModpack}" />
         </StackPanel>
       </Grid>
 
@@ -1436,6 +1433,30 @@
                            FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
                 <TextBlock Text="超时与代理在新建网络连接时读取，改完需要重启启动器。" Margin="110,0,0,0"
                            FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <!-- CurseForge -->
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16,14">
+              <StackPanel Spacing="10">
+                <TextBlock Text="CurseForge" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
+                <TextBlock Text="Modrinth / CurseForge 整合包搜索与 CurseForge 模组下载共用这个 key。"
+                           FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+
+                <Grid ColumnDefinitions="110,*,Auto">
+                  <TextBlock Text="API key" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding CurseForgeApiKey, Mode=TwoWay}"
+                           PasswordChar="●" FontSize="12"
+                           Watermark="粘贴 CurseForge API key（$2a$...）" />
+                  <Button Grid.Column="2" Content="保存并测试" Command="{Binding SaveCurseForgeKeyCommand}"
+                          Margin="8,0,0,0" FontSize="12" Height="30" Padding="10,0" />
+                </Grid>
+
+                <TextBlock Text="{Binding CurseForgeKeyStatus}" Margin="110,0,0,0"
+                           FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+                <TextBlock Text="保存到 %APPDATA%\NPMC-Launcher\curseforge.key；不会写进 settings.json。"
+                           Margin="110,0,0,0" FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
 

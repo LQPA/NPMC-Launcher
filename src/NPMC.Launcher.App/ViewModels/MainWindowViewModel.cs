@@ -167,6 +167,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         InstallModpackCommand = new AsyncRelayCommand(
             InstallModpackAsync,
             () => HasModpackPlan && !IsInstallingModpack);
+        CancelModpackInstallCommand = new RelayCommand(
+            CancelModpackInstall,
+            () => IsInstallingModpack);
 
         RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
 
@@ -2031,6 +2034,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>未配置 key 时 CurseForge 来源不可用，界面上据此禁用选项。</summary>
     public bool IsCurseForgeSearchAvailable => _curseForge is not null;
 
+    public bool IsCurseForgeKeyMissing => !IsCurseForgeSearchAvailable;
+
     /// <summary>设置页保存 key 后重建客户端；环境变量优先级仍高于文件。</summary>
     private void ReloadCurseForgeClient()
     {
@@ -2046,6 +2051,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(IsCurseForgeSearchAvailable));
+        OnPropertyChanged(nameof(IsCurseForgeKeyMissing));
         OnPropertyChanged(nameof(IsCurseForgeSearchAvailableForModpacks));
     }
 
@@ -3836,6 +3842,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private DownloadMode _downloadMode = DownloadMode.Versions;
     private ModpackPlan? _modpackPlan;
     private bool _isInstallingModpack;
+    private CancellationTokenSource? _modpackInstallCts;
     private string _modpackStatus = "选择一个 .mrpack 文件，或直接把它拖到这里";
     private string _modpackProgress = "";
 
@@ -3875,6 +3882,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         private set => SetProperty(ref _modpackProgress, value);
     }
 
+    public ICommand CancelModpackInstallCommand { get; private set; } = null!;
+
     public bool IsInstallingModpack
     {
         get => _isInstallingModpack;
@@ -3882,6 +3891,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _isInstallingModpack, value)) return;
             (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (CancelModpackInstallCommand as RelayCommand)?.RaiseCanExecuteChanged();
             OnPropertyChanged(nameof(IsModpackBusy));
             (DownloadModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
@@ -3903,7 +3913,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ? ""
         : $"游戏版本 {plan.Index.GameVersion} · 加载器 {plan.Index.LoaderText}"
           + $" · {plan.Index.Files.Count} 个文件（{plan.Index.ModCount} 个模组）"
-          + $" · 约 {plan.Index.TotalBytes / 1024d / 1024d:N0} MB"
+          + (plan.Index.TotalBytes > 0
+              ? $" · 约 {plan.Index.TotalBytes / 1024d / 1024d:N0} MB"
+              : " · 大小未知")
           + (plan.VersionLabel.Length > 0 ? $" · 版本 {plan.VersionLabel}" : "");
 
     private void SetDownloadMode(DownloadMode mode)
@@ -3984,6 +3996,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
+        using var cts = new CancellationTokenSource();
+        _modpackInstallCts = cts;
+        var cancellationToken = cts.Token;
+
         IsInstallingModpack = true;
 
         try
@@ -4015,7 +4031,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ModpackStatus = $"正在下载游戏本体 {gameVersion}…";
             var installer = await CreateMinecraftInstallerAsync();
             var version = await installer.LoadVersionAsync(_launcher, gameVersion);
-            await installer.InstallAsync(_launcher, gameVersion, version, bodyProgress);
+            await installer.InstallAsync(_launcher, gameVersion, version, bodyProgress, cancellationToken);
 
             var instanceVersion = gameVersion;
 
@@ -4025,7 +4041,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 var fabric = new FabricLoaderInstaller(_http);
                 var fabricResult = await fabric.InstallAsync(
-                    _launcher, gameVersion, plan.Index.LoaderVersion, _downloader);
+                    _launcher, gameVersion, plan.Index.LoaderVersion, _downloader, cancellationToken);
 
                 instanceVersion = fabricResult.ProfileId;
             }
@@ -4049,13 +4065,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     {
                         var neo = new NeoForgeInstaller(_downloader);
                         forgePlan = await neo.PrepareAsync(
-                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache);
+                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache,
+                            cancellationToken);
                     }
                     else
                     {
                         var forge = new ForgeInstaller(_downloader);
                         forgePlan = await forge.PrepareAsync(
-                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache);
+                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache,
+                            cancellationToken);
                     }
 
                     // 1.13+ 的安装器是 java 程序：缺运行时会先补装，并提示可去设置页预下载
@@ -4065,9 +4083,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                     var forgeResult = isNeoForge
                         ? await new NeoForgeInstaller(_downloader)
-                            .InstallAsync(_launcher, forgePlan, forgeProgress, javaPath: forgeJava)
+                            .InstallAsync(_launcher, forgePlan, forgeProgress,
+                                cancellationToken, javaPath: forgeJava)
                         : await new ForgeInstaller(_downloader)
-                            .InstallAsync(_launcher, forgePlan, forgeProgress, javaPath: forgeJava);
+                            .InstallAsync(_launcher, forgePlan, forgeProgress,
+                                cancellationToken, javaPath: forgeJava);
 
                     instanceVersion = forgeResult.VersionId;
 
@@ -4141,7 +4161,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var result = await CreateModpackInstaller()
                 .InstallIntoAsync(plan, layout.GameDirectory, fileProgress,
-                    Math.Clamp(_startupSettings.DownloadConcurrency, 1, 16));
+                    Math.Clamp(_startupSettings.DownloadConcurrency, 1, 16), cancellationToken);
 
             // 作者禁止 API 下载的文件：安装完成后显示列表并开始监听下载目录
             ShowBlockedMods(plan, layout.GameDirectory);
@@ -4180,6 +4200,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SelectedInstance = Instances.FirstOrDefault(item =>
                 string.Equals(item.Id, instance.Id, StringComparison.OrdinalIgnoreCase));
         }
+        catch (OperationCanceledException)
+        {
+            ModpackStatus = "已取消整合包安装";
+            ModpackProgress = "";
+        }
         catch (Exception ex)
         {
             ModpackStatus = $"安装失败：{ex.GetBaseException().Message}";
@@ -4187,8 +4212,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         finally
         {
+            _modpackInstallCts = null;
             IsInstallingModpack = false;
         }
+    }
+
+    private void CancelModpackInstall()
+    {
+        _modpackInstallCts?.Cancel();
+        ModpackStatus = "正在取消整合包安装…";
     }
 
     /// <summary>重名时加序号，避免两个实例同名到分不清。</summary>
