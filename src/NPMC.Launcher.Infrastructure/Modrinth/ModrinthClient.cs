@@ -107,6 +107,7 @@ public sealed class ModrinthClient
         int limit = 10,
         string projectType = "mod",
         string sortIndex = "relevance",
+        int offset = 0,
         IReadOnlyList<string>? categories = null,
         CancellationToken cancellationToken = default)
     {
@@ -125,6 +126,7 @@ public sealed class ModrinthClient
         var url = $"{ApiBase}/search?query={Uri.EscapeDataString(query)}"
                 + $"&facets={Uri.EscapeDataString("[" + string.Join(",", facets) + "]")}"
                 + $"&limit={limit}"
+                + $"&offset={offset}"
                 + $"&index={Uri.EscapeDataString(sortIndex)}";
 
         var json = await _http.GetStringAsync(url, cancellationToken).ConfigureAwait(false);

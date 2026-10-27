@@ -320,14 +320,17 @@ public sealed class CurseForgeClient
         int limit = 10,
         int classId = 6,
         int? categoryId = null,
+        int offset = 0,
+        int sortField = 6,
         CancellationToken cancellationToken = default)
     {
         var parameters = new List<string>
         {
             $"gameId={MinecraftGameId}",
             $"classId={classId}",
+            $"index={Math.Max(0, offset)}",
             $"pageSize={Math.Clamp(limit, 1, 50)}",
-            "sortField=6",
+            $"sortField={sortField}",
             "sortOrder=desc",
         };
 

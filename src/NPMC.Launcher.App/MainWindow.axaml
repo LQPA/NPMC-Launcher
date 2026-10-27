@@ -644,15 +644,23 @@
                       FontSize="11" Padding="10,3" />
               <TextBlock Text="下载新模组" FontSize="12" Foreground="#E8EAED" VerticalAlignment="Center" />
             </StackPanel>
-              <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+              <Grid ColumnDefinitions="*,Auto,Auto">
                 <TextBox Grid.Column="0" Text="{Binding SearchQuery}"
                          Watermark="{Binding SearchPlaceholder}" FontSize="12" />
+                <Button Grid.Column="1" Content="{Binding SearchButtonText}"
+                        Command="{Binding SearchCommand}" Margin="8,0,0,0" FontSize="12" />
+                <Button Grid.Column="2" Content="{Binding SearchPanelToggleText}"
+                        Command="{Binding ToggleSearchPanelCommand}"
+                        Margin="6,0,0,0" FontSize="12" Padding="8,4" />
+              </Grid>
 
+              <!-- 第二行：分类 / 来源 / 排序 -->
+              <Grid ColumnDefinitions="Auto,Auto,Auto,*">
                 <!-- 高级搜索：模组分类（资源包/光影/存档不显示） -->
-                <ComboBox Grid.Column="1" ItemsSource="{Binding SearchCategories}"
+                <ComboBox Grid.Column="0" ItemsSource="{Binding SearchCategories}"
                           SelectedIndex="{Binding SearchCategoryIndex}"
                           IsVisible="{Binding IsModCategoryFilterVisible}"
-                          Width="120" Margin="8,0,0,0" FontSize="12"
+                          Width="120" FontSize="12"
                           ToolTip.Tip="按 Modrinth / CurseForge 分类筛选模组">
                   <ComboBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:SearchCategoryOption">
@@ -662,17 +670,23 @@
                 </ComboBox>
 
                 <!-- 搜索来源：CurseForge 需要 API key；它没有光影分类 -->
-                <ComboBox Grid.Column="2" SelectedIndex="{Binding SearchSourceIndex}"
+                <ComboBox Grid.Column="1" SelectedIndex="{Binding SearchSourceIndex}"
                           Width="120" Margin="8,0,0,0" FontSize="12">
                   <ComboBoxItem Content="Modrinth" />
                   <ComboBoxItem Content="CurseForge" IsEnabled="{Binding IsCurseForgeSearchAvailable}" />
                 </ComboBox>
 
-                <Button Grid.Column="3" Content="{Binding SearchButtonText}"
-                        Command="{Binding SearchCommand}" Margin="8,0,0,0" FontSize="12" />
-                <Button Grid.Column="4" Content="{Binding SearchPanelToggleText}"
-                        Command="{Binding ToggleSearchPanelCommand}"
-                        Margin="6,0,0,0" FontSize="12" Padding="8,4" />
+                <!-- 排序 -->
+                <ComboBox Grid.Column="2" ItemsSource="{Binding SearchSorts}"
+                          SelectedIndex="{Binding SearchSortIndex}"
+                          Width="120" Margin="8,0,0,0" FontSize="12"
+                          ToolTip.Tip="搜索结果排序">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SearchSortOption">
+                      <TextBlock Text="{Binding Display}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
               </Grid>
 
               <!-- 收起后只留搜索框，把高度还给下面的内容列表 -->
@@ -686,7 +700,7 @@
                 若高度随内容变化，整个搜索面板会伸缩，下面的列表就会上下跳。
                 固定后内容变化只影响内部滚动。
               -->
-              <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Height="200"
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Height="360"
                     IsVisible="{Binding HasSearchResults}">
                 <ScrollViewer Grid.Column="0">
                   <ListBox ItemsSource="{Binding SearchResults}"
@@ -762,6 +776,19 @@
                   </ScrollViewer>
                 </Border>
               </Grid>
+
+              <!-- 翻页 -->
+              <StackPanel Orientation="Horizontal" Spacing="8"
+                          IsVisible="{Binding ShowSearchPagination}">
+                <Button Content="上一页" Command="{Binding PreviousSearchPageCommand}"
+                        IsEnabled="{Binding CanGoPreviousSearchPage}"
+                        FontSize="11" Padding="10,3" />
+                <TextBlock Text="{Binding SearchPageText}" FontSize="11" Foreground="#B4BCC8"
+                           VerticalAlignment="Center" />
+                <Button Content="下一页" Command="{Binding NextSearchPageCommand}"
+                        IsEnabled="{Binding HasNextSearchPage}"
+                        FontSize="11" Padding="10,3" />
+              </StackPanel>
 
               <!-- 依赖计划确认 -->
               <Border Background="#1B1D23" CornerRadius="6" Padding="8"

@@ -138,7 +138,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         CheckUpdatesCommand = new AsyncRelayCommand(CheckModUpdatesAsync, () => CanCheckUpdates);
 
-        SearchCommand = new AsyncRelayCommand(SearchModsAsync, () => CanSearch);
+        SearchCommand = new AsyncRelayCommand(() => SearchModsAsync(resetPage: true), () => CanSearch);
+        PreviousSearchPageCommand = new AsyncRelayCommand(
+            PreviousSearchPageAsync, () => _searchPageIndex > 0 && !IsSearching);
+        NextSearchPageCommand = new AsyncRelayCommand(
+            NextSearchPageAsync, () => _searchHasNextPage && !IsSearching);
         ConfirmInstallCommand = new AsyncRelayCommand(ConfirmInstallAsync, () => CanConfirmInstall);
         CancelPlanCommand = new RelayCommand(CancelPlan);
         ToggleSearchPanelCommand = new RelayCommand(() => IsSearchPanelExpanded = !IsSearchPanelExpanded);
@@ -2131,6 +2135,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string? _pendingDirectory;
     private int _searchSourceIndex;
     private int _searchCategoryIndex;
+    private int _searchPageIndex;
+    private bool _searchHasNextPage;
+    private const int SearchPageSize = 20;
     private bool _suppressVersionReload;
     private ModSearchResultItem? _pendingItem;
     private InstallVersionChoice? _selectedInstallVersion;
@@ -2169,7 +2176,36 @@ public sealed partial class MainWindowViewModel : ObservableObject
         new("优化 / 性能", "optimization", 6814),
         new("食物 / 农业", "food", 436),
         new("装备 / 工具", "equipment", 434),
+        new("运输", "transportation", 414),
+        new("生物", "mobs", 411),
+        new("装饰", "decoration", 424),
+        new("库 / API", "library", 421),
     };
+
+    /// <summary>搜索排序；默认按相关度，空查询时也允许显式选下载量。</summary>
+    public ObservableCollection<SearchSortOption> SearchSorts { get; } = new()
+    {
+        new("相关度", "relevance", 1),
+        new("最多下载", "downloads", 6),
+        new("最近更新", "updated", 3),
+    };
+
+    private int _searchSortIndex;
+
+    public int SearchSortIndex
+    {
+        get => _searchSortIndex;
+        set
+        {
+            if (!SetProperty(ref _searchSortIndex, value)) return;
+            OnPropertyChanged(nameof(SelectedSearchSortName));
+        }
+    }
+
+    public string SelectedSearchSortName =>
+        _searchSortIndex >= 0 && _searchSortIndex < SearchSorts.Count
+            ? SearchSorts[_searchSortIndex].Display
+            : "相关度";
 
     public int SearchCategoryIndex
     {
@@ -2256,6 +2292,39 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool HasSearchSummary => _searchSummaryText.Length > 0;
 
     public bool HasSearchResults => SearchResults.Count > 0;
+
+    public bool HasNextSearchPage => _searchHasNextPage;
+
+    public bool CanGoPreviousSearchPage => _searchPageIndex > 0;
+
+    public string SearchPageText => $"第 {_searchPageIndex + 1} 页";
+
+    public bool ShowSearchPagination => IsContentList
+        && (SearchResults.Count > 0 || _searchPageIndex > 0);
+
+    private void RaiseSearchPageState()
+    {
+        OnPropertyChanged(nameof(HasNextSearchPage));
+        OnPropertyChanged(nameof(CanGoPreviousSearchPage));
+        OnPropertyChanged(nameof(SearchPageText));
+        OnPropertyChanged(nameof(ShowSearchPagination));
+        (PreviousSearchPageCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (NextSearchPageCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private async Task PreviousSearchPageAsync()
+    {
+        if (_searchPageIndex <= 0 || IsSearching) return;
+        _searchPageIndex--;
+        await SearchModsAsync(resetPage: false);
+    }
+
+    private async Task NextSearchPageAsync()
+    {
+        if (!_searchHasNextPage || IsSearching) return;
+        _searchPageIndex++;
+        await SearchModsAsync(resetPage: false);
+    }
 
     public bool IsSearching
     {
@@ -2745,6 +2814,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ICommand CancelPlanCommand { get; }
     public ICommand ToggleSearchPanelCommand { get; }
 
+    public ICommand PreviousSearchPageCommand { get; }
+
+    public ICommand NextSearchPageCommand { get; }
+
     /// <summary>
     /// 清空搜索结果与待确认的安装计划。
     ///
@@ -2755,7 +2828,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void ResetSearchState()
     {
         SearchResults.Clear();
+        _searchPageIndex = 0;
+        _searchHasNextPage = false;
         OnPropertyChanged(nameof(HasSearchResults));
+        RaiseSearchPageState();
         OnPropertyChanged(nameof(SearchPanelToggleText));
 
         // 连搜索词一起清掉：切换内容类型后旧关键词已经没有意义，
@@ -2793,9 +2869,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// 搜索。**查询为空时改为浏览热门**（按下载量排序）——
     /// 用户往往不知道该搜什么，先看当前版本/加载器下最常用的项目更有用。
     /// </summary>
-    private async Task SearchModsAsync()
+    private async Task SearchModsAsync(bool resetPage = true)
     {
         if (SelectedInstance is not { } instance) return;
+
+        if (resetPage) _searchPageIndex = 0;
+        var offset = _searchPageIndex * SearchPageSize;
 
         var query = _searchQuery.Trim();
         var browsing = query.Length == 0;
@@ -2819,6 +2898,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                            && SearchCategoryIndex < SearchCategories.Count
                 ? SearchCategories[SearchCategoryIndex]
                 : null;
+
+            var sort = SearchSortIndex >= 0 && SearchSortIndex < SearchSorts.Count
+                ? SearchSorts[SearchSortIndex]
+                : SearchSorts[0];
 
             // 搜索要用游戏版本号（1.20.1）；实例版本可能是 fabric-loader-0.20.1-1.20.1
             var gameVersion = await ResolveGameVersionAsync(instance);
@@ -2848,8 +2931,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (source == UpdateSource.CurseForge)
             {
                 var hits = await _curseForge!.SearchAsync(
-                    query, gameVersion, loaders, 8, kind.CurseForgeClassId()!.Value,
-                    categoryId: category?.CurseForgeCategoryId);
+                    query, gameVersion, loaders, SearchPageSize + 1, kind.CurseForgeClassId()!.Value,
+                    categoryId: category?.CurseForgeCategoryId,
+                    offset: offset,
+                    sortField: sort.CurseForgeSortField);
+
+                _searchHasNextPage = hits.Count > SearchPageSize;
+                if (_searchHasNextPage) hits = hits.Take(SearchPageSize).ToList();
 
                 var pageSegment = kind == ContentKind.ResourcePack ? "texture-packs" : "mc-mods";
 
@@ -2871,11 +2959,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
             else
             {
                 var hits = await _modrinth.SearchAsync(
-                    query, gameVersion, loaders, 8, kind.ModrinthProjectType(),
-                    browsing ? "downloads" : "relevance",
+                    query, gameVersion, loaders, SearchPageSize + 1, kind.ModrinthProjectType(),
+                    sort.ModrinthIndex,
+                    offset: offset,
                     categories: category?.ModrinthCategory is { } modrinthCategory
                         ? new[] { modrinthCategory }
                         : null);
+
+                _searchHasNextPage = hits.Count > SearchPageSize;
+                if (_searchHasNextPage) hits = hits.Take(SearchPageSize).ToList();
 
                 foreach (var hit in hits)
                 {
@@ -2915,10 +3007,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (category is not null)
                 SearchSummaryText += $" · 分类：{category.Display}";
 
+            RaiseSearchPageState();
             Status = SearchSummaryText;
         }
         catch (Exception ex)
         {
+            _searchHasNextPage = false;
+            RaiseSearchPageState();
             SearchSummaryText = $"搜索失败：{ex.GetBaseException().Message}";
             Status = SearchSummaryText;
             LauncherLog.Write(_launcher.Root, $"搜索失败 {query} → {ex.GetBaseException().Message}");
