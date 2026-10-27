@@ -47,12 +47,22 @@ internal static class LauncherRoot
             return fromVariable;
         }
 
-        // 3) 上次用过的目录（要求仍然存在，避免记住了一个已删除的路径）
+        // 3) exe 旁边已经有便携布局（data/minecraft）→ 以当前目录为准。
+        //    这样把 exe + data + minecraft 一起复制到别的盘/目录时，不会继续用
+        //    last-root 里记录的旧 D 盘路径。
+        var executableDirectory = Path.GetFullPath(AppContext.BaseDirectory);
+        if (Directory.Exists(Path.Combine(executableDirectory, "data"))
+            || Directory.Exists(Path.Combine(executableDirectory, "minecraft")))
+        {
+            return executableDirectory;
+        }
+
+        // 4) 上次用过的目录（要求仍然存在，避免记住了一个已删除的路径）
         var remembered = Recall();
         if (remembered is not null) return remembered;
 
-        // 4) exe 所在目录
-        return AppContext.BaseDirectory;
+        // 5) exe 所在目录
+        return executableDirectory;
     }
 
     private static void Remember(string root)
