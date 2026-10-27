@@ -835,7 +835,8 @@
                                          Foreground="#FFFFFF" HorizontalAlignment="Center"
                                          VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Text="{Binding Label}" FontSize="11" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Display}" FontSize="11" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="520" />
                           </StackPanel>
                         </DataTemplate>
                       </ComboBox.ItemTemplate>

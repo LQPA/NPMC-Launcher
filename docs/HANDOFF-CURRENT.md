@@ -118,6 +118,11 @@
     模组页仍是 14 项、没有第二个下拉。
     诊断：`--exercise-search --exercise-category <名字>` 会先找主分类再找次要维度，
     也可以用 `--exercise-secondary <名字>` 直接指定。
+  - **版本下拉能区分同号变体**：光影/资源包常见六个文件全叫 `2.02`（Extreme / High / Lite…）。
+    现在同一版本号出现多次时，`InstallVersionChoice.Display` 会在版本号后补变体名
+    （从 Modrinth 的 `name` 去掉项目名与版本号得到，取不到就用文件名）；版本号唯一时不补，
+    模组列表保持干净。实测 sildur：`2.02 · Extreme / · High / · Lite`；sodium 仍是
+    `mc26.3-0.9.3-beta.1-neoforge`。
 
 ## 关键文件
 

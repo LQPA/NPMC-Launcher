@@ -501,16 +501,16 @@ internal static class InstanceDump
                 foreach (var line in viewModel.PlanLines)
                     lines.Add($"    {line.Label,-14} {line.Detail}");
 
-                lines.Add($"    可选版本 {viewModel.InstallVersions.Count} 个，当前 {viewModel.SelectedInstallVersion?.Label}");
+                lines.Add($"    可选版本 {viewModel.InstallVersions.Count} 个，当前 {viewModel.SelectedInstallVersion?.Display}");
                 foreach (var choice in viewModel.InstallVersions.Take(4))
-                    lines.Add($"      [{choice.TypeBadge}] {choice.Label}    ({choice.TypeLabel})");
+                    lines.Add($"      [{choice.TypeBadge}] {choice.Display}    ({choice.TypeLabel})");
 
                 // 切到第二个版本，确认计划会跟着重算
                 if (viewModel.InstallVersions.Count > 1)
                 {
                     viewModel.SelectInstallVersionForDiagnosticsAsync(1).GetAwaiter().GetResult();
 
-                    lines.Add($"[切换版本] 当前 {viewModel.SelectedInstallVersion?.Label}");
+                    lines.Add($"[切换版本] 当前 {viewModel.SelectedInstallVersion?.Display}");
                     foreach (var line in viewModel.PlanLines)
                         lines.Add($"    {line.Label,-14} {line.Detail}");
                 }

@@ -81,8 +81,19 @@ public sealed class ModSearchResultItem : ObservableObject
 /// 界面只负责把它传回给解析器，不关心它的含义。
 /// </summary>
 /// <param name="Channel">正式版 / Beta / Alpha —— 两个平台的枚举都归一化成这个。</param>
-public sealed record InstallVersionChoice(string Ref, string Label, ReleaseChannel Channel)
+/// <param name="Detail">
+/// 同一个版本号下的变体说明（Modrinth 的 name 去掉项目名与版本号之后剩的部分）。
+/// 光影/资源包常见：六个文件都叫 2.02，只有"Extreme / High / Lite"能区分。
+/// 仅当同一版本号出现多次时才会用上，避免把普通的模组列表弄乱。
+/// </param>
+public sealed record InstallVersionChoice(
+    string Ref,
+    string Label,
+    ReleaseChannel Channel,
+    string? Detail = null)
 {
+    /// <summary>下拉里显示的文字：版本号，必要时补上变体说明。</summary>
+    public string Display => string.IsNullOrWhiteSpace(Detail) ? Label : $"{Label} · {Detail}";
     /// <summary>版本类型徽标：R / B / A。</summary>
     public string TypeBadge => Channel.Badge();
 

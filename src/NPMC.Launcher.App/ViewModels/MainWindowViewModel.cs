@@ -3309,12 +3309,66 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var versions = await _modrinth.GetProjectVersionsAsync(item.ProjectRef, gameVersion, loaders);
 
+        // 光影/资源包常见"六个文件都叫 2.02"：只有版本号重复时才补上变体名
+        // （Extreme / High / Lite…），否则模组列表会变成"版本号 · 重复说了遍的版本名"。
+        var duplicateLabels = versions
+            .GroupBy(version => version.VersionNumber, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         return versions
             .Select(version => new InstallVersionChoice(
                 version.Id,
                 version.VersionNumber,
-                ReleaseChannelExtensions.FromModrinthType(version.VersionType)))
+                ReleaseChannelExtensions.FromModrinthType(version.VersionType),
+                duplicateLabels.Contains(version.VersionNumber)
+                    ? VariantDetail(version.Name, item.Title, version.VersionNumber, version.PrimaryFile?.FileName)
+                      ?? "（无变体说明）"
+                    : null))
             .ToList();
+    }
+
+    /// <summary>
+    /// 从 Modrinth 的版本名里剥出"变体说明"：去掉项目名、去掉版本号，剩下的才是
+    /// Extreme / High / Lite 这类真正能区分的部分；剥完为空就返回 null。
+    /// </summary>
+    private static string? VariantDetail(string? name, string title, string versionNumber, string? fileName)
+    {
+        var detail = name?.Trim();
+
+        if (string.IsNullOrWhiteSpace(detail))
+            return FileVariant(fileName, title, versionNumber);
+
+        if (detail.StartsWith(title, StringComparison.OrdinalIgnoreCase))
+            detail = detail[title.Length..].Trim();
+
+        if (detail.StartsWith(versionNumber, StringComparison.OrdinalIgnoreCase))
+            detail = detail[versionNumber.Length..].Trim(' ', '-', '·', ',', '_');
+
+        if (detail.Length == 0 || detail.Equals(versionNumber, StringComparison.OrdinalIgnoreCase))
+            return FileVariant(fileName, title, versionNumber);
+
+        return detail;
+    }
+
+    /// <summary>版本名没有信息量时，从文件名里剥：去掉扩展名、项目名与版本号。</summary>
+    private static string? FileVariant(string? fileName, string title, string versionNumber)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return null;
+
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+
+        if (stem.StartsWith(title, StringComparison.OrdinalIgnoreCase))
+            stem = stem[title.Length..].Trim();
+
+        foreach (var token in new[] { versionNumber, "v" + versionNumber })
+        {
+            if (stem.StartsWith(token, StringComparison.OrdinalIgnoreCase))
+                stem = stem[token.Length..].Trim(' ', '-', '_');
+        }
+
+        return stem.Length == 0 ? null : stem;
     }
 
     /// <summary>按指定版本重新解析计划（包括该版本声明的依赖）。</summary>
@@ -3324,7 +3378,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         try
         {
-            Status = $"正在解析 {item.Title} {choice.Label} 的依赖…";
+            Status = $"正在解析 {item.Title} {choice.Display} 的依赖…";
 
             InstallPlan plan;
 
@@ -3362,7 +3416,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             IsPlanVisible = true;
             (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
-            Status = $"待确认：{item.Title} {choice.Label} 共 {plan.Targets.Count} 个文件";
+            Status = $"待确认：{item.Title} {choice.Display} 共 {plan.Targets.Count} 个文件";
         }
         catch (Exception ex)
         {
