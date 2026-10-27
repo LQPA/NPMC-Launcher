@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using NPMC.Launcher.Core.Accounts;
 
 namespace NPMC.Launcher.Infrastructure.Skins;
@@ -19,11 +20,32 @@ public static class SkinPortProvisioner
     public static void Provision(string? gameDirectory, PlayerAccount? account)
     {
         if (string.IsNullOrWhiteSpace(gameDirectory) || account is null) return;
-        if (account.Skin is not (AccountSkin.Custom or AccountSkin.MojangName)) return;
-        if (string.IsNullOrWhiteSpace(account.SkinPath) || !File.Exists(account.SkinPath)) return;
 
         // 只有装了 SkinPort 的实例才需要；没有配置文件的实例不要凭空造目录。
-        if (!File.Exists(Path.Combine(gameDirectory, "config", "skinport.cfg"))) return;
+        var config = Path.Combine(gameDirectory, "config", "skinport.cfg");
+        if (!File.Exists(config)) return;
+
+        var hasLocalSkin = account.Skin is AccountSkin.Custom or AccountSkin.MojangName
+                           && !string.IsNullOrWhiteSpace(account.SkinPath)
+                           && File.Exists(account.SkinPath);
+
+        // 有本地皮肤时，Mojang/Crafatar 只会重复查询甚至覆盖本地结果，直接关掉；
+        // 没有本地皮肤时保持它们开启，正版号仍能拿到真皮肤。
+        try
+        {
+            var text = File.ReadAllText(config);
+            var updated = SetBoolean(text, "useMojang", enabled: !hasLocalSkin);
+            updated = SetBoolean(updated, "useCrafatar", enabled: !hasLocalSkin);
+
+            if (!string.Equals(text, updated, StringComparison.Ordinal))
+                File.WriteAllText(config, updated);
+        }
+        catch
+        {
+            // 配置改不了不影响本地皮肤文件；最多仍会发一次远端请求。
+        }
+
+        if (!hasLocalSkin) return;
 
         try
         {
@@ -44,5 +66,20 @@ public static class SkinPortProvisioner
         {
             // 皮肤缓存写不进去不该阻断启动；agent 仍会尝试 authlib 替换。
         }
+    }
+
+    /// <summary>
+    /// 只改 SkinPort 配置里的一个布尔项，保留缩进和其余内容。
+    /// 配置不存在该项时追加到 client 段末尾之前（Forge Configuration 的常见布局）。
+    /// </summary>
+    private static string SetBoolean(string text, string key, bool enabled)
+    {
+        var value = enabled ? "true" : "false";
+        var pattern = $@"(?m)^(\s*B:{Regex.Escape(key)}\s*=\s*)(true|false)\s*$";
+
+        if (Regex.IsMatch(text, pattern))
+            return Regex.Replace(text, pattern, m => m.Groups[1].Value + value);
+
+        return text;
     }
 }
