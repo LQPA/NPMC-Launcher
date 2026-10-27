@@ -636,8 +636,17 @@
           -->
           <Border Grid.Row="1" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="10" Margin="0,0,0,10"
+                  Classes.expanded="{Binding IsSearchPanelExpanded}"
+                  VerticalAlignment="Top"
                   IsVisible="{Binding IsSearchPanelVisible}">
-            <StackPanel Spacing="8">
+            <Border.Styles>
+              <Style Selector="Border.expanded">
+                <Setter Property="Grid.RowSpan" Value="2" />
+                <Setter Property="VerticalAlignment" Value="Stretch" />
+              </Style>
+            </Border.Styles>
+            <Grid RowDefinitions="Auto,*" RowSpacing="8">
+              <StackPanel Grid.Row="0" Spacing="8">
 
             <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsModDownloadMode}">
               <Button Content="← 返回模组列表" Command="{Binding CloseModDownloadCommand}"
@@ -688,19 +697,16 @@
                   </ComboBox.ItemTemplate>
                 </ComboBox>
               </Grid>
+              </StackPanel>
 
-              <!-- 收起后只留搜索框，把高度还给下面的内容列表 -->
-              <StackPanel Spacing="8" IsVisible="{Binding IsSearchPanelExpanded}">
+              <!-- 展开时吃掉内容区的剩余高度；收起后只留搜索控件 -->
+              <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="8"
+                    IsVisible="{Binding IsSearchPanelExpanded}">
 
-              <TextBlock Text="{Binding SearchSummaryText}" FontSize="11" Foreground="#949CA9"
+              <TextBlock Grid.Row="0" Text="{Binding SearchSummaryText}" FontSize="11" Foreground="#949CA9"
                          IsVisible="{Binding HasSearchSummary}" TextWrapping="Wrap" />
 
-              <!--
-                固定高度（而不是让内容撑开）：详情正文从"正在加载…"变成多行时，
-                若高度随内容变化，整个搜索面板会伸缩，下面的列表就会上下跳。
-                固定后内容变化只影响内部滚动。
-              -->
-              <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Height="360"
+              <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="10" MinHeight="220"
                     IsVisible="{Binding HasSearchResults}">
                 <ScrollViewer Grid.Column="0">
                   <ListBox ItemsSource="{Binding SearchResults}"
@@ -777,8 +783,8 @@
                 </Border>
               </Grid>
 
-              <!-- 翻页 -->
-              <StackPanel Orientation="Horizontal" Spacing="8"
+              <!-- 翻页：固定在最下方，窗口拉高时结果区先变高 -->
+              <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"
                           IsVisible="{Binding ShowSearchPagination}">
                 <Button Content="上一页" Command="{Binding PreviousSearchPageCommand}"
                         IsEnabled="{Binding CanGoPreviousSearchPage}"
@@ -791,7 +797,7 @@
               </StackPanel>
 
               <!-- 依赖计划确认 -->
-              <Border Background="#1B1D23" CornerRadius="6" Padding="8"
+              <Border Grid.Row="2" Background="#1B1D23" CornerRadius="6" Padding="8"
                       IsVisible="{Binding IsPlanVisible}">
                 <StackPanel Spacing="6">
                   <TextBlock Text="将安装以下文件" FontSize="11" Foreground="#B4BCC8" />
@@ -843,8 +849,8 @@
                 </StackPanel>
               </Border>
 
-              </StackPanel>
-            </StackPanel>
+              </Grid>
+            </Grid>
           </Border>
 
           <!--
