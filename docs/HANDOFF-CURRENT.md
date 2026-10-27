@@ -1,11 +1,11 @@
-# NPMC Launcher 交接（2026-10-27 22:52）
+# NPMC Launcher 交接（2026-10-27 23:10）
 
 ## 当前状态
 
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
-- 最新代码提交：`8f9659c`（本文件在它之后单独提交）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:52，44.1 MB，已抬 Medium）
+- 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:09，44.1 MB，已抬 Medium）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
 
@@ -53,13 +53,25 @@
   - 诊断：新增 `--exercise-search-install`（走与界面相同的确认链路、**会真的下载**到 `--root`），
     打印装前/装后的结果数、摘要、面板状态。实测 `20→20`、摘要保留、面板展开、计划收起；
     资源包页签切换仍会清空（原有语义不变）。
+  - **搜索面板与依赖计划不再叠在一起**：结果区原来写死 `MinHeight="220"`，计划面板一出现
+    可用高度只剩 ~322px，撑破格子后结果列表同时压住上面的摘要和下面的计划（用户截图的现象）。
+    现在结果行是可压缩的 `*` 行、计划里的文件行在框内滚动（≤96px）、确认安装时让出摘要行；
+    实测 752 / 640 / 600 高度都不重叠，最小窗口高度也从 520 提到 600（520 时自动行本身
+    就超过可用高度，必然挤压）。
+  - **装完立即认领**：新增 `RememberInstalledIdentity`，把这次装的文件按"来源 + 版本通道(R/B/A)
+    + 图标"直接写进识别缓存。以前要等重启（后台识别按 `实例:页签` 只跑一次，装完不重跑），
+    用户看到的就是刚下载那一行空着没有 M / C 徽标。
+  - 诊断：新增离屏渲染 `--render-search-panel <png> [--render-height N] [--render-no-plan]
+    [--render-font 字体名]`（窗口放到屏幕外、不进任务栏），用来核对这类"布局挤在一起"的问题。
 
 ## 关键文件
 
 - `src/NPMC.Launcher.App/LauncherRoot.cs`：根目录优先级。
 - `src/NPMC.Launcher.Core/Paths/LauncherPaths.cs`：`Portable`、`GameRoot`。
 - `src/NPMC.Launcher.Core/Instances/InstanceLayout.cs`：游戏目录/SharedRoot/Paths。
-- `src/NPMC.Launcher.App/ViewModels/MainWindowViewModel.cs`：搜索、分页、复制/导出、命令状态。
+- `src/NPMC.Launcher.App/ViewModels/MainWindowViewModel.cs`：搜索、分页、复制/导出、命令状态；
+  `RememberInstalledIdentity`（装完写识别缓存）、`ShowSearchSummary`。
+- `src/NPMC.Launcher.App/Diagnostics/PanelRenderProbe.cs`：离屏渲染搜索面板，用来核对布局。
 - `src/NPMC.Launcher.App/ViewModels/MainWindowViewModel.BlockedMods.cs`：blocked 导入/PackFiles。
 - `src/NPMC.Launcher.App/ViewModels/SearchCategoryOption.cs`
 - `src/NPMC.Launcher.App/ViewModels/SearchSortOption.cs`
@@ -97,6 +109,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 8. 诊断用的临时根目录要按**旧式布局**准备：`--root` 直接就是数据根
    （`<root>\instances.json`、`<root>\versions\<id>\<id>.json`、`<root>\instances\<id>`），
    `--dump-instances` 不走 `LauncherPaths.Portable`。
+9. 离屏渲染（`--render-search-panel`）不会做字体回退：不传 `--render-font "Microsoft YaHei UI"`
+   的话中文会画成方框、宽度还会算成 0（文字叠在一起）。它只适合核对几何布局，别拿它判断字体。
+10. 搜索结果右侧详情栏没选中时是空白的（列表只用左半屏）；如果把计划面板挪到右侧，
+    列表就能用满整行高度 —— 需要的话再和用户确认这个改法。
 
 ## 用户偏好
 

@@ -421,12 +421,27 @@ internal static class InstanceDump
                     var resultsBefore = viewModel.SearchResults.Count;
                     var summaryBefore = viewModel.SearchSummaryText;
 
+                    // 装之前先记下已有文件，装完只看"新出现的那几行"是否已经认领
+                    var before = viewModel.Content
+                        .Select(item => Path.GetFileName(item.Entry.Path))
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
                     viewModel.ConfirmInstallForDiagnosticsAsync().GetAwaiter().GetResult();
 
                     lines.Add($"[安装后] 结果 {resultsBefore}→{viewModel.SearchResults.Count} 个"
                               + $"，摘要保留={viewModel.SearchSummaryText == summaryBefore}"
                               + $"，面板展开={viewModel.IsSearchPanelExpanded}"
                               + $"，计划可见={viewModel.IsPlanVisible}");
+
+                    // 新装的行必须当场带来源徽标（M / C），否则用户看到的就是一行空白，
+                    // 要等重启（后台识别一个实例一个页签只跑一次）才会亮。
+                    foreach (var row in viewModel.Content.Where(row =>
+                                 !before.Contains(Path.GetFileName(row.Entry.Path))))
+                    {
+                        lines.Add($"    [认领] {Path.GetFileName(row.Entry.Path)}"
+                                  + $" 识别={row.IsIdentified} Modrinth={row.IsFromModrinth}"
+                                  + $" CurseForge={row.IsFromCurseForge}");
+                    }
                 }
 
                 lines.Add($"    status = {viewModel.Status}");

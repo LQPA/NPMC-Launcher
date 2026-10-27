@@ -2290,6 +2290,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _searchSummaryText, value)) return;
             OnPropertyChanged(nameof(HasSearchSummary));
+            OnPropertyChanged(nameof(ShowSearchSummary));
         }
     }
 
@@ -2350,8 +2351,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool IsPlanVisible
     {
         get => _isPlanVisible;
-        private set => SetProperty(ref _isPlanVisible, value);
+        private set
+        {
+            if (!SetProperty(ref _isPlanVisible, value)) return;
+            OnPropertyChanged(nameof(ShowSearchSummary));
+        }
     }
+
+    /// <summary>
+    /// 摘要那一行要不要显示。确认安装时把它让出来：
+    /// 依赖计划出现后纵向空间本来就紧张，这一行（加上行距）省下来正好多放一条结果。
+    /// </summary>
+    public bool ShowSearchSummary => HasSearchSummary && !_isPlanVisible;
 
     private bool _isSearchPanelExpanded = true;
 
@@ -3197,6 +3208,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // "第 N 页"，看上去就是搜索列表自己收起来了 —— 查询词、分类、排序、页码全都
             // 还在，只有结果没了，是最难理解的一种状态。这批结果在同一个实例下依然成立
             // （同一游戏版本 + 加载器），所以原样留着，让用户接着看、接着装。
+            //
+            // 顺手把"这一批文件是谁"写进识别缓存：本地列表里的 M 徽标与图标全靠它，
+            // 不写的话新文件要等重启（后台识别一个实例一个页签只跑一次）才亮起来。
+            RememberInstalledIdentity(plan, outcome);
+
             await RefreshContentAsync();
             await RefreshCountsAsync(instance);
         }
@@ -3209,6 +3225,39 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             IsInstalling = false;
         }
+    }
+
+    /// <summary>
+    /// 把刚装完的文件直接记进识别缓存：来源取这次搜索用的平台，版本通道取用户选的那个版本，
+    /// 图标取搜索结果里的图标地址。依赖只知道来源（它们不在搜索结果里），图标留给后台识别补。
+    ///
+    /// 不这么做，新装的文件在本会话里永远是"没认出来"：后台自动识别按
+    /// <c>实例:页签</c> 只跑一次，装完不会重跑 —— 要等下次启动或手动「检查更新」
+    /// 才会亮起 M / C 徽标，用户看到的就是一行空着。
+    /// </summary>
+    private void RememberInstalledIdentity(InstallPlan plan, InstallOutcome outcome)
+    {
+        if (_pendingItem is not { } item || outcome.Installed.Count == 0) return;
+
+        var rootFiles = plan.Main
+            .Select(target => Path.GetFileName(target.FileName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var channel = _selectedInstallVersion?.Channel;
+
+        foreach (var target in outcome.Installed)
+        {
+            var name = Path.GetFileName(target.FileName);
+            var isRoot = rootFiles.Contains(name);
+
+            _contentMetadata.Set(name, new ContentMetadata(
+                Identified: true,
+                item.Source,
+                isRoot ? channel : null,
+                isRoot ? item.IconUrl : ""));
+        }
+
+        _contentMetadata.Save();
     }
 
     private void CancelPlan()

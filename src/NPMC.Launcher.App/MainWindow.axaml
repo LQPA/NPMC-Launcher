@@ -7,7 +7,7 @@
         x:DataType="vm:MainWindowViewModel"
         Title="NPMC Launcher"
         Width="1280" Height="720"
-        MinWidth="880" MinHeight="520"
+        MinWidth="880" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Background="#1B1D23">
 
@@ -696,14 +696,18 @@
               </Grid>
               </StackPanel>
 
-              <!-- 展开时吃掉内容区的剩余高度；收起后只留搜索控件 -->
+              <!--
+                展开时吃掉内容区的剩余高度；收起后只留搜索控件。
+                中间的结果行是 * 行：**别给它 MinHeight**。依赖计划一出现，可用的高度
+                本来就紧张，写死最小高度会让结果列表撑出自己的格子，压住摘要和计划面板。
+              -->
               <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="8"
                     IsVisible="{Binding IsSearchPanelExpanded}">
 
               <TextBlock Grid.Row="0" Text="{Binding SearchSummaryText}" FontSize="11" Foreground="#949CA9"
-                         IsVisible="{Binding HasSearchSummary}" TextWrapping="Wrap" />
+                         IsVisible="{Binding ShowSearchSummary}" TextWrapping="Wrap" />
 
-              <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="10" MinHeight="220"
+              <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="10"
                     IsVisible="{Binding HasSearchResults}">
                 <ScrollViewer Grid.Column="0">
                   <ListBox ItemsSource="{Binding SearchResults}"
@@ -824,18 +828,25 @@
                     </ComboBox>
                   </Grid>
 
-                  <ItemsControl ItemsSource="{Binding PlanLines}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:InstallPlanLineItem">
-                        <Grid ColumnDefinitions="Auto,*" Margin="0,1">
-                          <TextBlock Text="{Binding Label}" FontSize="11"
-                                     Foreground="{Binding LabelColor}" Width="88" />
-                          <TextBlock Grid.Column="1" Text="{Binding Detail}" FontSize="11"
-                                     Foreground="#949CA9" TextTrimming="CharacterEllipsis" />
-                        </Grid>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
+                  <!--
+                    依赖可能很多：文件行超过 4 行就在框内滚动。
+                    计划区是 Auto 行，如果放任它长高，会把上面的结果区挤到 0，
+                    再往里挤就会压出面板 —— 那是比滚动更糟的观感。
+                  -->
+                  <ScrollViewer MaxHeight="96" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding PlanLines}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:InstallPlanLineItem">
+                          <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                            <TextBlock Text="{Binding Label}" FontSize="11"
+                                       Foreground="{Binding LabelColor}" Width="88" />
+                            <TextBlock Grid.Column="1" Text="{Binding Detail}" FontSize="11"
+                                       Foreground="#949CA9" TextTrimming="CharacterEllipsis" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
 
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button Content="{Binding InstallButtonText}" Command="{Binding ConfirmInstallCommand}"

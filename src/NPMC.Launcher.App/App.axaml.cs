@@ -40,6 +40,16 @@ public partial class App : Application
 
                 Dispatcher.UIThread.Post(async () => await MemoryProbe.RunAsync(window, desktop, root, args));
             }
+
+            // 临时诊断：离屏渲染"搜索结果 + 依赖计划"这一屏，核对布局重叠
+            if (NPMC.Launcher.App.Diagnostics.PanelRenderProbe.IsRequested(args))
+            {
+                window.ShowInTaskbar = false;
+                window.WindowStartupLocation = WindowStartupLocation.Manual;
+                window.Position = new PixelPoint(-5000, 100);
+                Dispatcher.UIThread.Post(async () =>
+                    await NPMC.Launcher.App.Diagnostics.PanelRenderProbe.RunAsync(window, desktop, args));
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
