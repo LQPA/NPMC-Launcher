@@ -399,7 +399,23 @@
 
         <!-- 概览 -->
         <ScrollViewer Grid.Row="2" Margin="0,14,0,0" IsVisible="{Binding ShowOverview}">
-          <Border Background="#23262E" CornerRadius="8"
+          <StackPanel Spacing="12">
+            <!-- 目录入口放在概览上方；底部只保留启动/复制/删除 -->
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="打开游戏目录" Command="{Binding OpenGameFolderCommand}"
+                      FontSize="11" Padding="10,3" />
+              <Button Content="打开 mods" Command="{Binding OpenModsFolderCommand}"
+                      IsVisible="{Binding HasModsDirectory}" FontSize="11" Padding="10,3" />
+              <Button Content="打开资源包" Command="{Binding OpenResourcePacksFolderCommand}"
+                      IsVisible="{Binding HasResourcePacksDirectory}" FontSize="11" Padding="10,3" />
+              <Button Content="打开光影" Command="{Binding OpenShaderPacksFolderCommand}"
+                      IsVisible="{Binding HasShaderPacksDirectory}" FontSize="11" Padding="10,3" />
+              <Button Content="打开存档" Command="{Binding OpenSavesFolderCommand}"
+                      IsVisible="{Binding HasSavesDirectory}" FontSize="11" Padding="10,3"
+                      ToolTip.Tip="打开 saves 目录（世界存档都在这里）" />
+            </StackPanel>
+
+            <Border Background="#23262E" CornerRadius="8"
                   BorderBrush="#31353F" BorderThickness="1" Padding="16,14"
                   VerticalAlignment="Top">
             <StackPanel Spacing="9">
@@ -549,6 +565,7 @@
 
             </StackPanel>
           </Border>
+          </StackPanel>
         </ScrollViewer>
 
         <!-- 内容列表 -->
@@ -964,18 +981,6 @@
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
                     IsVisible="{Binding ShowOverview}">
           <Button Content="{Binding LaunchButtonText}" Command="{Binding LaunchGameCommand}" />
-          <Button Content="打开游戏目录" Command="{Binding OpenGameFolderCommand}" />
-
-          <!-- 目录入口按实际存在与否显示：没装光影就不该出现一个只会新建空文件夹的按钮 -->
-          <Button Content="打开 mods" Command="{Binding OpenModsFolderCommand}"
-                  IsVisible="{Binding HasModsDirectory}" />
-          <Button Content="打开资源包" Command="{Binding OpenResourcePacksFolderCommand}"
-                  IsVisible="{Binding HasResourcePacksDirectory}" />
-          <Button Content="打开光影" Command="{Binding OpenShaderPacksFolderCommand}"
-                  IsVisible="{Binding HasShaderPacksDirectory}" />
-          <Button Content="打开存档" Command="{Binding OpenSavesFolderCommand}"
-                  IsVisible="{Binding HasSavesDirectory}"
-                  ToolTip.Tip="打开 saves 目录（世界存档都在这里）" />
           <Button Content="复制实例" Command="{Binding CopyInstanceCommand}"
                   Margin="18,0,0,0" />
           <!-- 删除实例：两次点击确认，避免误删 -->

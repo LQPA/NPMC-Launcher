@@ -2912,6 +2912,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                       + $"（{source} · {gameVersion}"
                       + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + "）";
 
+            if (category is not null)
+                SearchSummaryText += $" · 分类：{category.Display}";
+
             Status = SearchSummaryText;
         }
         catch (Exception ex)
