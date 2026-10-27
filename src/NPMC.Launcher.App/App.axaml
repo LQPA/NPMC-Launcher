@@ -4,6 +4,12 @@
              RequestedThemeVariant="Dark">
   <Application.Styles>
     <FluentTheme />
+
+    <!-- 所有按钮默认内容居中；左对齐的导航按钮会单独覆盖。 -->
+    <Style Selector="Button">
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
   </Application.Styles>
 
   <Application.Resources>

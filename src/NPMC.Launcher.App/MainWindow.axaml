@@ -108,14 +108,10 @@
           <TextBox Text="{Binding AccountSearchText, Mode=TwoWay}" FontSize="12"
                    Watermark="搜索账号（用户名 / UUID）" />
 
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="创建账号" Command="{Binding CreateAccountCommand}"
-                    FontSize="12" Height="30" Padding="12,0"
-                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
-            <Button Content="微软正版登录" Command="{Binding MicrosoftLoginCommand}"
-                    FontSize="12" Height="30" Padding="12,0"
-                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
-          </StackPanel>
+          <Button Content="创建账号" Command="{Binding CreateAccountCommand}"
+                  FontSize="12" Height="30" Padding="12,0"
+                  HorizontalAlignment="Stretch"
+                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
 
           <TextBlock Text="{Binding AccountStatus}" FontSize="10" Foreground="#7BC47F"
                      TextWrapping="Wrap" IsVisible="{Binding HasAccountStatus}" />
