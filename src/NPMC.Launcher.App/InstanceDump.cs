@@ -401,25 +401,63 @@ internal static class InstanceDump
                       + string.Join("、", viewModel.SearchCategories.Take(10).Select(option => option.Display))
                       + (viewModel.SearchCategories.Count > 10 ? " …" : ""));
 
-            var categoryIndex = Array.FindIndex(args, arg =>
-                string.Equals(arg, "--exercise-category", StringComparison.OrdinalIgnoreCase));
-            var categoryName = categoryIndex >= 0 && categoryIndex + 1 < args.Length ? args[categoryIndex + 1] : null;
+            if (viewModel.IsSecondaryCategoryVisible)
+                lines.Add($"    {viewModel.SecondaryCategoryLabel} {viewModel.SearchSecondaryCategories.Count} 项："
+                          + string.Join("、", viewModel.SearchSecondaryCategories.Select(option => option.Display)));
 
+            string? Arg(string name)
+            {
+                var index = Array.FindIndex(args, arg => string.Equals(arg, name, StringComparison.OrdinalIgnoreCase));
+                return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+            }
+
+            int FindIndex(IReadOnlyList<SearchCategoryOption> options, string name)
+            {
+                for (var i = 1; i < options.Count; i++)
+                {
+                    if (string.Equals(options[i].Display, name, StringComparison.OrdinalIgnoreCase)) return i;
+                }
+
+                return -1;
+            }
+
+            // 主分类（风格/特性）；找不到就去次要维度（分辨率/性能）里找
+            var categoryName = Arg("--exercise-category");
             if (categoryName is not null)
             {
-                var wanted = Enumerable.Range(1, Math.Max(0, viewModel.SearchCategories.Count - 1))
-                    .FirstOrDefault(index => string.Equals(
-                        viewModel.SearchCategories[index].Display, categoryName, StringComparison.OrdinalIgnoreCase), -1);
-
-                if (wanted > 0)
+                var primary = FindIndex(viewModel.SearchCategories, categoryName);
+                if (primary > 0)
                 {
-                    viewModel.SearchCategoryIndex = wanted;
-                    lines.Add($"    已选分类：{viewModel.SelectedSearchCategoryName}"
-                              + $"（来源={viewModel.SelectedSearchSource}）");
+                    viewModel.SearchCategoryIndex = primary;
+                    lines.Add($"    已选分类：{viewModel.SelectedSearchCategoryName}（来源={viewModel.SelectedSearchSource}）");
                 }
                 else
                 {
-                    lines.Add($"    没找到分类「{categoryName}」");
+                    var secondary = FindIndex(viewModel.SearchSecondaryCategories, categoryName);
+                    if (secondary > 0)
+                    {
+                        viewModel.SearchSecondaryIndex = secondary;
+                        lines.Add($"    已选{viewModel.SecondaryCategoryLabel}：{categoryName}（来源={viewModel.SelectedSearchSource}）");
+                    }
+                    else
+                    {
+                        lines.Add($"    没找到分类「{categoryName}」");
+                    }
+                }
+            }
+
+            var secondaryName = Arg("--exercise-secondary");
+            if (secondaryName is not null)
+            {
+                var secondaryIndex = FindIndex(viewModel.SearchSecondaryCategories, secondaryName);
+                if (secondaryIndex > 0)
+                {
+                    viewModel.SearchSecondaryIndex = secondaryIndex;
+                    lines.Add($"    已选{viewModel.SecondaryCategoryLabel}：{secondaryName}（来源={viewModel.SelectedSearchSource}）");
+                }
+                else
+                {
+                    lines.Add($"    没找到{viewModel.SecondaryCategoryLabel}「{secondaryName}」");
                 }
             }
 

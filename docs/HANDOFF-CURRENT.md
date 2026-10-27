@@ -110,8 +110,14 @@
     取（资源包 29 个、光影 19 个），缓存进 `cache/search-categories.json`（7 天，断网可用）；
     模组的 13 个中文分类仍是内置（带 CurseForge id）。选具体分类时若来源是 CurseForge，
     会自动切回 Modrinth（CF 的包分类 id 没映射），搜索前也会拦下并提示。
-    实测：资源包「16x」→ 7 条、光影「realistic」→ 1 条、模组页分类恢复为 14 项（全部 + 13）。
-    诊断：`--exercise-search --exercise-category <名字>` 可指定分类后再搜。
+  - **分辨率/性能单独成一个下拉**：资源包/光影的标签里，`resolutions`（8x- ～ 512x+）与
+    `performance impact`（potato ～ screenshot）跟风格/特性不是一回事，现在拆成第二个下拉
+    （标签名随类型变：资源包=分辨率、光影=性能），并按数值/档位排序（不再是 16x 排在 128x 前）。
+    两个维度是 Modrinth facet 的两个**组**（组间 AND），所以"16x + vanilla-like"会真正叠加。
+    实测：资源包 分类 22 项 + 分辨率 9 项（16x → 7 条）；光影 分类 15 项 + 性能 6 项（low → 5 条）；
+    模组页仍是 14 项、没有第二个下拉。
+    诊断：`--exercise-search --exercise-category <名字>` 会先找主分类再找次要维度，
+    也可以用 `--exercise-secondary <名字>` 直接指定。
 
 ## 关键文件
 

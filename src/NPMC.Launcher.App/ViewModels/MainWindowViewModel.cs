@@ -1417,6 +1417,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(IsDataPackTab));
             OnPropertyChanged(nameof(IsCategoryFilterVisible));
             OnPropertyChanged(nameof(CategoryFilterTip));
+            OnPropertyChanged(nameof(IsSecondaryCategoryVisible));
+            OnPropertyChanged(nameof(SecondaryCategoryLabel));
+            OnPropertyChanged(nameof(SecondaryCategoryTip));
 
             // 分类清单跟着内容类型走：模组是内置 14 项，资源包/光影是 Modrinth 标签
             if (value.ContentKind is { } contentType && contentType.SupportsDownload())
@@ -2223,6 +2226,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 切成某类项目的分类列表。
     /// 模组用内置列表；资源包/光影先用缓存（没有就先只有「全部」），再后台问 Modrinth 刷新。
+    /// 资源包/光影的标签按 header 拆成两个下拉：主分类（风格/特性）+ 次要维度（分辨率/性能）。
     /// </summary>
     private void ApplyCategories(ContentKind kind, IReadOnlyList<ModrinthCategoryTag>? tags)
     {
@@ -2231,41 +2235,115 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _categoryKind = kind;
 
         SearchCategories.Clear();
+        SearchSecondaryCategories.Clear();
 
-        foreach (var option in ModCategoryOptions())
+        if (kind == ContentKind.Mod)
         {
-            if (kind == ContentKind.Mod) SearchCategories.Add(option);
+            foreach (var option in ModCategoryOptions()) SearchCategories.Add(option);
         }
-
-        if (kind != ContentKind.Mod)
+        else
         {
-            var resolved = tags ?? _categoryCache.Get(kind.ModrinthProjectType());
+            var resolved = tags
+                           ?? _categoryCache.Get(kind.ModrinthProjectType())
+                           ?? Array.Empty<ModrinthCategoryTag>();
+
             SearchCategories.Add(new SearchCategoryOption("全部", null, null));
+            SearchSecondaryCategories.Add(new SearchCategoryOption("全部", null, null));
 
-            if (resolved is { Count: > 0 })
-            {
-                foreach (var tag in OrderCategories(resolved))
-                    SearchCategories.Add(new SearchCategoryOption(tag.Name, tag.Name, null));
-            }
+            foreach (var tag in OrderCategories(resolved, primary: true))
+                SearchCategories.Add(new SearchCategoryOption(tag.Name, tag.Name, null));
+
+            foreach (var tag in OrderCategories(resolved, primary: false))
+                SearchSecondaryCategories.Add(new SearchCategoryOption(tag.Name, tag.Name, null));
         }
 
-        // 重建后原来的下标没有意义了，回到「全部」
+        // 重建后原来的下标没有意义了，都回到「全部」
         SearchCategoryIndex = 0;
+        SearchSecondaryIndex = 0;
+
         OnPropertyChanged(nameof(HasSearchCategories));
+        OnPropertyChanged(nameof(IsSecondaryCategoryVisible));
+        OnPropertyChanged(nameof(SecondaryCategoryLabel));
+        OnPropertyChanged(nameof(SecondaryCategoryTip));
     }
+
+    /// <summary>第二个分类维度：资源包的分辨率、光影的性能档位。</summary>
+    public ObservableCollection<SearchCategoryOption> SearchSecondaryCategories { get; } = new();
+
+    private int _searchSecondaryIndex;
+
+    public int SearchSecondaryIndex
+    {
+        get => _searchSecondaryIndex;
+        set
+        {
+            if (!SetProperty(ref _searchSecondaryIndex, value)) return;
+
+            // 和主分类一样：这一维度只有 Modrinth 有，选了就切回 Modrinth
+            if (value > 0
+                && SelectedTab.ContentKind is { } kind
+                && kind != ContentKind.Mod
+                && _searchSourceIndex != 0)
+                SearchSourceIndex = 0;
+        }
+    }
+
+    public bool IsSecondaryCategoryVisible =>
+        SelectedTab.ContentKind is ContentKind.ResourcePack or ContentKind.ShaderPack;
+
+    public string SecondaryCategoryLabel =>
+        SelectedTab.ContentKind == ContentKind.ShaderPack ? "性能" : "分辨率";
+
+    public string SecondaryCategoryTip =>
+        SelectedTab.ContentKind == ContentKind.ShaderPack
+            ? "按光影的性能档位筛选（potato 最低、high 最高）"
+            : "按资源包的分辨率筛选";
 
     public bool HasSearchCategories => SearchCategories.Count > 0;
 
-    /// <summary>按 Modrinth 的 header 分组排序：风格 → 特性 → 分辨率/性能。</summary>
-    private static IEnumerable<ModrinthCategoryTag> OrderCategories(IReadOnlyList<ModrinthCategoryTag> tags)
-        => tags
-            .OrderBy(tag => tag.Header switch
-            {
-                "categories" => 0,
-                "features" => 1,
-                _ => 2,
-            })
+    /// <summary>
+    /// 按 Modrinth 的 header 拆出两个维度并排序：
+    /// 主分类 = categories（风格）+ features（特性）；次要 = resolutions 或 performance impact。
+    /// </summary>
+    private static IEnumerable<ModrinthCategoryTag> OrderCategories(
+        IReadOnlyList<ModrinthCategoryTag> tags,
+        bool primary)
+    {
+        var selected = tags.Where(tag => primary
+            ? tag.Header is "categories" or "features"
+            : tag.Header is "resolutions" or "performance impact");
+
+        if (!primary)
+        {
+            // 分辨率按数字排（字符串排会把 16x 排在 128x 前面）；性能按 potato → high 排
+            return selected
+                .OrderBy(tag => tag.Header == "resolutions"
+                    ? ResolutionRank(tag.Name)
+                    : PerformanceRank(tag.Name))
+                .ThenBy(tag => tag.Name, StringComparer.OrdinalIgnoreCase);
+        }
+
+        return selected
+            .OrderBy(tag => tag.Header == "categories" ? 0 : 1)
             .ThenBy(tag => tag.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static int ResolutionRank(string name)
+    {
+        // 标签形如 8x- / 16x / 48x / 512x+
+        var digits = new string(name.TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var value) ? value : int.MaxValue;
+    }
+
+    private static int PerformanceRank(string name) => name.ToLowerInvariant() switch
+    {
+        "potato" => 0,
+        "low" => 1,
+        "medium" => 2,
+        "high" => 3,
+        "screenshot" => 4,
+        _ => 5,
+    };
 
     /// <summary>
     /// 确保当前页签有对应分类。断网时退回缓存；缓存也没有就只剩「全部」。
@@ -3012,6 +3090,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? SearchCategories[SearchCategoryIndex]
                 : null;
 
+            // 第二个维度：资源包分辨率 / 光影性能；Modrinth 里它们是独立的 facet 组
+            var secondary = SearchSecondaryIndex > 0
+                            && SearchSecondaryIndex < SearchSecondaryCategories.Count
+                ? SearchSecondaryCategories[SearchSecondaryIndex].ModrinthCategory
+                : null;
+
             var sort = SearchSortIndex >= 0 && SearchSortIndex < SearchSorts.Count
                 ? SearchSorts[SearchSortIndex]
                 : SearchSorts[0];
@@ -3035,9 +3119,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             // 资源包/光影的分类来自 Modrinth，CurseForge 没有对应的 id：明说，别静默忽略筛选
             if (source == UpdateSource.CurseForge
-                && category is { ModrinthCategory: { Length: > 0 }, CurseForgeCategoryId: null })
+                && ((category is { ModrinthCategory: { Length: > 0 }, CurseForgeCategoryId: null })
+                    || !string.IsNullOrWhiteSpace(secondary)))
             {
-                SearchSummaryText = $"CurseForge 不支持「{category.Display}」这个分类，请把来源切回 Modrinth";
+                var picked = secondary is { Length: > 0 } ? secondary : category?.Display ?? "";
+                SearchSummaryText = $"CurseForge 不支持「{picked}」这个筛选，请把来源切回 Modrinth";
                 Status = SearchSummaryText;
                 return;
             }
@@ -3086,7 +3172,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     offset: offset,
                     categories: category?.ModrinthCategory is { } modrinthCategory
                         ? new[] { modrinthCategory }
-                        : null);
+                        : null,
+                    secondaryCategory: secondary);
 
                 _searchHasNextPage = hits.Count >= SearchPageSize;
                 if (hits.Count > SearchPageSize) hits = hits.Take(SearchPageSize).ToList();
@@ -3125,6 +3212,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             if (category is not null)
                 SearchSummaryText += $" · 分类：{category.Display}";
+
+            if (!string.IsNullOrWhiteSpace(secondary))
+                SearchSummaryText += $" · {SecondaryCategoryLabel}：{secondary}";
 
             RaiseSearchPageState();
             Status = SearchSummaryText;

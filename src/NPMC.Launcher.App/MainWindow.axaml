@@ -658,13 +658,13 @@
                         Command="{Binding SearchCommand}" Margin="8,0,0,0" FontSize="12" />
               </Grid>
 
-              <!-- 第二行：分类 / 来源 / 排序 -->
-              <Grid ColumnDefinitions="Auto,Auto,Auto,*">
+              <!-- 第二行：分类 / 分辨率(或性能) / 来源 / 排序 -->
+              <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*">
                 <!-- 分类：模组 / 资源包 / 光影各一套（资源包与光影的标签来自 Modrinth） -->
                 <ComboBox Grid.Column="0" ItemsSource="{Binding SearchCategories}"
                           SelectedIndex="{Binding SearchCategoryIndex}"
                           IsVisible="{Binding IsCategoryFilterVisible}"
-                          Width="150" FontSize="12"
+                          Width="150" FontSize="12" PlaceholderText="全部"
                           ToolTip.Tip="{Binding CategoryFilterTip}">
                   <ComboBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:SearchCategoryOption">
@@ -673,15 +673,32 @@
                   </ComboBox.ItemTemplate>
                 </ComboBox>
 
+                <!-- 第二个维度：资源包的分辨率 / 光影的性能档位（只有包类才有） -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="8,0,0,0"
+                            IsVisible="{Binding IsSecondaryCategoryVisible}">
+                  <TextBlock Text="{Binding SecondaryCategoryLabel}" FontSize="11"
+                             Foreground="#949CA9" VerticalAlignment="Center" />
+                  <ComboBox ItemsSource="{Binding SearchSecondaryCategories}"
+                            SelectedIndex="{Binding SearchSecondaryIndex}"
+                            Width="110" FontSize="12" PlaceholderText="全部"
+                            ToolTip.Tip="{Binding SecondaryCategoryTip}">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:SearchCategoryOption">
+                        <TextBlock Text="{Binding Display}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </StackPanel>
+
                 <!-- 搜索来源：CurseForge 需要 API key；它没有光影分类 -->
-                <ComboBox Grid.Column="1" SelectedIndex="{Binding SearchSourceIndex}"
+                <ComboBox Grid.Column="2" SelectedIndex="{Binding SearchSourceIndex}"
                           Width="120" Margin="8,0,0,0" FontSize="12">
                   <ComboBoxItem Content="Modrinth" />
                   <ComboBoxItem Content="CurseForge" IsEnabled="{Binding IsCurseForgeSearchAvailable}" />
                 </ComboBox>
 
                 <!-- 排序 -->
-                <ComboBox Grid.Column="2" ItemsSource="{Binding SearchSorts}"
+                <ComboBox Grid.Column="3" ItemsSource="{Binding SearchSorts}"
                           SelectedIndex="{Binding SearchSortIndex}"
                           Width="120" Margin="8,0,0,0" FontSize="12"
                           ToolTip.Tip="搜索结果排序">
