@@ -2936,8 +2936,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     offset: offset,
                     sortField: sort.CurseForgeSortField);
 
-                _searchHasNextPage = hits.Count > SearchPageSize;
-                if (_searchHasNextPage) hits = hits.Take(SearchPageSize).ToList();
+                _searchHasNextPage = hits.Count >= SearchPageSize;
+                if (hits.Count > SearchPageSize) hits = hits.Take(SearchPageSize).ToList();
 
                 var pageSegment = kind == ContentKind.ResourcePack ? "texture-packs" : "mc-mods";
 
@@ -2966,8 +2966,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         ? new[] { modrinthCategory }
                         : null);
 
-                _searchHasNextPage = hits.Count > SearchPageSize;
-                if (_searchHasNextPage) hits = hits.Take(SearchPageSize).ToList();
+                _searchHasNextPage = hits.Count >= SearchPageSize;
+                if (hits.Count > SearchPageSize) hits = hits.Take(SearchPageSize).ToList();
 
                 foreach (var hit in hits)
                 {
@@ -5310,6 +5310,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         (OpenShaderPacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenContentFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DeleteInstanceCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (CopyInstanceCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (PreviousSearchPageCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (NextSearchPageCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (BeginRenameCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (OpenSavesFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (OpenDatapacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();

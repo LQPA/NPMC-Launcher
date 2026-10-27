@@ -653,14 +653,11 @@
                       FontSize="11" Padding="10,3" />
               <TextBlock Text="下载新模组" FontSize="12" Foreground="#E8EAED" VerticalAlignment="Center" />
             </StackPanel>
-              <Grid ColumnDefinitions="*,Auto,Auto">
+              <Grid ColumnDefinitions="*,Auto">
                 <TextBox Grid.Column="0" Text="{Binding SearchQuery}"
                          Watermark="{Binding SearchPlaceholder}" FontSize="12" />
                 <Button Grid.Column="1" Content="{Binding SearchButtonText}"
                         Command="{Binding SearchCommand}" Margin="8,0,0,0" FontSize="12" />
-                <Button Grid.Column="2" Content="{Binding SearchPanelToggleText}"
-                        Command="{Binding ToggleSearchPanelCommand}"
-                        Margin="6,0,0,0" FontSize="12" Padding="8,4" />
               </Grid>
 
               <!-- 第二行：分类 / 来源 / 排序 -->
