@@ -39,6 +39,8 @@ public static class SkinAgentProvider
         LauncherPaths launcher, VersionJson version, PlayerAccount? account, string? clientJarPath)
     {
         if (account is null) return null;
+        // 正版账号的皮肤由微软档案提供，不能再用离线 agent 覆盖
+        if (account.Kind == AccountKind.Microsoft) return null;
         if (!SupportsSkinAgent(version)) return null;
 
         var major = AuthlibMajor(version) ?? 0;

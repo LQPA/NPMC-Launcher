@@ -477,6 +477,25 @@ Minecraft  LQPA_ / 100303ffe5b74ef09becd74a2f1e54eb
 而是把探针接成正式账号：设备码 UI、DPAPI 保存 refresh token、启动时使用
 Minecraft access token / UUID / name，并停止对正版账号注入离线皮肤 agent。
 
+### 9.3 正式账号接入（2026-10-27）
+
+- `AccountKind.Microsoft` 正式启用；同名离线账号在登录成功后被**升级**为微软账号，
+  保留原 Id 与实例绑定，UUID 换成正版 UUID。
+- `MicrosoftAccountService`：
+  - 登录：`LoginAsync` 返回 profile + refresh token；
+  - 启动：`GetMinecraftAsync` 读 refresh token → 刷新 Microsoft token →
+    XBL/XSTS → 新的 Minecraft access token。
+- token 存储：`<root>\microsoft-tokens\<accountId>.bin`，
+  Windows DPAPI `CurrentUser` 加密；`accounts.json` 只有公开信息。
+- UI：账号页「微软正版登录」按钮 + 设备码面板（URL、code、取消、状态）。
+- 启动：微软账号使用 `LaunchContext.Online`（真实 access token / UUID / name），
+  **不注入**离线皮肤 agent；SkinPort 的本地 `cachedImages` 缓存会清掉，
+  让正版档案皮肤生效。
+- CLI：`npmc auth microsoft --save` 创建/升级账号并保存 token；
+  `npmc auth refresh <账号>` 只刷新并打印 profile，用于验证。
+- 已验证：DPAPI 往返、账号升级/UUID、探针全链路。正式 `--save` 登录还需
+  一次人工设备码授权（两次生成后 15 分钟内未完成，已过期）。
+
 ---
 
 ## 10. 数据与配置（待实现）

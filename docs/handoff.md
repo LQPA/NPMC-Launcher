@@ -793,6 +793,21 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
 
 ---
 
+## 10.10 微软正版账号接入（2026-10-27）
+
+- 设备码链路已实测通过（client id `cb163b2f-…`，LQPA_ / 6 项所有权）。
+- 正式实现：
+  - `MicrosoftAccountService`（登录、刷新、取 Minecraft token）
+  - `MicrosoftTokenStore` + `WindowsDpapi`（refresh token，`<root>\microsoft-tokens\`）
+  - 账号页「微软正版登录」+ 设备码面板；同名离线号登录后升级，保留 Id/实例绑定
+  - `LaunchContext.Online`；微软账号不再注入离线皮肤 agent，SkinPort 本地缓存清理
+  - CLI：`npmc auth microsoft --save`、`npmc auth refresh <账号>`
+- 已验证：DPAPI 往返、账号升级、编译；探针全链路成功。
+- 待验证：正式 `--save` 登录（两次设备码都在 15 分钟内未授权而过期）；
+  以及真实启动 online-mode 服务器。
+
+---
+
 ## 11. 2026-10-27：工作区完整性级别调整
 
 `D:\Agents` 整个目录原先带 `Low` 完整性标签，导致：

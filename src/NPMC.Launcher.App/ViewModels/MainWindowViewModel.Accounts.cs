@@ -1,8 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Windows.Input;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Instances;
+using NPMC.Launcher.Infrastructure.Accounts;
+using NPMC.Launcher.Infrastructure.Auth;
 using NPMC.Launcher.Infrastructure.Skins;
 using NPMC.Launcher.Infrastructure.Storage;
 
@@ -45,6 +49,14 @@ public sealed partial class MainWindowViewModel
     public ICommand SetDefaultAccountCommand { get; private set; }
     public ICommand CopyAccountUuidCommand { get; private set; }
     public ICommand FetchMojangSkinCommand { get; private set; }
+    public ICommand MicrosoftLoginCommand { get; private set; }
+    public ICommand CancelMicrosoftLoginCommand { get; private set; }
+
+    private CancellationTokenSource? _microsoftLoginCts;
+    private bool _isMicrosoftLoginBusy;
+    private string _microsoftLoginCode = "";
+    private string _microsoftLoginUrl = "";
+    private string _microsoftLoginStatus = "";
 
     private bool _suppressSkinUi;
     private int _selectedSkinIndex;
@@ -77,6 +89,127 @@ public sealed partial class MainWindowViewModel
             () => SelectedAccount is not null && CopyToClipboard is not null);
         FetchMojangSkinCommand = new AsyncRelayCommand(FetchMojangSkinAsync,
             () => SelectedAccount is not null && !IsFetchingSkin);
+        MicrosoftLoginCommand = new AsyncRelayCommand(StartMicrosoftLoginAsync,
+            () => !IsMicrosoftLoginBusy);
+        CancelMicrosoftLoginCommand = new RelayCommand(CancelMicrosoftLogin,
+            () => IsMicrosoftLoginBusy);
+    }
+
+    public bool IsMicrosoftLoginBusy
+    {
+        get => _isMicrosoftLoginBusy;
+        private set
+        {
+            if (!SetProperty(ref _isMicrosoftLoginBusy, value)) return;
+            OnPropertyChanged(nameof(ShowMicrosoftLoginPanel));
+            (MicrosoftLoginCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (CancelMicrosoftLoginCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    public string MicrosoftLoginCode
+    {
+        get => _microsoftLoginCode;
+        private set
+        {
+            if (!SetProperty(ref _microsoftLoginCode, value)) return;
+            OnPropertyChanged(nameof(ShowMicrosoftLoginPanel));
+        }
+    }
+
+    public string MicrosoftLoginUrl
+    {
+        get => _microsoftLoginUrl;
+        private set => SetProperty(ref _microsoftLoginUrl, value);
+    }
+
+    public string MicrosoftLoginStatus
+    {
+        get => _microsoftLoginStatus;
+        private set => SetProperty(ref _microsoftLoginStatus, value);
+    }
+
+    public bool ShowMicrosoftLoginPanel => IsMicrosoftLoginBusy;
+
+    private async Task StartMicrosoftLoginAsync()
+    {
+        if (IsMicrosoftLoginBusy) return;
+
+        _microsoftLoginCts?.Cancel();
+        using var cts = new CancellationTokenSource();
+        _microsoftLoginCts = cts;
+
+        IsMicrosoftLoginBusy = true;
+        MicrosoftLoginCode = "";
+        MicrosoftLoginUrl = "";
+        MicrosoftLoginStatus = "正在申请微软设备码…";
+        AccountStatus = "请在浏览器中完成微软登录。";
+
+        try
+        {
+            var service = new MicrosoftAccountService(_launcher);
+
+            var login = await service.LoginAsync(code =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    MicrosoftLoginCode = code.UserCode;
+                    MicrosoftLoginUrl = code.VerificationUri;
+                    MicrosoftLoginStatus = "等待浏览器授权…";
+                });
+
+                try
+                {
+                    Process.Start(new ProcessStartInfo(code.VerificationUri) { UseShellExecute = true });
+                }
+                catch
+                {
+                    // 打不开浏览器时，用户仍能从界面上看到 URL 和 code
+                }
+            }, cts.Token);
+
+            var store = new JsonAccountStore(_launcher);
+            var catalog = new AccountCatalog(await store.LoadAsync(cts.Token));
+            var account = catalog.UpsertMicrosoft(
+                login.Minecraft.MinecraftName, login.Minecraft.MinecraftUuid);
+
+            service.SaveLogin(account.Id, login.Microsoft);
+            await store.SaveAsync(catalog.Accounts, cts.Token);
+            await ReloadAccountsAsync();
+
+            SelectedAccount = Accounts.FirstOrDefault(item => item.Id == account.Id);
+            AccountStatus = $"微软账号「{account.Username}」登录成功，所有权 {login.Minecraft.EntitlementCount} 项";
+            MicrosoftLoginStatus = "登录成功";
+        }
+        catch (OperationCanceledException)
+        {
+            AccountStatus = "已取消微软登录";
+            MicrosoftLoginStatus = "已取消";
+        }
+        catch (MicrosoftDeviceCodeAuth.AuthException ex)
+        {
+            AccountStatus = "微软登录失败：" + ex.Message;
+            MicrosoftLoginStatus = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            AccountStatus = "微软登录失败：" + ex.GetBaseException().Message;
+            MicrosoftLoginStatus = ex.GetBaseException().Message;
+        }
+        finally
+        {
+            _microsoftLoginCts = null;
+            IsMicrosoftLoginBusy = false;
+            MicrosoftLoginCode = "";
+            MicrosoftLoginUrl = "";
+            OnPropertyChanged(nameof(ShowMicrosoftLoginPanel));
+        }
+    }
+
+    private void CancelMicrosoftLogin()
+    {
+        _microsoftLoginCts?.Cancel();
+        MicrosoftLoginStatus = "正在取消…";
     }
 
     // ---- 导航与页面状态 ----
@@ -248,6 +381,8 @@ public sealed partial class MainWindowViewModel
             OnPropertyChanged(nameof(AccountDetailTitle));
             OnPropertyChanged(nameof(AccountDetailSubtitle));
             OnPropertyChanged(nameof(SelectedAccountIsDefault));
+            OnPropertyChanged(nameof(IsMicrosoftAccount));
+            OnPropertyChanged(nameof(AccountDetailHint));
 
             RaiseAccountCommandStates();
             RefreshSkinView();
@@ -267,6 +402,13 @@ public sealed partial class MainWindowViewModel
             : "在左侧选择一个账号";
 
     public bool SelectedAccountIsDefault => SelectedAccount?.IsDefault ?? false;
+
+    public bool IsMicrosoftAccount =>
+        SelectedAccount?.Account.Kind == AccountKind.Microsoft;
+
+    public string AccountDetailHint => IsMicrosoftAccount
+        ? "微软正版账号：启动时用 Minecraft access token 登录，皮肤由正版档案提供；不会注入离线皮肤 agent。"
+        : "离线账号：不联网、不需要令牌；UUID 由用户名按 Minecraft 离线规则算出，改名后会重算。";
 
     /// <summary>右侧用户名编辑框（保存后才写回，UUID 会按新名字重算）。</summary>
     public string AccountNameEdit
@@ -696,6 +838,12 @@ public sealed partial class MainWindowViewModel
     {
         if (SelectedAccount is not { } selected) return;
 
+        if (selected.Account.Kind == AccountKind.Microsoft)
+        {
+            AccountStatus = "微软账号的玩家名由正版档案决定，不能在这里修改";
+            return;
+        }
+
         var name = AccountNameEdit.Trim();
 
         if (string.Equals(name, selected.Username, StringComparison.Ordinal))
@@ -751,6 +899,7 @@ public sealed partial class MainWindowViewModel
             if (!catalog.Remove(selected.Id)) return;
 
             await store.SaveAsync(catalog.Accounts);
+            new MicrosoftAccountService(_launcher).DeleteTokens(selected.Id);
 
             // 删掉的正好是全局默认账号：清掉设置里的引用，避免默认账号指向不存在的 Id
             if (string.Equals(_settingsDefaultAccountId, selected.Id, StringComparison.OrdinalIgnoreCase))

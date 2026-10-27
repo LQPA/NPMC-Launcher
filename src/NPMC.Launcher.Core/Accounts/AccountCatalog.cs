@@ -40,6 +40,71 @@ public sealed class AccountCatalog
         return account;
     }
 
+    /// <summary>
+    /// 登录成功后创建/更新微软账号。同名离线账号会被升级成微软账号，
+    /// 保留 Id 与实例绑定；已有同 UUID 的账号则只更新显示名。
+    /// </summary>
+    public PlayerAccount UpsertMicrosoft(string username, string uuid)
+    {
+        var name = username.Trim();
+        var normalizedUuid = uuid.Replace("-", "").ToLowerInvariant();
+
+        if (!PlayerAccount.IsValidUsername(name))
+            throw new ArgumentException("微软返回的玩家名不合法", nameof(username));
+        if (normalizedUuid.Length != 32 || !normalizedUuid.All(Uri.IsHexDigit))
+            throw new ArgumentException("微软返回的 UUID 不合法", nameof(uuid));
+
+        var byUuid = _accounts.FirstOrDefault(account =>
+            string.Equals(account.Uuid, normalizedUuid, StringComparison.OrdinalIgnoreCase));
+
+        if (byUuid is not null)
+        {
+            var updated = byUuid with
+            {
+                Username = name,
+                Kind = AccountKind.Microsoft,
+                Skin = AccountSkin.MojangName,
+                SkinPath = null,
+                SkinModel = null,
+            };
+
+            _accounts[_accounts.IndexOf(byUuid)] = updated;
+            return updated;
+        }
+
+        var byName = FindByUsername(name);
+
+        if (byName is not null)
+        {
+            if (byName.Kind == AccountKind.Authlib)
+                throw new InvalidOperationException($"已有同名的第三方账号「{name}」");
+
+            var upgraded = byName with
+            {
+                Username = name,
+                Uuid = normalizedUuid,
+                Kind = AccountKind.Microsoft,
+                Skin = AccountSkin.MojangName,
+                SkinPath = null,
+                SkinModel = null,
+            };
+
+            _accounts[_accounts.IndexOf(byName)] = upgraded;
+            return upgraded;
+        }
+
+        var account = new PlayerAccount(
+            Guid.NewGuid().ToString("N"),
+            name,
+            normalizedUuid,
+            AccountKind.Microsoft,
+            DateTimeOffset.UtcNow,
+            AccountSkin.MojangName);
+
+        _accounts.Add(account);
+        return account;
+    }
+
     public bool Remove(string id)
     {
         var account = Find(id);
@@ -69,11 +134,11 @@ public sealed class AccountCatalog
             throw new InvalidOperationException($"已经有名为「{name}」的账号了");
         }
 
-        _accounts[index] = _accounts[index] with
-        {
-            Username = name,
-            Uuid = PlayerAccount.OfflineUuid(name),
-        };
+        var current = _accounts[index];
+
+        _accounts[index] = current.Kind == AccountKind.Microsoft
+            ? current with { Username = name }
+            : current with { Username = name, Uuid = PlayerAccount.OfflineUuid(name) };
 
         return _accounts[index];
     }

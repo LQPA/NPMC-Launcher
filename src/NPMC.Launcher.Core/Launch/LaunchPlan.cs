@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
@@ -50,6 +50,17 @@ public sealed record LaunchContext(
     /// </summary>
     public static LaunchContext Offline(string playerName, string uuid) =>
         OfflineProbe(playerName) with { Uuid = uuid };
+
+    /// <summary>微软正版账号：使用真实 Minecraft access token / UUID / name。</summary>
+    public static LaunchContext Online(
+        string playerName, string uuid, string accessToken, string xuid = "0") =>
+        OfflineProbe(playerName) with
+        {
+            Uuid = uuid,
+            AccessToken = accessToken,
+            Xuid = xuid,
+            UserType = "msa",
+        };
 }
 
 /// <summary>

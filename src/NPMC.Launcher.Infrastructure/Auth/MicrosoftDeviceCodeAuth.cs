@@ -25,6 +25,10 @@ public static class MicrosoftDeviceCodeAuth
         string MinecraftName,
         int EntitlementCount);
 
+    public sealed record Tokens(string AccessToken, string RefreshToken, int ExpiresIn);
+
+    public sealed record LoginResult(Result Minecraft, Tokens Microsoft);
+
     public sealed class AuthException : Exception
     {
         public AuthException(string stage, HttpStatusCode? status, string body)
@@ -79,18 +83,55 @@ public static class MicrosoftDeviceCodeAuth
         string tenant,
         Action<DeviceCode>? onDeviceCode,
         CancellationToken cancellationToken = default)
+        => (await LoginAsync(http, clientId, tenant, onDeviceCode, cancellationToken).ConfigureAwait(false))
+            .Minecraft;
+
+    /// <summary>登录并同时返回 refresh token；调用方负责加密保存。</summary>
+    public static async Task<LoginResult> LoginAsync(
+        HttpClient http,
+        string clientId,
+        string tenant,
+        Action<DeviceCode>? onDeviceCode,
+        CancellationToken cancellationToken = default)
     {
         var code = await RequestDeviceCodeAsync(http, clientId, tenant, cancellationToken)
             .ConfigureAwait(false);
         onDeviceCode?.Invoke(code);
 
-        var microsoftToken = await PollAsync(http, clientId, tenant, code, cancellationToken)
+        var microsoft = await WaitForTokenAsync(http, clientId, tenant, code, cancellationToken)
             .ConfigureAwait(false);
 
-        return await CompleteAsync(http, microsoftToken, cancellationToken).ConfigureAwait(false);
+        var result = await CompleteAsync(http, microsoft.AccessToken, cancellationToken)
+            .ConfigureAwait(false);
+
+        return new LoginResult(result, microsoft);
     }
 
-    private static async Task<string> PollAsync(
+    /// <summary>用 refresh token 换新的 Microsoft access/refresh token。</summary>
+    public static async Task<Tokens> RefreshAsync(
+        HttpClient http, string clientId, string tenant, string refreshToken,
+        CancellationToken cancellationToken = default)
+    {
+        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["client_id"] = clientId,
+            ["refresh_token"] = refreshToken,
+            ["scope"] = DefaultScope,
+        });
+
+        using var response = await http.PostAsync(TokenUrl(tenant), content, cancellationToken)
+            .ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+            throw new AuthException("刷新令牌", response.StatusCode, body);
+
+        return ParseTokens(body, response.StatusCode, refreshToken);
+    }
+
+    /// <summary>轮询设备码，返回 Microsoft token 对。</summary>
+    public static async Task<Tokens> WaitForTokenAsync(
         HttpClient http, string clientId, string tenant, DeviceCode code, CancellationToken cancellationToken)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Max(30, code.ExpiresIn));
@@ -112,13 +153,7 @@ public static class MicrosoftDeviceCodeAuth
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
             if (response.IsSuccessStatusCode)
-            {
-                using var document = JsonDocument.Parse(body);
-                if (document.RootElement.TryGetProperty("access_token", out var accessToken))
-                    return accessToken.GetString() ?? throw new AuthException("轮询令牌", response.StatusCode, "响应缺少 access_token");
-
-                throw new AuthException("轮询令牌", response.StatusCode, "响应缺少 access_token");
-            }
+                return ParseTokens(body, response.StatusCode);
 
             var error = ReadError(body);
             switch (error)
@@ -253,6 +288,25 @@ public static class MicrosoftDeviceCodeAuth
         }
 
         throw new AuthException(stage, null, $"响应缺少 {property}");
+    }
+
+    private static Tokens ParseTokens(
+        string body, HttpStatusCode status, string? previousRefresh = null)
+    {
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+
+        var access = root.TryGetProperty("access_token", out var a) ? a.GetString() : null;
+        var refresh = root.TryGetProperty("refresh_token", out var r) ? r.GetString() : null;
+        if (string.IsNullOrWhiteSpace(refresh)) refresh = previousRefresh;
+        var expires = root.TryGetProperty("expires_in", out var e) && e.TryGetInt32(out var value) ? value : 3600;
+
+        if (string.IsNullOrWhiteSpace(access))
+            throw new AuthException("获取令牌", status, "响应缺少 access_token");
+        if (string.IsNullOrWhiteSpace(refresh))
+            throw new AuthException("获取令牌", status, "响应缺少 refresh_token");
+
+        return new Tokens(access, refresh, expires);
     }
 
     private static string ReadError(string body)

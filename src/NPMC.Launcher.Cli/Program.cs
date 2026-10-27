@@ -370,17 +370,32 @@ internal static class Program
 
         if (account is not null) Info($"账号     {account.Username} ({account.KindText})");
 
+        string? accessToken = null;
+        if (account is { Kind: AccountKind.Microsoft })
+        {
+            Info("微软账号：正在刷新 Minecraft 令牌…");
+            var token = await new MicrosoftAccountService(launcher).GetMinecraftAsync(account);
+            accessToken = token.MinecraftAccessToken;
+            Info($"正版档案 {token.MinecraftName} / {token.MinecraftUuid}");
+        }
+
         var context = account is null
             ? LaunchContext.OfflineProbe() with
             {
                 Width = settings.WindowWidth,
                 Height = settings.WindowHeight,
             }
-            : LaunchContext.Offline(account.Username, account.Uuid) with
-            {
-                Width = settings.WindowWidth,
-                Height = settings.WindowHeight,
-            };
+            : account.Kind == AccountKind.Microsoft
+                ? LaunchContext.Online(account.Username, account.Uuid, accessToken!) with
+                {
+                    Width = settings.WindowWidth,
+                    Height = settings.WindowHeight,
+                }
+                : LaunchContext.Offline(account.Username, account.Uuid) with
+                {
+                    Width = settings.WindowWidth,
+                    Height = settings.WindowHeight,
+                };
 
         // 加载器 profile 目录里只有 JSON：client jar / natives 都在根版本（如 1.21.1）目录下
         var rootVersionId = version.RootVersionId ?? versionId;
@@ -1930,9 +1945,49 @@ internal static class Program
 
     private static async Task<int> AuthAsync(string[] args)
     {
+        if (args.Length > 0 && string.Equals(args[0], "refresh", StringComparison.OrdinalIgnoreCase))
+        {
+            var key = args.Skip(1).FirstOrDefault(arg => !arg.StartsWith("--", StringComparison.Ordinal));
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                Error("用法: npmc auth refresh <用户名|账号Id> [--root <目录>]");
+                return 1;
+            }
+
+            var paths = new LauncherPaths(ResolveRoot(args));
+            var catalog = new AccountCatalog(await new JsonAccountStore(paths).LoadAsync());
+            var account = catalog.Find(key) ?? catalog.FindByUsername(key);
+
+            if (account is null)
+            {
+                Error($"找不到账号「{key}」");
+                return 1;
+            }
+
+            if (account.Kind != AccountKind.Microsoft)
+            {
+                Error($"「{account.Username}」不是微软账号");
+                return 1;
+            }
+
+            try
+            {
+                Section("刷新微软令牌");
+                var result = await new MicrosoftAccountService(paths).GetMinecraftAsync(account);
+                Ok($"Minecraft  {result.MinecraftName} / {result.MinecraftUuid}");
+                Info($"所有权     {result.EntitlementCount} 项");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Error($"刷新失败：{ex.GetBaseException().Message}");
+                return 2;
+            }
+        }
+
         if (args.Length == 0 || !string.Equals(args[0], "microsoft", StringComparison.OrdinalIgnoreCase))
         {
-            Error("用法: npmc auth microsoft [--client-id <id>] [--tenant consumers] [--no-browser]");
+            Error("用法: npmc auth microsoft ...  |  npmc auth refresh <用户名|账号Id>");
             return 1;
         }
 
@@ -1958,7 +2013,7 @@ internal static class Program
             Info($"client id  {clientId}");
             Info($"tenant     {tenant}");
 
-            var result = await MicrosoftDeviceCodeAuth.RunAsync(http, clientId, tenant, code =>
+            var login = await MicrosoftDeviceCodeAuth.LoginAsync(http, clientId, tenant, code =>
             {
                 Section("请在浏览器中授权");
                 Info($"验证地址  {code.VerificationUri}");
@@ -1979,12 +2034,32 @@ internal static class Program
                 }
             });
 
+            var result = login.Minecraft;
+
             Section("登录结果");
             Ok($"Minecraft  {result.MinecraftName} / {result.MinecraftUuid}");
             Info($"所有权     {result.EntitlementCount} 项");
             if (result.EntitlementCount == 0)
                 Warn("该账号没有 Minecraft 所有权（entitlements 为空）");
-            Dim("令牌只保留在本次进程内，未写入磁盘。");
+
+            if (Has(args, "--save"))
+            {
+                var paths = new LauncherPaths(ResolveRoot(args));
+                var store = new JsonAccountStore(paths);
+                var catalog = new AccountCatalog(await store.LoadAsync());
+                var account = catalog.UpsertMicrosoft(result.MinecraftName, result.MinecraftUuid);
+
+                new MicrosoftAccountService(paths, clientId, tenant).SaveLogin(account.Id, login.Microsoft);
+                await store.SaveAsync(catalog.Accounts);
+
+                Ok($"已保存账号「{account.Username}」（{account.KindText}），refresh token 已用 DPAPI 加密");
+                Info($"账号文件   {store.FilePath}");
+            }
+            else
+            {
+                Dim("令牌只保留在本次进程内，未写入磁盘。加 --save 才会创建账号并保存 refresh token。");
+            }
+
             return 0;
         }
         catch (MicrosoftDeviceCodeAuth.AuthException ex)
@@ -2305,9 +2380,12 @@ internal static class Program
                                                       删除账号（引用它的实例会退回默认账号）
 
             微软正版探针（不落盘）:
-              npmc auth microsoft [--client-id <id>] [--tenant consumers] [--no-browser]
+              npmc auth microsoft [--client-id <id>] [--tenant consumers] [--no-browser] [--save]
                                                       client id 也可用 NPMC_MS_CLIENT_ID；
-                                                      走设备码 → XBL → XSTS → login_with_xbox → profile
+                                                      走设备码 → XBL → XSTS → login_with_xbox → profile；
+                                                      --save 创建/升级微软账号并用 DPAPI 保存 refresh token
+              npmc auth refresh <用户名|账号Id>
+                                                      用已保存的 refresh token 重新取 Minecraft 令牌
 
             网络:
               npmc net selftest [--version 1.20.1] [--samples 3] [--dry-run]

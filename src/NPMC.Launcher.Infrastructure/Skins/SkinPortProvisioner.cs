@@ -28,6 +28,21 @@ public static class SkinPortProvisioner
         var config = Path.Combine(gameDirectory, "config", "skinport.cfg");
         if (!File.Exists(config)) return;
 
+        // 正版账号不能用之前离线时留下的本地皮肤；删掉同名缓存，让 SkinPort 走正版档案。
+        if (account.Kind == AccountKind.Microsoft)
+        {
+            try
+            {
+                var skins = Path.Combine(gameDirectory, "cachedImages", "skins");
+                File.Delete(Path.Combine(skins, account.Username + ".png"));
+                File.Delete(Path.Combine(skins, "uuid", account.Uuid.Replace("-", "") + ".png"));
+            }
+            catch
+            {
+                // 删不掉就让 SkinPort 自己决定；不阻断启动
+            }
+        }
+
         var hasLocalSkin = account.Skin is AccountSkin.Custom or AccountSkin.MojangName
                            && !string.IsNullOrWhiteSpace(account.SkinPath)
                            && File.Exists(account.SkinPath);

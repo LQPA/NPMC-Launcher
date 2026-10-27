@@ -4,6 +4,7 @@ using System.Text;
 using System.Windows.Input;
 using Avalonia.Threading;
 using NPMC.Launcher.App.Diagnostics;
+using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Mirrors;
@@ -14,6 +15,7 @@ using NPMC.Launcher.Core.Settings;
 using NPMC.Launcher.Infrastructure.Diagnostics;
 using NPMC.Launcher.Infrastructure.Hashing;
 using NPMC.Launcher.Infrastructure.Http;
+using NPMC.Launcher.Infrastructure.Auth;
 using NPMC.Launcher.Infrastructure.Launch;
 using NPMC.Launcher.Infrastructure.Minecraft;
 using NPMC.Launcher.Infrastructure.Modrinth;
@@ -580,7 +582,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var account = await ResolveLaunchAccountAsync(instance.Model);
             LaunchAccountName = account?.Username ?? "Player";
 
-            prepared = GameLauncher.Prepare(_launcher, instance.Model, version, launcherSettings, account);
+            string? accessToken = null;
+            if (account is { Kind: AccountKind.Microsoft })
+            {
+                Status = $"正在刷新微软令牌（{account.Username}）…";
+                var token = await new MicrosoftAccountService(_launcher).GetMinecraftAsync(account);
+                accessToken = token.MinecraftAccessToken;
+            }
+
+            prepared = GameLauncher.Prepare(
+                _launcher, instance.Model, version, launcherSettings, account, accessToken);
         }
         catch (Exception ex)
         {

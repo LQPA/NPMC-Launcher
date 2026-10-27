@@ -9,7 +9,7 @@ public enum AccountKind
 {
     Offline = 0,
 
-    /// <summary>微软正版登录（等 Azure 应用注册审批，暂未实现）。</summary>
+    /// <summary>微软正版登录（设备码；refresh token 用 DPAPI 单独保存）。</summary>
     Microsoft = 1,
 
     /// <summary>第三方认证（authlib-injector / 皮肤站），暂未实现。</summary>

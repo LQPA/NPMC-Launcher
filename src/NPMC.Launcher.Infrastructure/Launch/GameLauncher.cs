@@ -105,7 +105,8 @@ public static class GameLauncher
         LauncherInstance? instance,
         VersionJson version,
         LauncherSettings launcherSettings,
-        PlayerAccount? account = null)
+        PlayerAccount? account = null,
+        string? accessToken = null)
     {
         var layout = instance is null ? null : new InstanceLayout(launcher, instance);
         layout?.EnsureDirectories();
@@ -115,17 +116,30 @@ public static class GameLauncher
         var os = OsInfo.Windows64();
         var logConfig = version.Logging?.Client?.File is { } file ? paths.LogConfigFile(file.Id) : null;
 
-        var context = account is null
-            ? LaunchContext.OfflineProbe("Player") with
-            {
-                Width = instanceSettings.WindowWidth,
-                Height = instanceSettings.WindowHeight,
-            }
-            : LaunchContext.Offline(account.Username, account.Uuid) with
-            {
-                Width = instanceSettings.WindowWidth,
-                Height = instanceSettings.WindowHeight,
-            };
+        LaunchContext baseContext;
+
+        if (account is null)
+        {
+            baseContext = LaunchContext.OfflineProbe("Player");
+        }
+        else if (account.Kind == AccountKind.Microsoft)
+        {
+            if (string.IsNullOrWhiteSpace(accessToken))
+                throw new InvalidOperationException(
+                    $"微软账号「{account.Username}」缺少 access token，请重新登录");
+
+            baseContext = LaunchContext.Online(account.Username, account.Uuid, accessToken);
+        }
+        else
+        {
+            baseContext = LaunchContext.Offline(account.Username, account.Uuid);
+        }
+
+        var context = baseContext with
+        {
+            Width = instanceSettings.WindowWidth,
+            Height = instanceSettings.WindowHeight,
+        };
 
         var memory = instanceSettings.MemoryMb > 0
             ? instanceSettings.MemoryMb
