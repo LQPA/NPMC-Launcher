@@ -57,3 +57,6 @@ desktop.ini
 
 # ---- 皮肤 agent 构建产物（源码在 tools/skin-agent/src）----
 /tools/skin-agent/out/
+
+# ---- publish staging (tools/publish.ps1) ----
+/.publish/

@@ -1,11 +1,11 @@
-# NPMC Launcher 交接（2026-10-27 22:38）
+# NPMC Launcher 交接（2026-10-27 22:52）
 
 ## 当前状态
 
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
-- 最新提交：`768fd0e`
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:38）
+- 最新代码提交：`8f9659c`（本文件在它之后单独提交）
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:46，44.1 MB，已抬 Medium）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
 
@@ -42,7 +42,14 @@
   - 下一页在整页返回时启用（`hits.Count >= SearchPageSize`）；
   - 搜索面板 `Grid.RowSpan` + `*` 布局，翻页不会掉到窗口外；
   - 移除搜索面板的“收起”按钮（展开布局已取代它）；
-  - `IsSearching` 变化时刷新翻页命令，避免搜索结束时下一页仍灰。
+  - `IsSearching` 变化时刷新翻页命令，避免搜索结束时下一页仍灰；
+  - **装完模组不再清空搜索结果**：以前 `ConfirmInstallAsync` 会 `SearchResults.Clear()`，
+    但查询词、分类、排序、页码都留着，界面就变成“搜索框 + 第 N 页 + 空列表”，
+    看上去像搜索列表自己收起来了。现在结果、摘要、页码原样保留（同一实例下它们依然成立），
+    装进去的文件由 `RefreshContentAsync` 反映到本地模组列表；
+  - **回到内容页签时若还有搜索结果就重新展开面板**：收起按钮早已移除，收起状态下的
+    结果没有任何入口能再打开，等于把用户搜到的东西弄丢。
+  - 提交：`8f9659c`；`.gitignore` 增加 `/.publish/`（发布暂存目录）。
 
 ## 关键文件
 
@@ -88,3 +95,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 - 搜索要高级筛选/排序/分页，参考 PCL2。
 - 不要未经确认清理 dist/实例数据。
 - 发布后要签名/保持 Medium 完整性；exe 标题显示构建时间。
+- 装完模组**不要清空搜索列表**：要能接着装下一个。
+- 用户已授权：以后发布完**自动**把 `dist\NPMC.Launcher.App.exe` 与 `start.cmd` 覆盖复制到
+  `E:\aaaa`（`data\`、`minecraft\` 不动），无需每次再问。
