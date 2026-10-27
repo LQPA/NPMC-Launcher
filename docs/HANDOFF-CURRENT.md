@@ -8,6 +8,10 @@
 - 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:24，44.1 MB，已抬 Medium）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
+- 仓库可见性：**公开**（`github.com/LQPA/NPMC-Launcher`，API `visibility=public`），源码按
+  **AGPL-3.0** 公开。README 原写“本阶段不公开源码”，2026-10-27 已按用户决定（方案 B）改成
+  “源码公开”，并补了 Repository layout（说明 `src/` 就是完整源码；`dist/`、运行目录、账号与
+  密钥都不入库）。以后不要再往 README 里写“不开源”。
 
 ## 启动与数据目录
 

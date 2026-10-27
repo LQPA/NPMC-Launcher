@@ -2,9 +2,9 @@
 
 > An unofficial third-party launcher for **Minecraft: Java Edition**.
 
-**Project status: early development.** There is no public release yet. The source code is not
-published at this stage; this repository documents the project's scope, design and compliance
-position.
+**Project status: early development.** There is no public release (no downloadable build) yet.
+The launcher's own source code **is public** in this repository and is licensed under the
+AGPL-3.0 — start from [Repository layout](#repository-layout) and [License](#license).
 
 ---
 
@@ -22,9 +22,24 @@ It is being built to provide:
   shader packs never mix between versions.
 - **Launch configuration** — custom window size, JVM heap limits, per-instance Java selection
   and additional JVM arguments.
-- **Mod discovery** — searching and installing mods from the Modrinth public API, with
-  dependency resolution.
+- **Mod, resource pack and shader discovery** — searching and installing from the Modrinth public
+  API (CurseForge with a user-supplied API key), with dependency resolution for mods.
 - **Microsoft account sign-in** — standard OAuth 2.0 device authorization flow, described below.
+
+## Repository layout
+
+- `src/NPMC.Launcher.App` — Avalonia desktop UI (the launcher window and its view models)
+- `src/NPMC.Launcher.Core` — version metadata, rule evaluation, path layout, launch arguments
+- `src/NPMC.Launcher.Infrastructure` — downloads, Modrinth / CurseForge, accounts, storage, modpacks
+- `src/NPMC.Launcher.Cli` — command-line entry points (probe / install / runtime / launch)
+- `tests/` — unit tests for the Core project
+- `tools/` — build, publish and signing helpers
+- `docs/` — architecture notes and the current session handoff
+
+This is the complete source of the launcher; building `NPMC.Launcher.sln` with the .NET 8 SDK
+reproduces the application. Deliberately **not** in version control: build output (`dist/`), the
+generated `runtime/`, `libraries/`, `versions/`, `assets/` and `instances/` directories, and any
+user data such as accounts, tokens or the CurseForge key (see `.gitignore`).
 
 ## Authentication
 
@@ -87,8 +102,11 @@ responsible for this software or for any damage it may cause.
 
 ## License
 
-The launcher's own source code is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+The launcher's own source code in `src/` is licensed under the
+[GNU Affero General Public License v3.0](LICENSE). If you distribute a modified version, or run
+one as a network service, the AGPL requires you to make the corresponding source available.
 
 ---
 
-*This repository documents an in-progress personal project. It contains no Minecraft game content.*
+*This repository contains the launcher's own source code (AGPL-3.0). It contains no Minecraft game
+content: every game file is downloaded at runtime from Mojang's authorized endpoints.*
