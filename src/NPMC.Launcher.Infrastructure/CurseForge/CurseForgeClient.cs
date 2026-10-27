@@ -17,7 +17,7 @@ public static class CurseForgeRelation
 }
 
 /// <summary>文件声明的依赖（只给了 modId 与关系类型）。</summary>
-public sealed record CurseForgeProject(int Id, string Slug, string Name);
+public sealed record CurseForgeProject(int Id, string Slug, string Name, int ClassId = 0);
 
 public sealed record CurseForgeDependency(int ModId, int RelationType)
 {
@@ -479,7 +479,8 @@ public sealed class CurseForgeClient
         if (!document.RootElement.TryGetProperty("data", out var data)) return null;
 
         return new CurseForgeProject(
-            GetInt(data, "id"), GetString(data, "slug") ?? "", GetString(data, "name") ?? "");
+            GetInt(data, "id"), GetString(data, "slug") ?? "", GetString(data, "name") ?? "",
+            GetInt(data, "classId"));
     }
     private async Task<JsonDocument?> SendAsync(
         HttpMethod method,

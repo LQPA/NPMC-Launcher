@@ -95,8 +95,11 @@ public sealed class CurseForgeModpackPreparer
                     var name = Uri.UnescapeDataString(Path.GetFileName(new Uri(url).AbsolutePath));
                     if (string.IsNullOrWhiteSpace(name)) name = $"{file.FileId}.jar";
 
+                    var folder = await TargetFolderAsync(file.ProjectId, name, cancellationToken)
+                        .ConfigureAwait(false);
+
                     lock (files)
-                        files.Add(new ModpackFile($"mods/{name}", "", 0, new[] { url }));
+                        files.Add(new ModpackFile($"{folder}/{name}", "", 0, new[] { url }));
 
                     return;
                 }
@@ -215,6 +218,41 @@ public sealed class CurseForgeModpackPreparer
 
         return (new ModpackFile($"mods/{primary.FileName}", primary.Sha1, primary.Size, new[] { primary.Url }),
                 $"{project.Name} → Modrinth {hit.Slug} {version.VersionNumber}");
+    }
+
+    /// <summary>
+    /// CurseForge manifest 没有目录信息；.zip 通过项目的 classId 判断是
+    /// 资源包（12）还是光影（6552），查不到时用常见文件名兜底。
+    /// </summary>
+    private async Task<string> TargetFolderAsync(
+        int projectId, string fileName, CancellationToken cancellationToken)
+    {
+        if (!fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            return "mods";
+
+        try
+        {
+            var project = await _curseForge.GetProjectAsync(projectId, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (project?.ClassId == 6552) return "shaderpacks";
+            if (project?.ClassId == 12) return "resourcepacks";
+        }
+        catch
+        {
+            // 网络失败时退回文件名判断
+        }
+
+        string[] shaderHints =
+        {
+            "shader", "bsl", "complementary", "makeup", "photon", "solas",
+            "rethinking", "bliss", "seus", "chocapic", "sildur", "vanillaplus",
+        };
+
+        if (shaderHints.Any(hint => fileName.Contains(hint, StringComparison.OrdinalIgnoreCase)))
+            return "shaderpacks";
+
+        return "mods";
     }
 
     private static void ExtractOverrides(

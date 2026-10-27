@@ -518,9 +518,10 @@ Minecraft access token / UUID / name，并停止对正版账号注入离线皮�
     launcher_profiles.json
 ```
 
-`--root` / `NPMC_ROOT` 仍按旧式单根目录工作，用于诊断和自定义；
-默认启动使用 `LauncherPaths.Portable(base)`，首次会把根目录里旧的
-`libraries/versions/assets/runtime/instances` 和配置文件分别迁入这两个文件夹。
+`--root` / `NPMC_ROOT` 仍按旧式单根目录工作，用于诊断和自定义。
+`LauncherPaths.Portable(base)` **不会自动迁移**旧布局：只要根目录还检测到
+`settings.json/libraries/versions/instances` 等旧文件，就继续按旧根目录工作；
+只有全新目录才启用 `data + minecraft`，避免启动时搬动用户数据。
 写入一律走「临时文件 → `File.Replace`」，断电不损坏配置。
 
 写入一律走「临时文件 → `File.Replace`」，断电不损坏配置。

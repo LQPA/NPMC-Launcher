@@ -34,19 +34,37 @@ public sealed class LauncherPaths
 
     /// <summary>
     /// 便携布局：&lt;base&gt;\data 存启动器配置，&lt;base&gt;\minecraft 存游戏文件。
-    /// 第一次使用时会把旧版散落在 &lt;base&gt; 根目录的文件迁过去。
+    ///
+    /// 出于数据安全，**不自动迁移**已有旧布局：检测到 &lt;base&gt; 根目录还有
+    /// settings.json / libraries / versions / instances 等旧文件时，继续按旧根目录工作。
+    /// 只有全新目录才启用 data + minecraft。要迁移请单独执行备份/迁移流程。
     /// </summary>
     public static LauncherPaths Portable(string baseDirectory)
     {
         var root = Normalize(baseDirectory);
+
+        if (HasLegacyLayout(root))
+            return new LauncherPaths(root);
+
         var data = Path.Combine(root, "data");
         var minecraft = Path.Combine(root, "minecraft");
 
         Directory.CreateDirectory(data);
         Directory.CreateDirectory(minecraft);
-        MigrateLegacyLayout(root, data, minecraft);
 
         return new LauncherPaths(data, sharedRoot: minecraft, gameRoot: minecraft);
+    }
+
+    private static bool HasLegacyLayout(string root)
+    {
+        foreach (var name in new[] { "settings.json", "instances.json", "libraries",
+                                     "versions", "assets", "instances", "runtime" })
+        {
+            if (File.Exists(Path.Combine(root, name)) || Directory.Exists(Path.Combine(root, name)))
+                return true;
+        }
+
+        return false;
     }
 
     private static void MigrateLegacyLayout(string root, string data, string minecraft)
