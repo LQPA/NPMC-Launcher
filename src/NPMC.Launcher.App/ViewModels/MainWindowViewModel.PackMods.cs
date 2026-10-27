@@ -1,5 +1,3 @@
-using System.Collections.ObjectModel;
-using System.Windows.Input;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Mods;
 
@@ -14,54 +12,6 @@ public sealed partial class MainWindowViewModel
     private HashSet<string> _packFileNames = new(StringComparer.OrdinalIgnoreCase);
     private int _packModsHidden;
 
-    private bool _isModDownloadMode;
-    private string _modFilterQuery = "";
-
-    /// <summary>模组页是否处于“下载新模组”模式（隐藏列表与本地筛选，显示搜索结果）。</summary>
-    public bool IsModDownloadMode
-    {
-        get => _isModDownloadMode;
-        private set
-        {
-            if (!SetProperty(ref _isModDownloadMode, value)) return;
-            RaiseModViewChanged();
-        }
-    }
-
-    /// <summary>列表上方搜索框：实时过滤当前模组列表（本地，不联网）。</summary>
-    public string ModFilterQuery
-    {
-        get => _modFilterQuery;
-        set
-        {
-            if (!SetProperty(ref _modFilterQuery, value)) return;
-            _ = RefreshContentAsync();
-        }
-    }
-
-    public ICommand OpenModDownloadCommand { get; private set; }
-    public ICommand CloseModDownloadCommand { get; private set; }
-
-    public bool ShowModList => ShowContentList && (!IsModsTab || !IsModDownloadMode);
-
-    public bool IsSearchPanelVisible => ShowContentList && (!IsModsTab || IsModDownloadMode);
-
-    public bool IsModFilterVisible => ShowContentList && IsModsTab && !IsModDownloadMode;
-
-    private void InitializePackModCommands()
-    {
-        OpenModDownloadCommand = new RelayCommand(() => IsModDownloadMode = true);
-        CloseModDownloadCommand = new RelayCommand(() => IsModDownloadMode = false);
-    }
-
-    private void RaiseModViewChanged()
-    {
-        OnPropertyChanged(nameof(ShowModList));
-        OnPropertyChanged(nameof(IsSearchPanelVisible));
-        OnPropertyChanged(nameof(IsModFilterVisible));
-        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
-        RaisePaneVisibilityChanged();
-    }
     /// <summary>是否隐藏整合包自带模组（默认隐藏）。</summary>
     public bool HidePackMods
     {
@@ -95,7 +45,7 @@ public sealed partial class MainWindowViewModel
             .Select(file => file.FileName)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        if (!_hidePackMods && string.IsNullOrWhiteSpace(_modFilterQuery)) return;
+        if (!_hidePackMods && string.IsNullOrWhiteSpace(_contentFilterQuery)) return;
 
         var before = entries.Count;
 
@@ -105,9 +55,9 @@ public sealed partial class MainWindowViewModel
             _packModsHidden = before - entries.Count;
         }
 
-        if (!string.IsNullOrWhiteSpace(_modFilterQuery))
+        if (!string.IsNullOrWhiteSpace(_contentFilterQuery))
         {
-            var query = _modFilterQuery.Trim();
+            var query = _contentFilterQuery.Trim();
             entries.RemoveAll(entry =>
                 !Path.GetFileName(entry.Path).Contains(query, StringComparison.OrdinalIgnoreCase));
         }
@@ -227,7 +177,7 @@ public sealed partial class MainWindowViewModel
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var packSource = info?.IsCurseForge == true ? UpdateSource.CurseForge : UpdateSource.Modrinth;
-        var query = _modFilterQuery.Trim();
+        var query = _contentFilterQuery.Trim();
 
         Content.Clear();
 

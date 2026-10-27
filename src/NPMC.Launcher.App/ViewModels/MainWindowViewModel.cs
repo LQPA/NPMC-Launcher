@@ -145,7 +145,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             NextSearchPageAsync, () => _searchHasNextPage && !IsSearching);
         ConfirmInstallCommand = new AsyncRelayCommand(ConfirmInstallAsync, () => CanConfirmInstall);
         CancelPlanCommand = new RelayCommand(CancelPlan);
-        ToggleSearchPanelCommand = new RelayCommand(() => IsSearchPanelExpanded = !IsSearchPanelExpanded);
 
         ShowInstancesCommand = new RelayCommand(() => Navigate(NavPage.Instances));
         ShowDownloadsCommand = new RelayCommand(() => Navigate(NavPage.Downloads));
@@ -174,7 +173,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         InitializeAccountCommands();
         InitializeModpackOnlineCommands();
         InitializeBlockedModCommands();
-        InitializePackModCommands();
+        InitializeContentViewCommands();
         InstallModpackCommand = new AsyncRelayCommand(
             InstallModpackAsync,
             () => HasModpackPlan && !IsInstallingModpack);
@@ -973,9 +972,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowOverview));
         OnPropertyChanged(nameof(ShowContentPane));
         OnPropertyChanged(nameof(ShowContentList));
-        OnPropertyChanged(nameof(ShowModList));
+        OnPropertyChanged(nameof(ShowContentRows));
         OnPropertyChanged(nameof(IsSearchPanelVisible));
-        OnPropertyChanged(nameof(IsModFilterVisible));
+        OnPropertyChanged(nameof(IsContentFilterVisible));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         OnPropertyChanged(nameof(ShowLog));
         OnPropertyChanged(nameof(ShowExport));
@@ -1402,7 +1401,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var previousKind = _selectedTab.ContentKind;
             if (!SetProperty(ref _selectedTab, value)) return;
 
-            if (value.ContentKind != ContentKind.Mod) IsModDownloadMode = false;
+            // 换了内容类型就等于退出下载模式（下面会把结果与计划一起清掉）
+            if (previousKind != value.ContentKind) IsContentDownloadMode = false;
 
             OnPropertyChanged(nameof(IsOverview));
             OnPropertyChanged(nameof(IsContentList));
@@ -1428,6 +1428,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
             RaiseWorldViewChanged();
             OnPropertyChanged(nameof(SearchPlaceholder));
+            RaiseContentKindTextChanged();
             RaiseCommandStates();
             UpdateLogTimer();
 
@@ -1441,12 +1442,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     SearchSourceIndex = 0;
             }
 
-            // 搜索面板跟随页签：离开内容页签收起（结果保留，同一实例下仍有效），
-            // 回到内容页签且还有结果时再展开。
-            // 「收起」按钮已经移除，收起状态下的这批结果没有任何入口能重新打开 ——
-            // 不展开就等于把用户搜到的东西弄丢了。
-            if (!IsContentList) IsSearchPanelExpanded = false;
-            else if (SearchResults.Count > 0) IsSearchPanelExpanded = true;
+            // 回到内容页签：上一轮的结果还在就恢复下载模式 —— 那批结果只在这个模式里有入口，
+            // 不恢复等于把它们藏起来了（页签上没有任何按钮能再打开它们）。
+            if (IsContentList
+                && SearchResults.Count > 0
+                && SelectedTab.ContentKind is { } restorable
+                && restorable.SupportsDownload())
+                IsContentDownloadMode = true;
 
             if (IsLogTab) _ = RefreshLogAsync();
             else if (!IsExportTab) _ = RefreshContentAsync();
@@ -1475,7 +1477,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool ShowLog => IsInstancePage && HasSelection && IsLogTab;
 
     /// <summary>空列表提示：只在这个面板里、且确实为空时显示。</summary>
-    public bool IsContentEmptyOrNotList => ShowModList && IsContentEmpty;
+    public bool IsContentEmptyOrNotList => ShowContentRows && IsContentEmpty;
 
 
 
@@ -1538,7 +1540,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ContentKind.Mod => "mods 文件夹是空的。把 .jar 放进这个文件夹（或将来自动安装），就会出现在这里。",
         ContentKind.ResourcePack => "resourcepacks 文件夹是空的。支持 .zip 和文件夹两种形式。",
         ContentKind.ShaderPack => "shaderpacks 文件夹是空的。光影通常需要配合 Iris / OptiFine 使用。",
-        ContentKind.DataPack => "这个世界还没有数据包。可以从下方搜索安装，或把 .zip 放进该世界的 datapacks 文件夹。",
+        ContentKind.DataPack => "这个世界还没有数据包。把 .zip 放进该世界的 datapacks 文件夹即可。",
         _ => "",
     };
 
@@ -1691,8 +1693,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             Content.Clear();
             UpdateCount = 0;   // 列表重建后旧的升级标记已失效
+
+            // 资源包 / 光影同样支持本地筛选：和模组页一致的"筛当前 X"手感，
+            // 否则列表上的搜索框对它们就是摆设。
+            var query = _contentFilterQuery.Trim();
+
             foreach (var entry in entries)
+            {
+                if (query.Length > 0
+                    && !entry.FileName.Contains(query, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 Content.Add(new ContentEntryItem(entry, ToggleAsync, DeleteAsync, UpgradeModAsync));
+            }
 
             RaisePackModFilterChanged();
             OnPropertyChanged(nameof(IsContentEmpty));
@@ -2364,24 +2377,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// </summary>
     public bool ShowSearchSummary => HasSearchSummary && !_isPlanVisible;
 
-    private bool _isSearchPanelExpanded = true;
-
-    /// <summary>搜索面板是否展开。收起后只留搜索框，把高度还给内容列表。</summary>
-    public bool IsSearchPanelExpanded
-    {
-        get => _isSearchPanelExpanded;
-        private set
-        {
-            if (!SetProperty(ref _isSearchPanelExpanded, value)) return;
-            OnPropertyChanged(nameof(SearchPanelToggleText));
-        }
-    }
-
-    /// <summary>收起时把结果条数写进按钮，否则用户不知道里面还有东西。</summary>
-    public string SearchPanelToggleText => _isSearchPanelExpanded
-        ? "收起"
-        : SearchResults.Count > 0 ? $"展开（{SearchResults.Count} 条）" : "展开";
-
     /// <summary>搜索框的占位提示随当前页签变化；查询为空时按钮会去取热门。</summary>
     public string SearchPlaceholder => SelectedTab.ContentKind is { } kind
         ? $"搜索{kind.DisplayName()}…（留空则看热门）"
@@ -2829,7 +2824,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ICommand SearchCommand { get; }
     public ICommand ConfirmInstallCommand { get; }
     public ICommand CancelPlanCommand { get; }
-    public ICommand ToggleSearchPanelCommand { get; }
 
     public ICommand PreviousSearchPageCommand { get; }
 
@@ -2849,7 +2843,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _searchHasNextPage = false;
         OnPropertyChanged(nameof(HasSearchResults));
         RaiseSearchPageState();
-        OnPropertyChanged(nameof(SearchPanelToggleText));
 
         // 连搜索词一起清掉：切换内容类型后旧关键词已经没有意义，
         // 留着会让人以为"这个搜索在新页签里也生效"。
@@ -3007,9 +3000,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 图标是次要信息：先让列表出来，再逐个把图标填上
             _ = LoadSearchIconsAsync(SearchResults.ToList());
 
-            // 搜出结果就展开 —— 收起状态下搜完看不到东西会让人以为没搜到
-            IsSearchPanelExpanded = true;
-
             SearchSummaryText = SearchResults.Count == 0
                 ? browsing
                     ? $"{source} 上没有找到适用于 {gameVersion} 的{kind.DisplayName()}"
@@ -3070,7 +3060,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _pendingItem = item;
             _pendingKind = kind;
             _pendingLoaders = loaders;
-            _pendingDirectory = Path.Combine(instance.GameDirectory, kind.DirectoryName());
+            // 用统一的目录解析：数据包按世界存放，模组/资源包/光影是实例子目录
+            _pendingDirectory = ResolveContentDirectory(kind);
 
             // 填充下拉时不要触发"选中即重新解析"，否则会解析两遍
             _suppressVersionReload = true;
@@ -3167,7 +3158,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             foreach (var target in plan.Dependencies) PlanLines.Add(new InstallPlanLineItem(target));
 
             IsPlanVisible = true;
-            IsSearchPanelExpanded = true;
             (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
             Status = $"待确认：{item.Title} {choice.Label} 共 {plan.Targets.Count} 个文件";

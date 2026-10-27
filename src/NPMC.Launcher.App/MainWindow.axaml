@@ -616,42 +616,40 @@
                          VerticalAlignment="Center" />
             </StackPanel>
 
-          <!-- 模组页：本地筛选 + 进入下载模式 -->
+          <!-- 内容页（模组 / 资源包 / 光影）：本地筛选 + 进入下载模式 -->
           <Border Grid.Row="1" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="10" Margin="0,0,0,10"
-                  IsVisible="{Binding IsModFilterVisible}">
+                  IsVisible="{Binding IsContentFilterVisible}">
             <Grid ColumnDefinitions="*,Auto">
-              <TextBox Text="{Binding ModFilterQuery, Mode=TwoWay}" FontSize="12"
-                       Watermark="筛选当前模组…" />
-              <Button Grid.Column="1" Content="下载模组" Command="{Binding OpenModDownloadCommand}"
+              <TextBox Text="{Binding ContentFilterQuery, Mode=TwoWay}" FontSize="12"
+                       Watermark="{Binding ContentFilterWatermark}" />
+              <Button Grid.Column="1" Content="{Binding DownloadButtonText}"
+                      Command="{Binding OpenContentDownloadCommand}"
                       Margin="8,0,0,0" FontSize="12" Height="30" Padding="12,0"
                       HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                      ToolTip.Tip="搜索 Modrinth / CurseForge 并安装新模组" />
+                      ToolTip.Tip="{Binding ContentDownloadTip}" />
             </Grid>
           </Border>
           <!--
-            搜索安装面板：只在模组页签出现。
+            搜索安装面板：模组 / 资源包 / 光影共用，只在「下载模式」里出现。
             两步走 —— 先搜索、点「安装」解析出依赖计划，确认后才下载。
             直接把下载按钮做在搜索结果上会让用户不知道会额外装什么（Fabric API 之类）。
           -->
-          <Border Grid.Row="1" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+          <!--
+            搜索安装面板：面板只在下载模式下出现，所以固定占满内容区（RowSpan 2）。
+            不再有“收起”状态 —— 收起按钮早已移除，留着只会变成一种进不去的死角。
+          -->
+          <Border Grid.Row="1" Grid.RowSpan="2" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="10" Margin="0,0,0,10"
-                  Classes.expanded="{Binding IsSearchPanelExpanded}"
-                  VerticalAlignment="Top"
+                  VerticalAlignment="Stretch"
                   IsVisible="{Binding IsSearchPanelVisible}">
-            <Border.Styles>
-              <Style Selector="Border.expanded">
-                <Setter Property="Grid.RowSpan" Value="2" />
-                <Setter Property="VerticalAlignment" Value="Stretch" />
-              </Style>
-            </Border.Styles>
             <Grid RowDefinitions="Auto,*" RowSpacing="8">
               <StackPanel Grid.Row="0" Spacing="8">
 
-            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsModDownloadMode}">
-              <Button Content="← 返回模组列表" Command="{Binding CloseModDownloadCommand}"
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="{Binding BackToContentListText}" Command="{Binding CloseContentDownloadCommand}"
                       FontSize="11" Padding="10,3" />
-              <TextBlock Text="下载新模组" FontSize="12" Foreground="#E8EAED" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding DownloadPanelTitle}" FontSize="12" Foreground="#E8EAED" VerticalAlignment="Center" />
             </StackPanel>
               <Grid ColumnDefinitions="*,Auto">
                 <TextBox Grid.Column="0" Text="{Binding SearchQuery}"
@@ -697,12 +695,11 @@
               </StackPanel>
 
               <!--
-                展开时吃掉内容区的剩余高度；收起后只留搜索控件。
+                吃满面板剩余高度：摘要 / 结果 / 计划 / 翻页。
                 中间的结果行是 * 行：**别给它 MinHeight**。依赖计划一出现，可用的高度
                 本来就紧张，写死最小高度会让结果列表撑出自己的格子，压住摘要和计划面板。
               -->
-              <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="8"
-                    IsVisible="{Binding IsSearchPanelExpanded}">
+              <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" RowSpacing="8">
 
               <TextBlock Grid.Row="0" Text="{Binding SearchSummaryText}" FontSize="11" Foreground="#949CA9"
                          IsVisible="{Binding ShowSearchSummary}" TextWrapping="Wrap" />
@@ -868,7 +865,7 @@
           -->
           <Border Grid.Row="2" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="8"
-                  IsVisible="{Binding ShowModList}">
+                  IsVisible="{Binding ShowContentRows}">
             <ListBox x:Name="ContentList"
                      ItemsSource="{Binding Content}" Background="Transparent" BorderThickness="0"
                      SelectionMode="Single" Padding="0"
@@ -1030,7 +1027,7 @@
         </StackPanel>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
-                    IsVisible="{Binding ShowModList}">
+                    IsVisible="{Binding ShowContentRows}">
           <Button Content="打开当前文件夹" Command="{Binding OpenContentFolderCommand}" />
           <Button Content="全部禁用" Command="{Binding DisableAllCommand}" />
           <Button Content="全部启用" Command="{Binding EnableAllCommand}" />

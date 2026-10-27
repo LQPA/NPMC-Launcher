@@ -44,6 +44,11 @@ public partial class App : Application
             // 临时诊断：离屏渲染"搜索结果 + 依赖计划"这一屏，核对布局重叠
             if (NPMC.Launcher.App.Diagnostics.PanelRenderProbe.IsRequested(args))
             {
+                // 字体必须在第一次布局之前设好：布局后换字体，已量好的文本会沿用旧度量
+                var renderFont = NPMC.Launcher.App.Diagnostics.PanelRenderProbe.FontOverride(args);
+                if (!string.IsNullOrWhiteSpace(renderFont))
+                    window.FontFamily = new Avalonia.Media.FontFamily(renderFont);
+
                 window.ShowInTaskbar = false;
                 window.WindowStartupLocation = WindowStartupLocation.Manual;
                 window.Position = new PixelPoint(-5000, 100);

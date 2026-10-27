@@ -358,9 +358,33 @@ internal static class InstanceDump
                 viewModel.RefreshCapabilitiesAsync(target).GetAwaiter().GetResult();
             }
 
-            viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
-            viewModel.SearchForDiagnosticsAsync("sodium").GetAwaiter().GetResult();
+            // 页签与关键词都可指定：模组 / 资源包 / 光影 共用同一条搜索安装链路
+            // --exercise-kind resourcepack --exercise-query faithful
+            var kindIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-kind", StringComparison.OrdinalIgnoreCase));
+            var kindName = kindIndex >= 0 && kindIndex + 1 < args.Length ? args[kindIndex + 1] : null;
+            var kind = kindName?.ToLowerInvariant() switch
+            {
+                "resourcepack" or "pack" => ContentKind.ResourcePack,
+                "shader" or "shaderpack" => ContentKind.ShaderPack,
+                _ => ContentKind.Mod,
+            };
+
+            var queryIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-query", StringComparison.OrdinalIgnoreCase));
+            var query = queryIndex >= 0 && queryIndex + 1 < args.Length ? args[queryIndex + 1] : "sodium";
+
+            viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == kind);
             lines.Add("");
+            lines.Add($"[页签] {kind.DisplayName()}  下载按钮={viewModel.DownloadButtonText}  "
+                      + $"筛选框={viewModel.IsContentFilterVisible} 列表={viewModel.ShowContentRows} "
+                      + $"搜索面板={viewModel.IsSearchPanelVisible}");
+
+            viewModel.OpenContentDownloadCommand.Execute(null);
+            lines.Add($"[下载模式] 筛选框={viewModel.IsContentFilterVisible} 列表={viewModel.ShowContentRows} "
+                      + $"搜索面板={viewModel.IsSearchPanelVisible}");
+
+            viewModel.SearchForDiagnosticsAsync(query).GetAwaiter().GetResult();
             lines.Add($"[搜索] 结果 {viewModel.SearchResults.Count} 个 —— {viewModel.SearchSummaryText}");
             lines.Add($"    搜索按钮可用 = {viewModel.SearchCommand.CanExecute(null)}");
             foreach (var hit in viewModel.SearchResults)
@@ -430,7 +454,7 @@ internal static class InstanceDump
 
                     lines.Add($"[安装后] 结果 {resultsBefore}→{viewModel.SearchResults.Count} 个"
                               + $"，摘要保留={viewModel.SearchSummaryText == summaryBefore}"
-                              + $"，面板展开={viewModel.IsSearchPanelExpanded}"
+                              + $"，下载模式={viewModel.IsContentDownloadMode}"
                               + $"，计划可见={viewModel.IsPlanVisible}");
 
                     // 新装的行必须当场带来源徽标（M / C），否则用户看到的就是一行空白，
@@ -446,10 +470,12 @@ internal static class InstanceDump
 
                 lines.Add($"    status = {viewModel.Status}");
 
-                // 切到别的内容页签：搜索词、结果、计划都应被清空
-                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.ResourcePack);
-                lines.Add($"[切换页签→资源包] 搜索词=\"{viewModel.SearchQuery}\" 结果={viewModel.SearchResults.Count} "
-                          + $"计划可见={viewModel.IsPlanVisible} 可选版本={viewModel.InstallVersions.Count}");
+                // 切到另一种内容页签：搜索词、结果、计划都应被清空
+                var otherKind = kind == ContentKind.ResourcePack ? ContentKind.ShaderPack : ContentKind.ResourcePack;
+                viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == otherKind);
+                lines.Add($"[切换页签→{otherKind.DisplayName()}] 搜索词=\"{viewModel.SearchQuery}\" 结果={viewModel.SearchResults.Count} "
+                          + $"计划可见={viewModel.IsPlanVisible} 可选版本={viewModel.InstallVersions.Count} "
+                          + $"下载模式={viewModel.IsContentDownloadMode} 列表={viewModel.ShowContentRows}");
             }
         }
 
@@ -1218,21 +1244,21 @@ internal static class InstanceDump
                 viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
                 Thread.Sleep(1000);
 
-                lines.Add($"    列表模式：筛选框={viewModel.IsModFilterVisible} 列表={viewModel.ShowModList} 搜索={viewModel.IsSearchPanelVisible}");
+                lines.Add($"    列表模式：筛选框={viewModel.IsContentFilterVisible} 列表={viewModel.ShowContentRows} 搜索={viewModel.IsSearchPanelVisible}");
 
-                viewModel.OpenModDownloadCommand.Execute(null);
+                viewModel.OpenContentDownloadCommand.Execute(null);
                 Thread.Sleep(300);
-                lines.Add($"    下载模式：筛选框={viewModel.IsModFilterVisible} 列表={viewModel.ShowModList} 搜索={viewModel.IsSearchPanelVisible}");
+                lines.Add($"    下载模式：筛选框={viewModel.IsContentFilterVisible} 列表={viewModel.ShowContentRows} 搜索={viewModel.IsSearchPanelVisible}");
 
-                viewModel.CloseModDownloadCommand.Execute(null);
+                viewModel.CloseContentDownloadCommand.Execute(null);
                 Thread.Sleep(300);
-                lines.Add($"    返回列表：列表={viewModel.ShowModList} 搜索={viewModel.IsSearchPanelVisible}");
+                lines.Add($"    返回列表：列表={viewModel.ShowContentRows} 搜索={viewModel.IsSearchPanelVisible}");
 
                 viewModel.HidePackMods = false;
                 Thread.Sleep(1500);
                 viewModel.RefreshContentAsync().GetAwaiter().GetResult();
                 lines.Add($"    显示全部后列表 {viewModel.Content.Count} 个（隐藏={viewModel.HidePackMods}）");
-                viewModel.ModFilterQuery = "tombstone";
+                viewModel.ContentFilterQuery = "tombstone";
                 Thread.Sleep(1500);
                 viewModel.RefreshContentAsync().GetAwaiter().GetResult();
                 Thread.Sleep(2500);
@@ -1247,7 +1273,7 @@ internal static class InstanceDump
                                     + $"Modrinth={viewModel.Content.Count(item => item.IsFromModrinth)} 个，"
                                     + $"未识别={viewModel.Content.Count(item => item.IsUnidentified)} 个");
 
-                viewModel.ModFilterQuery = "";
+                viewModel.ContentFilterQuery = "";
                 viewModel.HidePackMods = true;
                 viewModel.RefreshContentAsync().GetAwaiter().GetResult();
             }

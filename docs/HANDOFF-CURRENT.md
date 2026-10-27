@@ -1,11 +1,11 @@
-# NPMC Launcher 交接（2026-10-27 23:10）
+# NPMC Launcher 交接（2026-10-27 23:30）
 
 ## 当前状态
 
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:09，44.1 MB，已抬 Medium）
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:24，44.1 MB，已抬 Medium）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
 
@@ -37,6 +37,18 @@
   - 每页 20 条，翻页固定在搜索面板底部；
   - 搜索面板展开时占满内容区剩余高度，窗口拉高时结果区变高；
   - 移除了废弃的“收起”按钮。
+- **资源包 / 光影 也有了和模组一样的下载界面**（`MainWindowViewModel.ContentViews.cs`）：
+  - 三种内容页签统一成「本地列表 ⇄ 下载模式」两个视图，两种视图互斥，不再同屏抢地方；
+  - 列表上方一行：本地筛选框 + 「下载模组 / 下载资源包 / 下载光影」，文案跟着页签走；
+  - 下载模式下是完整搜索面板：搜索框、来源（Modrinth / CurseForge）、排序、
+    结果详情、版本下拉 + 依赖计划、翻页；回列表用「← 返回 X 列表」；
+  - 分类筛选仍然只对模组显示（那 14 个是模组分类，资源包/光影的 Modrinth 分类是另一套）；
+  - CurseForge 没有光影分类：切到光影时来源自动回到 Modrinth；
+  - 数据包**不**走这套（`ContentKind.SupportsDownload`：按世界存放，要先选世界）。
+  - 安装目录改为 `ResolveContentDirectory(kind)`：资源包进 `resourcepacks`、光影进
+    `shaderpacks`，顺带修掉数据包会被装到实例根 `datapacks` 的隐患。
+  - 删除 `IsSearchPanelExpanded` / `SearchPanelToggleText` / `ToggleSearchPanelCommand`
+    这些"收起"残留：面板只在下载模式出现，固定占满内容区。
 - 修复：
   - `CopyInstanceCommand` 加入 `RaiseCommandStates`，选中实例后按钮不再一直灰；
   - 下一页在整页返回时启用（`hits.Count >= SearchPageSize`）；
@@ -62,13 +74,20 @@
     + 图标"直接写进识别缓存。以前要等重启（后台识别按 `实例:页签` 只跑一次，装完不重跑），
     用户看到的就是刚下载那一行空着没有 M / C 徽标。
   - 诊断：新增离屏渲染 `--render-search-panel <png> [--render-height N] [--render-no-plan]
-    [--render-font 字体名]`（窗口放到屏幕外、不进任务栏），用来核对这类"布局挤在一起"的问题。
+    [--render-font 字体名] [--render-kind mod|resourcepack|shader] [--render-list]`
+    （窗口放到屏幕外、不进任务栏），用来核对这类"布局挤在一起"的问题。
+  - 诊断：`--exercise-search` 支持 `--exercise-kind` / `--exercise-query`，
+    现在模组 / 资源包 / 光影都能跑「搜索 → 计划 → 真下载 → 认领」整条链路。
+    实测资源包（faithful，19.4 MB）与光影（bliss，1.79 MB）都落进了正确目录，新行当场认领。
 
 ## 关键文件
 
 - `src/NPMC.Launcher.App/LauncherRoot.cs`：根目录优先级。
 - `src/NPMC.Launcher.Core/Paths/LauncherPaths.cs`：`Portable`、`GameRoot`。
 - `src/NPMC.Launcher.Core/Instances/InstanceLayout.cs`：游戏目录/SharedRoot/Paths。
+- `src/NPMC.Launcher.App/ViewModels/MainWindowViewModel.ContentViews.cs`：内容页签的
+  「列表 ⇄ 下载模式」、按类型变化的文案（下载 X / 返回 X 列表 / 筛选提示）。
+- `src/NPMC.Launcher.Core/Content/ContentKind.cs`：`SupportsDownload`（模组/资源包/光影）。
 - `src/NPMC.Launcher.App/ViewModels/MainWindowViewModel.cs`：搜索、分页、复制/导出、命令状态；
   `RememberInstalledIdentity`（装完写识别缓存）、`ShowSearchSummary`。
 - `src/NPMC.Launcher.App/Diagnostics/PanelRenderProbe.cs`：离屏渲染搜索面板，用来核对布局。

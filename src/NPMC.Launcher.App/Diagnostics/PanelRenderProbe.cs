@@ -22,20 +22,21 @@ internal static class PanelRenderProbe
     public static bool IsRequested(string[] args) =>
         args.Any(arg => string.Equals(arg, "--render-search-panel", StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// 离屏渲染要用的中文字体。**必须在窗口第一次布局之前**设上去：
+    /// 布局之后再换字体会让已经量好的文本沿用旧字体度量，中文叠成一团。
+    /// </summary>
+    public static string? FontOverride(string[] args) => Option(args, "--render-font");
+
     public static async Task RunAsync(MainWindow window, IClassicDesktopStyleApplicationLifetime desktop, string[] args)
     {
         var output = Option(args, "--render-search-panel") ?? Path.Combine(Path.GetTempPath(), "npmc-panel.png");
         var instanceName = Option(args, "--render-instance");
         var query = Option(args, "--render-query") ?? "sodium";
         var height = int.TryParse(Option(args, "--render-height"), out var parsedHeight) ? parsedHeight : 0;
-        var fontFamily = Option(args, "--render-font");
+        var kind = ParseKind(Option(args, "--render-kind"));
 
         if (height > 0) window.Height = height;
-
-        // 离屏渲染不会做字体回退：Inter 没有中文字形，不指定中文字体的话
-        // 中文会画成方框（宽度也算成 0，反倒让文字叠在一起）。只影响这张截图。
-        if (!string.IsNullOrWhiteSpace(fontFamily))
-            window.FontFamily = new Avalonia.Media.FontFamily(fontFamily);
 
         try
         {
@@ -58,14 +59,19 @@ internal static class PanelRenderProbe
                 await vm.RefreshCapabilitiesAsync(target);
             }
 
-            vm.SelectedTab = vm.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
-            vm.OpenModDownloadCommand.Execute(null);
+            vm.SelectedTab = vm.ContentTabs.First(tab => tab.ContentKind == kind);
 
-            await vm.SearchForDiagnosticsAsync(query);
+            // --render-list：只看"列表模式"（本地列表 + 筛选框 + 下载入口），不进下载模式
+            if (!args.Any(arg => string.Equals(arg, "--render-list", StringComparison.OrdinalIgnoreCase)))
+            {
+                vm.OpenContentDownloadCommand.Execute(null);
 
-            if (!args.Any(arg => string.Equals(arg, "--render-no-plan", StringComparison.OrdinalIgnoreCase))
-                && vm.SearchResults.FirstOrDefault() is { } hit)
-                await vm.PrepareInstallForDiagnosticsAsync(hit);
+                await vm.SearchForDiagnosticsAsync(query);
+
+                if (!args.Any(arg => string.Equals(arg, "--render-no-plan", StringComparison.OrdinalIgnoreCase))
+                    && vm.SearchResults.FirstOrDefault() is { } hit)
+                    await vm.PrepareInstallForDiagnosticsAsync(hit);
+            }
 
             // 让布局与异步图标任务跑完
             for (var i = 0; i < 40; i++)
@@ -93,8 +99,9 @@ internal static class PanelRenderProbe
             bitmap.Save(output);
 
             File.WriteAllText(output + ".ok.txt",
-                $"size={size.Width}x{size.Height} plan={vm.IsPlanVisible} "
-                + $"results={vm.SearchResults.Count} expanded={vm.IsSearchPanelExpanded}");
+                $"size={size.Width}x{size.Height} kind={kind} tab={vm.SelectedTab.Title} "
+                + $"download={vm.IsContentDownloadMode} plan={vm.IsPlanVisible} "
+                + $"results={vm.SearchResults.Count}");
         }
         catch (Exception ex)
         {
@@ -105,6 +112,14 @@ internal static class PanelRenderProbe
             desktop.Shutdown();
         }
     }
+
+    private static ContentKind ParseKind(string? value) => value?.ToLowerInvariant() switch
+    {
+        "resourcepack" or "resource-pack" or "pack" or "resourcepacks" => ContentKind.ResourcePack,
+        "shader" or "shaders" or "shaderpack" or "shaderpacks" => ContentKind.ShaderPack,
+        "datapack" or "datapacks" => ContentKind.DataPack,
+        _ => ContentKind.Mod,
+    };
 
     private static string? Option(string[] args, string name)
     {

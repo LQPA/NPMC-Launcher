@@ -1,4 +1,4 @@
-﻿namespace NPMC.Launcher.Core.Content;
+namespace NPMC.Launcher.Core.Content;
 
 /// <summary>可管理的内容类型。</summary>
 public enum ContentKind
@@ -78,6 +78,15 @@ public static class ContentKindExtensions
         ContentKind.DataPack => new Version(1, 13),
         _ => null,
     };
+    /// <summary>
+    /// 有没有「下载新 X」的入口（搜索 + 依赖计划 + 安装）。
+    ///
+    /// 模组 / 资源包 / 光影都有；**数据包没有** —— 它按世界存放，必须先选世界，
+    /// 界面走的是另一套（世界列表 → 该世界的数据包）。
+    /// </summary>
+    public static bool SupportsDownload(this ContentKind kind) =>
+        kind is ContentKind.Mod or ContentKind.ResourcePack or ContentKind.ShaderPack;
+
     /// <summary>该类型是否可能带依赖（只有模组会）。</summary>
     public static bool HasDependencies(this ContentKind kind) => kind == ContentKind.Mod;
 }
