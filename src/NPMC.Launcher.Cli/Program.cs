@@ -1956,7 +1956,9 @@ internal static class Program
 
             var paths = new LauncherPaths(ResolveRoot(args));
             var catalog = new AccountCatalog(await new JsonAccountStore(paths).LoadAsync());
-            var account = catalog.Find(key) ?? catalog.FindByUsername(key);
+            var account = catalog.Find(key)
+                          ?? catalog.FindByUsername(key, AccountKind.Microsoft)
+                          ?? catalog.FindByUsername(key);
 
             if (account is null)
             {

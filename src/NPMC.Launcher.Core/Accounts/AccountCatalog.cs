@@ -20,10 +20,11 @@ public sealed class AccountCatalog
         ? null
         : _accounts.FirstOrDefault(account => string.Equals(account.Id, id, StringComparison.OrdinalIgnoreCase));
 
-    public PlayerAccount? FindByUsername(string? username) => username is null
+    public PlayerAccount? FindByUsername(string? username, AccountKind? kind = null) => username is null
         ? null
         : _accounts.FirstOrDefault(account =>
-            string.Equals(account.Username, username.Trim(), StringComparison.OrdinalIgnoreCase));
+            (kind is null || account.Kind == kind)
+            && string.Equals(account.Username, username.Trim(), StringComparison.OrdinalIgnoreCase));
 
     public PlayerAccount AddOffline(string username)
     {
@@ -32,8 +33,8 @@ public sealed class AccountCatalog
         if (!PlayerAccount.IsValidUsername(name))
             throw new ArgumentException("用户名只能是 1~16 个字母、数字或下划线。", nameof(username));
 
-        if (FindByUsername(name) is not null)
-            throw new InvalidOperationException($"已经有名为「{name}」的账号了");
+        if (FindByUsername(name, AccountKind.Offline) is not null)
+            throw new InvalidOperationException($"已经有名为「{name}」的离线账号了");
 
         var account = PlayerAccount.CreateOffline(name);
         _accounts.Add(account);
@@ -41,8 +42,9 @@ public sealed class AccountCatalog
     }
 
     /// <summary>
-    /// 登录成功后创建/更新微软账号。同名离线账号会被升级成微软账号，
-    /// 保留 Id 与实例绑定；已有同 UUID 的账号则只更新显示名。
+    /// 登录成功后创建/更新微软账号。
+    /// 同名**离线**账号不会被覆盖：保留它，另外新增一个微软账号。
+    /// 已有同 UUID 或同名微软账号时只更新那一个。
     /// </summary>
     public PlayerAccount UpsertMicrosoft(string username, string uuid)
     {
@@ -72,25 +74,22 @@ public sealed class AccountCatalog
             return updated;
         }
 
-        var byName = FindByUsername(name);
+        // 只合并同名微软账号；同名离线账号保留，另建一个微软账号。
+        var byName = FindByUsername(name, AccountKind.Microsoft);
 
         if (byName is not null)
         {
-            if (byName.Kind == AccountKind.Authlib)
-                throw new InvalidOperationException($"已有同名的第三方账号「{name}」");
-
-            var upgraded = byName with
+            var updated = byName with
             {
                 Username = name,
                 Uuid = normalizedUuid,
-                Kind = AccountKind.Microsoft,
                 Skin = AccountSkin.MojangName,
                 SkinPath = null,
                 SkinModel = null,
             };
 
-            _accounts[_accounts.IndexOf(byName)] = upgraded;
-            return upgraded;
+            _accounts[_accounts.IndexOf(byName)] = updated;
+            return updated;
         }
 
         var account = new PlayerAccount(
@@ -127,14 +126,15 @@ public sealed class AccountCatalog
 
         if (index < 0) return null;
 
+        var current = _accounts[index];
+
         if (_accounts.Any(account =>
                 !string.Equals(account.Id, id, StringComparison.OrdinalIgnoreCase)
+                && account.Kind == current.Kind
                 && string.Equals(account.Username, name, StringComparison.OrdinalIgnoreCase)))
         {
-            throw new InvalidOperationException($"已经有名为「{name}」的账号了");
+            throw new InvalidOperationException($"已经有名为「{name}」的{current.KindText}账号了");
         }
-
-        var current = _accounts[index];
 
         _accounts[index] = current.Kind == AccountKind.Microsoft
             ? current with { Username = name }
@@ -175,8 +175,8 @@ public sealed class AccountCatalog
 
             if (!PlayerAccount.IsValidUsername(account.Username))
                 problems.Add($"账号用户名非法：'{account.Username}'");
-            else if (!seenNames.Add(account.Username))
-                problems.Add($"账号用户名重复：'{account.Username}'");
+            else if (!seenNames.Add(account.Username + "|" + account.Kind))
+                problems.Add($"同类型账号用户名重复：'{account.Username}'（{account.KindText}）");
 
             if (account.Uuid.Length != 32)
                 problems.Add($"账号 UUID 非法：'{account.Uuid}'");

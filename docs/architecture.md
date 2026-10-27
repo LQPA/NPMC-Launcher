@@ -479,8 +479,9 @@ Minecraft access token / UUID / name，并停止对正版账号注入离线皮�
 
 ### 9.3 正式账号接入（2026-10-27）
 
-- `AccountKind.Microsoft` 正式启用；同名离线账号在登录成功后被**升级**为微软账号，
-  保留原 Id 与实例绑定，UUID 换成正版 UUID。
+- `AccountKind.Microsoft` 正式启用；同名离线账号**不覆盖**，
+  登录后另建一个微软账号（两者在列表/下拉里按类型区分）。
+  已有同 UUID 或同名微软账号时才更新那一个。
 - `MicrosoftAccountService`：
   - 登录：`LoginAsync` 返回 profile + refresh token；
   - 启动：`GetMinecraftAsync` 读 refresh token → 刷新 Microsoft token →
