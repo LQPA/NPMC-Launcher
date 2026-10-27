@@ -136,6 +136,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
    的话中文会画成方框、宽度还会算成 0（文字叠在一起）。它只适合核对几何布局，别拿它判断字体。
 10. 搜索结果右侧详情栏没选中时是空白的（列表只用左半屏）；如果把计划面板挪到右侧，
     列表就能用满整行高度 —— 需要的话再和用户确认这个改法。
+11. **Avalonia 只在控件挂上时问一次 `CanExecute`**，之后不会自动重算。凡是
+    `RelayCommand` 的 CanExecute 依赖页签/可见性这类外部状态，必须自己
+    `RaiseCanExecuteChanged()`（或干脆用可见性控制、不挂 CanExecute）。
+    2026-10-27 的「下载模组」按钮变灰就是踩了这个：按钮在概览页就挂上了（CanExecute=false），
+    切到模组页没人通知它，于是永远是灰的。现在那个命令不挂 CanExecute，靠
+    `IsContentFilterVisible` 控制显隐。
 
 ## 用户偏好
 

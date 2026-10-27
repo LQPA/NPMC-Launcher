@@ -72,14 +72,13 @@ public sealed partial class MainWindowViewModel
 
     private void InitializeContentViewCommands()
     {
-        OpenContentDownloadCommand = new RelayCommand(OpenContentDownload, () => CanOpenContentDownload);
+        // 这里**不能**挂 CanExecute：按钮所在的那一行先于页签切换被创建，
+        // Avalonia 只在控件挂上时问一次 CanExecute，之后没人再通知它重算 ——
+        // 结果就是切到模组页后按钮仍是灰的。能不能用交给可见性
+        // （IsContentFilterVisible 已经排除了数据包和下载模式）和下面的入口判断。
+        OpenContentDownloadCommand = new RelayCommand(OpenContentDownload);
         CloseContentDownloadCommand = new RelayCommand(CloseContentDownload);
     }
-
-    /// <summary>数据包没有下载模式（按世界存放），所以只在支持的页签上可用。</summary>
-    private bool CanOpenContentDownload =>
-        ShowContentList && !_isContentDownloadMode
-        && (SelectedTab.ContentKind?.SupportsDownload() ?? false);
 
     /// <summary>
     /// 进入下载模式。留着上一次的结果：从列表回来再点「下载 X」时，
@@ -109,7 +108,6 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(IsContentFilterVisible));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         RaisePaneVisibilityChanged();
-        (OpenContentDownloadCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     /// <summary>页签切换后重算所有「跟着内容类型走」的文案。</summary>
