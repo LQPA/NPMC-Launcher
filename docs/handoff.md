@@ -822,7 +822,11 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
 - 下载完成仍复用 `InstallModpackAsync`，实例标记写入 `_modpackSource="curseforge"`。
 - 需要 `CURSEFORGE_API_KEY` 或 `%APPDATA%\NPMC-Launcher\curseforge.key`；
   未配置时选中 CurseForge 会直接提示，不发请求。
-- 待实测：配好 key 后搜索 ATM10 等整合包并完整安装。
+- 整合包页新增 **API key 输入框 + 保存并测试**：写入同一个
+  `%APPDATA%\NPMC-Launcher\curseforge.key`，保存后立即重建 CurseForgeClient 并用
+  `ATM10` 查询验证；输入框是密码样式，不显示已保存的 key。
+- 已实测：用户提供的 60 字符 `$2a$` key 可搜索到 ATM10（All the Mods 10，3 条结果）。
+- 待实测：用该 key 完整安装一个 CurseForge 整合包。
 
 ---
 

@@ -19,6 +19,8 @@ public sealed partial class MainWindowViewModel
     private string _modpackSource = "modrinth";
     private string _modpackProjectId = "";
     private int _selectedModpackSourceIndex;
+    private string _curseForgeApiKey = "";
+    private string _curseForgeKeyStatus = "";
     private ModpackHitItem? _selectedModpackHit;
     private ModpackVersionItem? _selectedModpackVersion;
 
@@ -28,10 +30,15 @@ public sealed partial class MainWindowViewModel
 
     public ICommand SearchModpacksCommand { get; private set; }
     public ICommand DownloadModpackCommand { get; private set; }
+    public ICommand SaveCurseForgeKeyCommand { get; private set; }
 
     private void InitializeModpackOnlineCommands()
     {
         SearchModpacksCommand = new AsyncRelayCommand(SearchModpacksAsync);
+        SaveCurseForgeKeyCommand = new AsyncRelayCommand(SaveCurseForgeKeyAsync);
+        CurseForgeKeyStatus = IsCurseForgeSearchAvailable
+            ? "已检测到 CurseForge API key（环境变量或 key 文件）"
+            : "未配置 CurseForge API key";
         DownloadModpackCommand = new AsyncRelayCommand(
             DownloadAndInstallModpackAsync,
             () => SelectedModpackHit is not null
@@ -43,6 +50,62 @@ public sealed partial class MainWindowViewModel
     {
         get => _modpackSearchQuery;
         set => SetProperty(ref _modpackSearchQuery, value);
+    }
+
+    public string CurseForgeApiKey
+    {
+        get => _curseForgeApiKey;
+        set => SetProperty(ref _curseForgeApiKey, value);
+    }
+
+    public string CurseForgeKeyStatus
+    {
+        get => _curseForgeKeyStatus;
+        private set => SetProperty(ref _curseForgeKeyStatus, value);
+    }
+
+    private async Task SaveCurseForgeKeyAsync()
+    {
+        if (!CurseForgeClient.TryNormalizeApiKey(CurseForgeApiKey, out var key, out var problem)
+            || key is null)
+        {
+            CurseForgeKeyStatus = problem ?? "API key 无效";
+            return;
+        }
+
+        try
+        {
+            var directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "NPMC-Launcher");
+            Directory.CreateDirectory(directory);
+            await File.WriteAllTextAsync(Path.Combine(directory, "curseforge.key"), key);
+
+            CurseForgeApiKey = "";
+            ReloadCurseForgeClient();
+
+            if (_curseForge is null)
+            {
+                CurseForgeKeyStatus = "key 已保存，但读取失败";
+                return;
+            }
+
+            try
+            {
+                var hits = await _curseForge.SearchAsync(
+                    "ATM10", gameVersion: null, loaders: Array.Empty<string>(),
+                    limit: 1, classId: 4471);
+                CurseForgeKeyStatus = $"key 已保存并验证成功（{hits.Count} 条结果）";
+            }
+            catch (Exception ex)
+            {
+                CurseForgeKeyStatus = "key 已保存，但验证失败：" + ex.GetBaseException().Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            CurseForgeKeyStatus = "保存失败：" + ex.GetBaseException().Message;
+        }
     }
 
     public string ModpackSearchStatus
@@ -81,6 +144,8 @@ public sealed partial class MainWindowViewModel
     public string ModpackSourceHint => _selectedModpackSourceIndex == 1
         ? "CurseForge 整合包（classId 4471），需要 API key"
         : "Modrinth 整合包";
+
+    public bool IsCurseForgeSearchAvailableForModpacks => _curseForge is not null;
 
     public bool IsSearchingModpacks
     {

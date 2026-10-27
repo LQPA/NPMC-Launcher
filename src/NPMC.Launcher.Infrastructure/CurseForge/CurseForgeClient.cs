@@ -133,6 +133,38 @@ public sealed class CurseForgeClient
     /// "Request headers must contain only ASCII characters"，很难看出根因。
     /// 这里提前检查并给出"请用单引号"的提示。
     /// </summary>
+    /// <summary>去掉 BOM/零宽字符/首尾空白并校验 ASCII，供设置页保存前使用。</summary>
+    public static bool TryNormalizeApiKey(string? raw, out string? apiKey, out string? problem)
+    {
+        apiKey = null;
+        problem = null;
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            problem = "API key 为空";
+            return false;
+        }
+
+        var cleaned = Sanitize(raw);
+
+        if (cleaned.Length == 0)
+        {
+            problem = "API key 为空";
+            return false;
+        }
+
+        foreach (var character in cleaned)
+        {
+            if (character is >= (char)0x20 and <= (char)0x7E) continue;
+
+            problem = $"API key 含有非 ASCII 字符（U+{(int)character:X4}）";
+            return false;
+        }
+
+        apiKey = cleaned;
+        return true;
+    }
+
     public static bool TryResolveApiKey(out string? apiKey, out string? problem)
     {
         apiKey = null;

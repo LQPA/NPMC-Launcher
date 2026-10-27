@@ -1196,6 +1196,18 @@
                 <TextBlock Text="{Binding ModpackSourceHint}" FontSize="10" Foreground="#6E7684"
                            TextWrapping="Wrap" />
 
+                <Grid ColumnDefinitions="64,*,Auto">
+                  <TextBlock Text="API key" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding CurseForgeApiKey, Mode=TwoWay}"
+                           PasswordChar="●" FontSize="12"
+                           Watermark="粘贴 CurseForge API key（$2a$...）" />
+                  <Button Grid.Column="2" Content="保存并测试" Command="{Binding SaveCurseForgeKeyCommand}"
+                          Margin="8,0,0,0" FontSize="12" Height="30" Padding="10,0" />
+                </Grid>
+
+                <TextBlock Text="{Binding CurseForgeKeyStatus}" FontSize="10" Foreground="#6E7684"
+                           TextWrapping="Wrap" />
+
                 <Grid ColumnDefinitions="*,Auto">
                   <TextBox Text="{Binding ModpackSearchQuery, Mode=TwoWay}" FontSize="12"
                            Watermark="搜索整合包（留空按热门）" />

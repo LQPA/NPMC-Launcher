@@ -47,8 +47,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly HashSet<string> _autoIdentifiedInstances = new(StringComparer.OrdinalIgnoreCase);
     private readonly TranslationClient _translation;
     private string? _descriptionLanguage;
-    private readonly CurseForgeClient? _curseForge;
-    private readonly CurseForgeInstaller? _curseForgeInstaller;
+    private CurseForgeClient? _curseForge;
+    private CurseForgeInstaller? _curseForgeInstaller;
 
     private InstanceListItem? _selectedInstance;
     private ContentTabItem _selectedTab;
@@ -105,11 +105,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _memoryTraceTimer.Start();
         }
 
-        if (CurseForgeClient.TryResolveApiKey(out var curseForgeKey, out _) && curseForgeKey is not null)
-        {
-            _curseForge = new CurseForgeClient(_http, curseForgeKey);
-            _curseForgeInstaller = new CurseForgeInstaller(_curseForge);
-        }
+        ReloadCurseForgeClient();
 
         RefreshCommand = new AsyncRelayCommand(LoadAsync, onError: ex => Status = $"刷新失败：{ex.Message}");
 
@@ -2034,6 +2030,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>未配置 key 时 CurseForge 来源不可用，界面上据此禁用选项。</summary>
     public bool IsCurseForgeSearchAvailable => _curseForge is not null;
+
+    /// <summary>设置页保存 key 后重建客户端；环境变量优先级仍高于文件。</summary>
+    private void ReloadCurseForgeClient()
+    {
+        if (CurseForgeClient.TryResolveApiKey(out var key, out _) && key is not null)
+        {
+            _curseForge = new CurseForgeClient(_http, key);
+            _curseForgeInstaller = new CurseForgeInstaller(_curseForge);
+        }
+        else
+        {
+            _curseForge = null;
+            _curseForgeInstaller = null;
+        }
+
+        OnPropertyChanged(nameof(IsCurseForgeSearchAvailable));
+        OnPropertyChanged(nameof(IsCurseForgeSearchAvailableForModpacks));
+    }
 
     public ObservableCollection<ModSearchResultItem> SearchResults { get; } = new();
     public ObservableCollection<InstallPlanLineItem> PlanLines { get; } = new();
