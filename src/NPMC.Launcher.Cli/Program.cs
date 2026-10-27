@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text;
 using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Content;
@@ -9,6 +9,7 @@ using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Rules;
 using NPMC.Launcher.Core.Settings;
+using NPMC.Launcher.Infrastructure.Auth;
 using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Diagnostics;
 using NPMC.Launcher.Infrastructure.Hashing;
@@ -48,6 +49,7 @@ internal static class Program
                 "doctor"   => await DoctorAsync(args[1..]),
                 "settings" => await SettingsAsync(args[1..]),
                 "account"  => await AccountAsync(args[1..]),
+                "auth"     => await AuthAsync(args[1..]),
                 "net"      => await NetAsync(args[1..]),
                 "mods"     => await ModsAsync(args[1..]),
                 "loader"   => await LoaderAsync(args[1..]),
@@ -1924,6 +1926,79 @@ internal static class Program
     }
 
     /// <summary>离线账号：list / add / remove / default。</summary>
+    // ----------------------------------------------------------------- auth
+
+    private static async Task<int> AuthAsync(string[] args)
+    {
+        if (args.Length == 0 || !string.Equals(args[0], "microsoft", StringComparison.OrdinalIgnoreCase))
+        {
+            Error("用法: npmc auth microsoft [--client-id <id>] [--tenant consumers] [--no-browser]");
+            return 1;
+        }
+
+        var clientId = Opt(args, "--client-id")
+                       ?? Environment.GetEnvironmentVariable("NPMC_MS_CLIENT_ID");
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            Error("缺少 Microsoft client ID");
+            Info("设置 NPMC_MS_CLIENT_ID，或传 --client-id <id>");
+            Info("该 Entra 应用必须支持个人账户、public client flows，并具备 XboxLive.signin");
+            return 2;
+        }
+
+        var tenant = Opt(args, "--tenant")
+                     ?? Environment.GetEnvironmentVariable("NPMC_MS_TENANT")
+                     ?? "consumers";
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+
+        try
+        {
+            Section("Microsoft 设备码");
+            Info($"client id  {clientId}");
+            Info($"tenant     {tenant}");
+
+            var result = await MicrosoftDeviceCodeAuth.RunAsync(http, clientId, tenant, code =>
+            {
+                Section("请在浏览器中授权");
+                Info($"验证地址  {code.VerificationUri}");
+                Info($"输入代码  {code.UserCode}");
+                Info($"有效期    {code.ExpiresIn} 秒 / 轮询间隔 {code.Interval} 秒");
+                if (!string.IsNullOrWhiteSpace(code.Message)) Dim(code.Message);
+
+                if (Has(args, "--no-browser")) return;
+
+                try
+                {
+                    Process.Start(new ProcessStartInfo(code.VerificationUri) { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    Warn($"无法自动打开浏览器：{ex.Message}");
+                    Info("请手动打开上面的验证地址。");
+                }
+            });
+
+            Section("登录结果");
+            Ok($"Minecraft  {result.MinecraftName} / {result.MinecraftUuid}");
+            Info($"所有权     {result.EntitlementCount} 项");
+            if (result.EntitlementCount == 0)
+                Warn("该账号没有 Minecraft 所有权（entitlements 为空）");
+            Dim("令牌只保留在本次进程内，未写入磁盘。");
+            return 0;
+        }
+        catch (MicrosoftDeviceCodeAuth.AuthException ex)
+        {
+            Error(ex.Message);
+            return 2;
+        }
+        catch (Exception ex)
+        {
+            Error($"登录失败：{ex.GetBaseException().Message}");
+            return 2;
+        }
+    }
+
     private static async Task<int> AccountAsync(string[] args)
     {
         if (args.Length == 0)
@@ -2228,6 +2303,11 @@ internal static class Program
                                                       设为全局默认账号
               npmc account remove <用户名|Id>
                                                       删除账号（引用它的实例会退回默认账号）
+
+            微软正版探针（不落盘）:
+              npmc auth microsoft [--client-id <id>] [--tenant consumers] [--no-browser]
+                                                      client id 也可用 NPMC_MS_CLIENT_ID；
+                                                      走设备码 → XBL → XSTS → login_with_xbox → profile
 
             网络:
               npmc net selftest [--version 1.20.1] [--samples 3] [--dry-run]

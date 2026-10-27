@@ -448,6 +448,19 @@ Microsoft 官方答复明确：**`XboxLive.signin` 权限只有在应用完成 M
 - **离线模式不调用任何 Minecraft Services API，也不使用该 client id**，因此在技术上完全独立
 - 硬红线：**不得用离线模式连接 online-mode 服务器**
 
+### 9.1 认证探针（2026-10-27）
+
+- `npmc auth microsoft [--client-id <id>] [--tenant consumers] [--no-browser]`
+  走完整设备码链路：devicecode → 轮询 token → XBL → XSTS →
+  `login_with_xbox` → entitlements → profile。
+- client id 从 `NPMC_MS_CLIENT_ID` 或 `--client-id` 读取，不硬编码；tenant 默认 `consumers`。
+- 令牌只留在进程内，不写盘；错误按阶段打印 HTTP 状态与响应体（含 AADSTS/XErr）。
+- 旧版 `login.live.com/oauth20_desktop.srf` 授权码流已被微软下线：
+  登录后跳到 `oauth20_desktop.srf?removed=true`，不要再使用。
+- PCL2 的微软登录也是设备码流；它的 `oauth20_remoteconnect.srf` 只是设备码的验证页，
+  client id 是构建时注入的私有值（开源版从 `PCL_MS_CLIENT_ID` 读取）。
+  因此“复刻 PCL2”仍需要自己的、具备 `XboxLive.signin` 的 client id，不能借用别人的。
+
 ---
 
 ## 10. 数据与配置（待实现）
