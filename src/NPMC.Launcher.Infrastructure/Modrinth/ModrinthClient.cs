@@ -155,6 +155,40 @@ public sealed class ModrinthClient
         return hits;
     }
 
+    /// <summary>
+    /// 取某类项目的分类标签（模组 / 资源包 / 光影各一套）。
+    ///
+    /// Modrinth 的 /tag/category 一次返回所有类型的标签，这里按 project_type 过滤。
+    /// 分类不是硬编码的：模组那 14 个中文分类是我们自己翻的，而资源包（16x、vanilla-like…）
+    /// 与光影（potato、bloom…）的标签只能从这里拿。
+    /// </summary>
+    public async Task<IReadOnlyList<ModrinthCategoryTag>> GetCategoriesAsync(
+        string projectType,
+        CancellationToken cancellationToken = default)
+    {
+        var json = await _http
+            .GetStringAsync($"{ApiBase}/tag/category", cancellationToken)
+            .ConfigureAwait(false);
+
+        var result = new List<ModrinthCategoryTag>();
+
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Array) return result;
+
+        foreach (var item in document.RootElement.EnumerateArray())
+        {
+            if (!string.Equals(GetString(item, "project_type"), projectType, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var name = GetString(item, "name");
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            result.Add(new ModrinthCategoryTag(name, GetString(item, "header") ?? ""));
+        }
+
+        return result;
+    }
+
     /// <summary>批量取项目信息（用于把 projectId 变成人看得懂的名字）。</summary>
     public async Task<IReadOnlyDictionary<string, ModrinthProject>> GetProjectsAsync(
         IReadOnlyCollection<string> projectIds,

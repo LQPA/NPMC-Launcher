@@ -393,6 +393,36 @@ internal static class InstanceDump
             lines.Add($"[下载模式] 筛选框={viewModel.IsContentFilterVisible} 列表={viewModel.ShowContentRows} "
                       + $"搜索面板={viewModel.IsSearchPanelVisible}");
 
+            // 分类：模组是内置列表，资源包/光影要联网取（有缓存就用缓存）
+            for (var i = 0; i < 80 && viewModel.SearchCategories.Count <= 1; i++)
+                Thread.Sleep(100);
+
+            lines.Add($"    分类 {viewModel.SearchCategories.Count} 项："
+                      + string.Join("、", viewModel.SearchCategories.Take(10).Select(option => option.Display))
+                      + (viewModel.SearchCategories.Count > 10 ? " …" : ""));
+
+            var categoryIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-category", StringComparison.OrdinalIgnoreCase));
+            var categoryName = categoryIndex >= 0 && categoryIndex + 1 < args.Length ? args[categoryIndex + 1] : null;
+
+            if (categoryName is not null)
+            {
+                var wanted = Enumerable.Range(1, Math.Max(0, viewModel.SearchCategories.Count - 1))
+                    .FirstOrDefault(index => string.Equals(
+                        viewModel.SearchCategories[index].Display, categoryName, StringComparison.OrdinalIgnoreCase), -1);
+
+                if (wanted > 0)
+                {
+                    viewModel.SearchCategoryIndex = wanted;
+                    lines.Add($"    已选分类：{viewModel.SelectedSearchCategoryName}"
+                              + $"（来源={viewModel.SelectedSearchSource}）");
+                }
+                else
+                {
+                    lines.Add($"    没找到分类「{categoryName}」");
+                }
+            }
+
             viewModel.SearchForDiagnosticsAsync(query).GetAwaiter().GetResult();
             lines.Add($"[搜索] 结果 {viewModel.SearchResults.Count} 个 —— {viewModel.SearchSummaryText}");
             lines.Add($"    搜索按钮可用 = {viewModel.SearchCommand.CanExecute(null)}");

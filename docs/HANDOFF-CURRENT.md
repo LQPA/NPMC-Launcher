@@ -106,6 +106,12 @@
     （设置页「检查更新时包含 beta / alpha」+ 模组页底部「含测试版」复选），打开后
     beta/alpha 也参与升级判定，状态栏会写「N 可升级（含测试版）」。
     实测 sodium 0.9.2：默认 0 可升级，打开后 `mc26.3-0.9.2-neoforge → mc26.3-0.9.3-beta.1-neoforge`。
+  - **资源包 / 光影也能按分类筛选**：分类标签从 Modrinth `/v2/tag/category` 按 `project_type`
+    取（资源包 29 个、光影 19 个），缓存进 `cache/search-categories.json`（7 天，断网可用）；
+    模组的 13 个中文分类仍是内置（带 CurseForge id）。选具体分类时若来源是 CurseForge，
+    会自动切回 Modrinth（CF 的包分类 id 没映射），搜索前也会拦下并提示。
+    实测：资源包「16x」→ 7 条、光影「realistic」→ 1 条、模组页分类恢复为 14 项（全部 + 13）。
+    诊断：`--exercise-search --exercise-category <名字>` 可指定分类后再搜。
 
 ## 关键文件
 

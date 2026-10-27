@@ -660,12 +660,12 @@
 
               <!-- 第二行：分类 / 来源 / 排序 -->
               <Grid ColumnDefinitions="Auto,Auto,Auto,*">
-                <!-- 高级搜索：模组分类（资源包/光影/存档不显示） -->
+                <!-- 分类：模组 / 资源包 / 光影各一套（资源包与光影的标签来自 Modrinth） -->
                 <ComboBox Grid.Column="0" ItemsSource="{Binding SearchCategories}"
                           SelectedIndex="{Binding SearchCategoryIndex}"
-                          IsVisible="{Binding IsModCategoryFilterVisible}"
-                          Width="120" FontSize="12"
-                          ToolTip.Tip="按 Modrinth / CurseForge 分类筛选模组">
+                          IsVisible="{Binding IsCategoryFilterVisible}"
+                          Width="150" FontSize="12"
+                          ToolTip.Tip="{Binding CategoryFilterTip}">
                   <ComboBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:SearchCategoryOption">
                       <TextBlock Text="{Binding Display}" />

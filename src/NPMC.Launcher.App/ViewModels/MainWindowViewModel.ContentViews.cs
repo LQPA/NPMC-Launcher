@@ -89,6 +89,9 @@ public sealed partial class MainWindowViewModel
         if (SelectedTab.ContentKind is not { } kind || !kind.SupportsDownload()) return;
 
         IsContentDownloadMode = true;
+
+        // 资源包/光影的分类是联网取的（有缓存就用缓存），进下载模式时补一次
+        _ = EnsureCategoriesForKindAsync(kind);
     }
 
     /// <summary>回到本地列表。搜索结果与待确认计划都保留，下次进来还在。</summary>

@@ -141,3 +141,13 @@ public sealed record ModrinthVersion(
         };
     }
 }
+
+/// <summary>
+/// 一个 Modrinth 分类标签（搜索结果里的筛选器）。
+///
+/// 分类随项目类型完全不同，别指望一套通吃：模组是 technology/magic，
+/// 资源包是 16x/vanilla-like，光影是 potato/bloom —— 所以标签要按 project_type 取。
+/// </summary>
+/// <param name="Name">筛选用的 slug，同时也是显示名（例如 16x）。</param>
+/// <param name="Header">归类（resolutions / features / categories / performance impact），用于排序。</param>
+public sealed record ModrinthCategoryTag(string Name, string Header);

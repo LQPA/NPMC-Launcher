@@ -96,7 +96,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             message => LauncherLog.Write(_launcher.Root, message));
 
         _contentMetadata = new ContentMetadataCache(Path.Combine(_launcher.Root, "cache"));
+        _categoryCache = new SearchCategoryCache(Path.Combine(_launcher.Root, "cache"));
         _translation = new TranslationClient(_http, Path.Combine(_launcher.Root, "cache", "translations"));
+
+        // 分类筛选的默认值（模组那 14 项）；切到资源包/光影时再换成对应的标签
+        ApplyCategories(ContentKind.Mod, null);
 
         // NPMC_MEMORY_TRACE=1 时把关键节点的内存快照写进 <root>\logs\memory.log
         MemoryTrace.Configure(launcher.Root);
@@ -1411,9 +1415,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(ShowExport));
             OnPropertyChanged(nameof(IsModsTab));
             OnPropertyChanged(nameof(IsDataPackTab));
-            OnPropertyChanged(nameof(IsModCategoryFilterVisible));
+            OnPropertyChanged(nameof(IsCategoryFilterVisible));
+            OnPropertyChanged(nameof(CategoryFilterTip));
 
-            if (value.ContentKind != ContentKind.Mod && _searchCategoryIndex != 0)
+            // 分类清单跟着内容类型走：模组是内置 14 项，资源包/光影是 Modrinth 标签
+            if (value.ContentKind is { } contentType && contentType.SupportsDownload())
+                _ = EnsureCategoriesForKindAsync(contentType);
+            else if (_searchCategoryIndex != 0)
                 SearchCategoryIndex = 0;
             if (value.ContentKind == ContentKind.DataPack)
             {
@@ -2185,24 +2193,104 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>模组分类筛选；第一项是「全部」。</summary>
-    public ObservableCollection<SearchCategoryOption> SearchCategories { get; } = new()
+    /// <summary>搜索分类；模组是固定 14 项，资源包/光影按 Modrinth 标签动态填（首项都是「全部」）。</summary>
+    public ObservableCollection<SearchCategoryOption> SearchCategories { get; } = new();
+
+    /// <summary>当前 SearchCategories 属于哪类项目；-1 表示还没按类型填过。</summary>
+    private ContentKind? _categoryKind;
+
+    private readonly SearchCategoryCache _categoryCache;
+
+    /// <summary>模组的 14 个分类：中文显示名 + Modrinth slug + CurseForge categoryId。</summary>
+    private static IEnumerable<SearchCategoryOption> ModCategoryOptions()
     {
-        new("全部", null, null),
-        new("科技", "technology", 412),
-        new("辅助 / 实用", "utility", 5191),
-        new("生存 / 冒险", "adventure", 422),
-        new("世界生成", "worldgen", 406),
-        new("魔法", "magic", 419),
-        new("存储", "storage", 420),
-        new("优化 / 性能", "optimization", 6814),
-        new("食物 / 农业", "food", 436),
-        new("装备 / 工具", "equipment", 434),
-        new("运输", "transportation", 414),
-        new("生物", "mobs", 411),
-        new("装饰", "decoration", 424),
-        new("库 / API", "library", 421),
-    };
+        yield return new("全部", null, null);
+        yield return new("科技", "technology", 412);
+        yield return new("辅助 / 实用", "utility", 5191);
+        yield return new("生存 / 冒险", "adventure", 422);
+        yield return new("世界生成", "worldgen", 406);
+        yield return new("魔法", "magic", 419);
+        yield return new("存储", "storage", 420);
+        yield return new("优化 / 性能", "optimization", 6814);
+        yield return new("食物 / 农业", "food", 436);
+        yield return new("装备 / 工具", "equipment", 434);
+        yield return new("运输", "transportation", 414);
+        yield return new("生物", "mobs", 411);
+        yield return new("装饰", "decoration", 424);
+        yield return new("库 / API", "library", 421);
+    }
+
+    /// <summary>
+    /// 切成某类项目的分类列表。
+    /// 模组用内置列表；资源包/光影先用缓存（没有就先只有「全部」），再后台问 Modrinth 刷新。
+    /// </summary>
+    private void ApplyCategories(ContentKind kind, IReadOnlyList<ModrinthCategoryTag>? tags)
+    {
+        if (_categoryKind == kind && tags is null && SearchCategories.Count > 0) return;
+
+        _categoryKind = kind;
+
+        SearchCategories.Clear();
+
+        foreach (var option in ModCategoryOptions())
+        {
+            if (kind == ContentKind.Mod) SearchCategories.Add(option);
+        }
+
+        if (kind != ContentKind.Mod)
+        {
+            var resolved = tags ?? _categoryCache.Get(kind.ModrinthProjectType());
+            SearchCategories.Add(new SearchCategoryOption("全部", null, null));
+
+            if (resolved is { Count: > 0 })
+            {
+                foreach (var tag in OrderCategories(resolved))
+                    SearchCategories.Add(new SearchCategoryOption(tag.Name, tag.Name, null));
+            }
+        }
+
+        // 重建后原来的下标没有意义了，回到「全部」
+        SearchCategoryIndex = 0;
+        OnPropertyChanged(nameof(HasSearchCategories));
+    }
+
+    public bool HasSearchCategories => SearchCategories.Count > 0;
+
+    /// <summary>按 Modrinth 的 header 分组排序：风格 → 特性 → 分辨率/性能。</summary>
+    private static IEnumerable<ModrinthCategoryTag> OrderCategories(IReadOnlyList<ModrinthCategoryTag> tags)
+        => tags
+            .OrderBy(tag => tag.Header switch
+            {
+                "categories" => 0,
+                "features" => 1,
+                _ => 2,
+            })
+            .ThenBy(tag => tag.Name, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 确保当前页签有对应分类。断网时退回缓存；缓存也没有就只剩「全部」。
+    /// </summary>
+    private async Task EnsureCategoriesForKindAsync(ContentKind kind)
+    {
+        ApplyCategories(kind, null);
+        if (kind == ContentKind.Mod) return;
+
+        var projectType = kind.ModrinthProjectType();
+
+        try
+        {
+            var tags = await _modrinth.GetCategoriesAsync(projectType);
+
+            if (tags.Count == 0) return;
+
+            _categoryCache.Set(projectType, tags);
+            if (SelectedTab.ContentKind == kind) ApplyCategories(kind, tags);
+        }
+        catch
+        {
+            // 拉不到就用缓存/只剩「全部」，不影响搜索本身
+        }
+    }
 
     /// <summary>搜索排序；默认按相关度，空查询时也允许显式选下载量。</summary>
     public ObservableCollection<SearchSortOption> SearchSorts { get; } = new()
@@ -2236,6 +2324,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _searchCategoryIndex, value)) return;
             OnPropertyChanged(nameof(SelectedSearchCategoryName));
+
+            // 资源包/光影的分类只有 Modrinth 有（CurseForge 那套 id 不同且我们没映射），
+            // 选了具体分类就把来源切回 Modrinth，否则筛选会被静默忽略。
+            if (value > 0
+                && SelectedTab.ContentKind is { } kind
+                && kind != ContentKind.Mod
+                && _searchSourceIndex != 0)
+                SearchSourceIndex = 0;
         }
     }
 
@@ -2244,8 +2340,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ? SearchCategories[_searchCategoryIndex].Display
             : "全部";
 
-    /// <summary>分类只对模组有意义；资源包/光影/存档不显示这个筛选。</summary>
-    public bool IsModCategoryFilterVisible => SelectedTab.ContentKind == ContentKind.Mod;
+    /// <summary>分类筛选：模组/资源包/光影都有，但三者的分类完全不是一套。</summary>
+    public bool IsCategoryFilterVisible =>
+        SelectedTab.ContentKind is ContentKind.Mod or ContentKind.ResourcePack or ContentKind.ShaderPack;
+
+    public string CategoryFilterTip => $"按分类筛选{ContentKindName}（资源包/光影只用 Modrinth 分类）";
 
     /// <summary>搜索来源：0 = Modrinth，1 = CurseForge。</summary>
     public int SearchSourceIndex
@@ -2908,8 +3007,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var source = SelectedSearchSource;
 
-            var category = kind == ContentKind.Mod
-                           && SearchCategoryIndex > 0
+            var category = SearchCategoryIndex > 0
                            && SearchCategoryIndex < SearchCategories.Count
                 ? SearchCategories[SearchCategoryIndex]
                 : null;
@@ -2931,6 +3029,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (source == UpdateSource.CurseForge && kind.CurseForgeClassId() is not { } classId)
             {
                 SearchSummaryText = $"CurseForge 没有{kind.DisplayName()}分类，请把来源切回 Modrinth";
+                Status = SearchSummaryText;
+                return;
+            }
+
+            // 资源包/光影的分类来自 Modrinth，CurseForge 没有对应的 id：明说，别静默忽略筛选
+            if (source == UpdateSource.CurseForge
+                && category is { ModrinthCategory: { Length: > 0 }, CurseForgeCategoryId: null })
+            {
+                SearchSummaryText = $"CurseForge 不支持「{category.Display}」这个分类，请把来源切回 Modrinth";
                 Status = SearchSummaryText;
                 return;
             }
