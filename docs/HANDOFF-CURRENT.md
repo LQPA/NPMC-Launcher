@@ -95,6 +95,12 @@
     `natives-windows` / `-arm64` / `-x86` 三个变体会全部命中。`NativeVariants.SelectForArchitecture`
     按当前架构只留一个（`OsInfo.Current()` 现在读真实进程架构，不再硬编码 x86_64）。
     1.20.1 的 classpath 基准从 65 条变成 51 条（50 个 jar + client.jar），测试注释已说明原因。
+  - **安装结果的提示说人话**：一个都没下载、全被跳过时不再只报"新增 0，跳过 1"，而是
+    "没有下载：xxx.jar 已经在 mods 里了 —— 选的版本和已装的是同一个？"；全部失败时给出第一个错误。
+    （用户就把它当成过 bug：换了版本下拉，但计划其实没变，于是被跳过。）
+  - 诊断：新增 `--exercise-reinstall-version`，模拟"已有 A 版本再装 B 版本"：
+    准备 → 装 → 再准备 → **用属性 setter** 换版本（和界面同一条路）→ 装。
+    实测 setter 会重新解析计划（计划行从 beta 变成 alpha），说明下拉切换本身是通的。
 
 ## 关键文件
 
@@ -163,6 +169,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
     它们仍断言"Full 隔离时 runtime 留在启动器根目录"，与现在的实现不一致。
 14. 26.3 + Sodium 0.9.2 的 mixin 崩溃是模组侧不兼容（`LevelExtractorMixin` 找不到
     `extractVisibleBlockEntities`），与本机库缓存问题无关；建议换 Sodium 更新版本或反馈上游。
+15. **Sodium 在 26.3 上只有 beta 能用**（2026-10-27 实测）：
+    - 客户端 26.3（原版与 NeoForge 补丁 jar 一致）：`extractVisibleBlockEntities(Camera, float, LevelRenderState)`
+    - `sodium-neoforge-0.9.2+mc26.3`（release，作者推荐那个）：mixin 目标多一个 `Frustum` 参数 → 必崩
+    - `sodium-neoforge-0.9.3-beta.1+mc26.3`：重构掉该 mixin，配 Iris 1.11.7 实测 90 秒未崩、图形引导正常
+    所以给用户推荐 Sodium 时要选 0.9.3-beta.1，别选 release 的 0.9.2。
 
 ## 用户偏好
 

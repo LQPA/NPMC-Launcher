@@ -438,6 +438,61 @@ internal static class InstanceDump
                         lines.Add($"    {line.Label,-14} {line.Detail}");
                 }
 
+                // 同一个项目换一个版本再装一次：验证"已有 A 版本时下载 B 版本"。
+                // 以前这条链路会静默失败（界面什么都不说，文件也没下来）。
+                if (args.Any(arg => string.Equals(arg, "--exercise-reinstall-version", StringComparison.OrdinalIgnoreCase)))
+                {
+                    lines.Add("");
+                    lines.Add("[换版本重装]");
+
+                    void DumpMods(string label)
+                    {
+                        var directory = viewModel.SelectedInstance?.ModsDirectory;
+                        var names = directory is null || !Directory.Exists(directory)
+                            ? Array.Empty<string>()
+                            : Directory.GetFiles(directory)
+                                .Select(Path.GetFileName)
+                                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                                .ToArray()!;
+
+                        lines.Add($"    {label}：{string.Join(" | ", names)}");
+                    }
+
+                    DumpMods("装之前");
+
+                    // 当前计划已被切到"另一个版本"，先装它
+                    viewModel.ConfirmInstallForDiagnosticsAsync().GetAwaiter().GetResult();
+                    lines.Add($"    第一次安装：{viewModel.Status}");
+                    DumpMods("第一次之后");
+
+                    // 对同一个项目再准备一次（默认落到最新正式版），装第二个版本
+                    viewModel.PrepareInstallForDiagnosticsAsync(topHit).GetAwaiter().GetResult();
+                    lines.Add($"    重新准备：可选版本={viewModel.InstallVersions.Count}"
+                              + $" 计划行={viewModel.PlanLines.Count}"
+                              + $" 首个={viewModel.PlanLines.FirstOrDefault()?.Detail}");
+
+                    // 走**界面用的那条路**（属性 setter），而不是诊断专用绕过版本
+                    if (viewModel.InstallVersions.Count > 1)
+                    {
+                        var before = viewModel.PlanLines.FirstOrDefault()?.Detail ?? "";
+
+                        viewModel.SelectedInstallVersion = viewModel.InstallVersions[1];
+
+                        for (var i = 0; i < 50; i++)
+                        {
+                            Thread.Sleep(100);
+                            if ((viewModel.PlanLines.FirstOrDefault()?.Detail ?? "") != before) break;
+                        }
+
+                        lines.Add($"    setter 切版本后：计划={viewModel.PlanLines.FirstOrDefault()?.Detail}"
+                                  + $"  状态={viewModel.Status}");
+                    }
+
+                    viewModel.ConfirmInstallForDiagnosticsAsync().GetAwaiter().GetResult();
+                    lines.Add($"    第二次安装：{viewModel.Status}");
+                    DumpMods("第二次之后");
+                }
+
                 // 真的下载一次（可选）：装完搜索结果必须还在。
                 // 以前 ConfirmInstallAsync 会清空 SearchResults，界面就只剩搜索框和"第 N 页"。
                 if (args.Any(arg => string.Equals(arg, "--exercise-search-install", StringComparison.OrdinalIgnoreCase)))

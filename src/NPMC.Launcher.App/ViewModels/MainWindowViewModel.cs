@@ -3181,8 +3181,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var outcome = await _installer.InstallAsync(
                 plan, _pendingDirectory ?? instance.ModsDirectory);
 
-            Status = $"安装完成：新增 {outcome.Installed.Count} 个，跳过 {outcome.Skipped.Count} 个"
-                   + (outcome.Failed.Count > 0 ? $"，失败 {outcome.Failed.Count} 个" : "");
+            Status = DescribeInstallOutcome(outcome, plan);
 
             LauncherLog.Write(_launcher.Root,
                 $"安装 {string.Join(",", plan.Targets.Select(target => target.FileName))}"
@@ -3248,6 +3247,35 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         _contentMetadata.Save();
+    }
+
+    /// <summary>
+    /// 给安装结果写一句人话。
+    ///
+    /// 关键是把"一个都没下、全被跳过"说清楚：那通常是下拉里选的版本和已安装的是同一个，
+    /// 只报"新增 0，跳过 1"很容易被当成 bug（用户就遇到过 —— 看着像静默失败，其实是版本没变）。
+    /// </summary>
+    private static string DescribeInstallOutcome(InstallOutcome outcome, InstallPlan plan)
+    {
+        if (outcome.Installed.Count == 0 && outcome.Failed.Count == 0 && outcome.Skipped.Count > 0)
+        {
+            var names = string.Join("、", outcome.Skipped.Select(target => target.FileName).Take(2));
+            var more = outcome.Skipped.Count > 2 ? " 等" : "";
+
+            return plan.Targets.Count == 1
+                ? $"没有下载：{names}{more} 已经在 mods 里了 —— 选的版本和已装的是同一个？"
+                : $"没有下载：{outcome.Skipped.Count} 个文件都已存在（{names}{more}）—— 换一个版本再试";
+        }
+
+        if (outcome.Installed.Count == 0 && outcome.Failed.Count > 0)
+        {
+            var (target, error) = outcome.Failed[0];
+            return $"安装失败：{target.FileName} — {error}"
+                   + (outcome.Failed.Count > 1 ? $"（共 {outcome.Failed.Count} 个失败）" : "");
+        }
+
+        return $"安装完成：新增 {outcome.Installed.Count} 个，跳过 {outcome.Skipped.Count} 个"
+               + (outcome.Failed.Count > 0 ? $"，失败 {outcome.Failed.Count} 个" : "");
     }
 
     private void CancelPlan()
