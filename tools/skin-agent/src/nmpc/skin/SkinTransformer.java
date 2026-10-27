@@ -6,6 +6,7 @@ import java.security.ProtectionDomain;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
@@ -83,10 +84,30 @@ final class SkinTransformer implements ClassFileTransformer {
             ClassReader reader = new ClassReader(bytes);
             ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
 
+            final int classMajor = reader.readUnsignedShort(6);
+
             reader.accept(new ClassVisitor(ASM_API, writer) {
+                private boolean legacyRenamed;
+                private int legacyAccess;
+                private String legacySignature;
+                private String[] legacyExceptions;
+
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String descriptor,
                                                  String signature, String[] exceptions) {
+                    // 1.x 的 getTextures 不能整段替换，否则其他玩家也会拿到本地皮肤。
+                    // 把原方法改名保留，另生成一个按 UUID 分流的同名方法。
+                    if (isYggdrasil && OLD_METHOD.equals(name) && OLD_DESCRIPTOR.equals(descriptor)) {
+                        legacyRenamed = true;
+                        legacyAccess = access;
+                        legacySignature = signature;
+                        legacyExceptions = exceptions;
+
+                        SkinAgent.log("wrapping " + className + "." + name + descriptor);
+                        return super.visitMethod(access, "nmpc$getTextures$impl",
+                                descriptor, signature, exceptions);
+                    }
+
                     MethodVisitor target = super.visitMethod(access, name, descriptor, signature, exceptions);
 
                     if (isSkinManager && "get".equals(name) && GET_DESCRIPTOR.equals(descriptor)) {
@@ -101,17 +122,56 @@ final class SkinTransformer implements ClassFileTransformer {
 
                     if (!isYggdrasil) return target;
 
-                    if (OLD_METHOD.equals(name) && OLD_DESCRIPTOR.equals(descriptor)) {
-                        SkinAgent.log("replacing " + className + "." + name + descriptor);
-                        return replaceOld(target);
-                    }
-
                     if (MODERN_METHOD.equals(name) && MODERN_DESCRIPTOR.equals(descriptor)) {
                         SkinAgent.log("replacing " + className + "." + name + descriptor);
                         return replaceModern(target);
                     }
 
                     return target;
+                }
+
+                @Override
+                public void visitEnd() {
+                    if (legacyRenamed)
+                    {
+                        MethodVisitor method = super.visitMethod(
+                            legacyAccess & ~(Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE),
+                            OLD_METHOD, OLD_DESCRIPTOR, legacySignature, legacyExceptions);
+
+                        Label notLocal = new Label();
+
+                        method.visitCode();
+                        method.visitVarInsn(Opcodes.ALOAD, 1);
+                        method.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridge", "isLocal",
+                                "(Lcom/mojang/authlib/GameProfile;)Z", false);
+                        method.visitJumpInsn(Opcodes.IFEQ, notLocal);
+
+                        method.visitVarInsn(Opcodes.ALOAD, 1);
+                        method.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridge", "textures",
+                                "(Lcom/mojang/authlib/GameProfile;)Ljava/util/Map;", false);
+                        method.visitInsn(Opcodes.ARETURN);
+
+                        method.visitLabel(notLocal);
+                        if (classMajor >= 50)
+                        {
+                            method.visitFrame(Opcodes.F_NEW, 3, new Object[] {
+                                    className,
+                                    "com/mojang/authlib/GameProfile",
+                                    Opcodes.INTEGER
+                            }, 0, null);
+                        }
+
+                        method.visitVarInsn(Opcodes.ALOAD, 0);
+                        method.visitVarInsn(Opcodes.ALOAD, 1);
+                        method.visitVarInsn(Opcodes.ILOAD, 2);
+                        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, className,
+                                "nmpc$getTextures$impl", OLD_DESCRIPTOR, false);
+                        method.visitInsn(Opcodes.ARETURN);
+                        method.visitMaxs(3, 3);
+                        method.visitEnd();
+                    }
+
+                    super.visitEnd();
                 }
             }, 0);
 

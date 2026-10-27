@@ -778,6 +778,13 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
    实测日志：
    `skinport request 12 -> local skin (1836 bytes)`、
    `skinport request Notch -> 404 (not local)`。
+4. **没有 SkinPort 时也按 UUID 路由（legacy authlib）**：
+   `getTextures(GameProfile,boolean)` 不再整段替换（否则其他玩家也会拿到本地皮肤）。
+   transformer 把原方法改名为 `nmpc$getTextures$impl`，再生成同名 dispatch：
+   - `SkinBridge.isLocal(profile)`（按用户名或 UUID）为真 → 返回本地纹理；
+   - 否则调用改名后的原方法，继续走 authlib 的正版会话查询。
+   已用 `authlib-1.5.21` 的 class 做 ASM 探针：转换后 `getTextures` 与
+   `nmpc$getTextures$impl` 都存在，`ClassLoader.defineClass` 验证通过。
 - 另外 agent 也 hook 了 `ForgeSkinPort$DefaultSkinProvider.getSkin` 作为兜底
   （`SkinPortBridge`，反射构造 `SkinData`，不依赖编译期 SkinPort）。
 - 实测：12 的 `cachedImages\skins\12.png` 与 uuid 文件已按 1836 字节写入；
