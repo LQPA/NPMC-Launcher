@@ -862,6 +862,21 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
 
 ---
 
+## 10.14 实例复制/导出与 CF 文件归类（2026-10-27）
+
+- 实例概览底部新增「复制实例」：只允许隔离实例；复制 mods/config/saves 等，
+  跳过 logs/crash-reports，新实例名自动加「副本」序号。
+- 实例页签新增「导出」：把当前游戏目录打包成 ZIP，附 `instance.nmpc.json`
+  （名称/版本/隔离级别/导出时间），跳过 logs/crash-reports。
+- CurseForge 整合包文件不再全部塞进 `mods/`：
+  - `.zip` 通过项目 `classId` 判断：12=resourcepacks，6552=shaderpacks；
+  - 查不到时按文件名（BSL/Complementary/MakeUp 等）兜底；
+  - 已把 ATM10 实例里 4 个光影 zip 从 `mods/` 移到 `shaderpacks/`。
+- 手动导入的 blocked 文件会追加到 `.nmpc-modpack.json` 的 `PackFiles`，
+  不再被「隐藏整合包自带模组」误判为用户模组。
+
+---
+
 ## 11. 2026-10-27：工作区完整性级别调整
 
 `D:\Agents` 整个目录原先带 `Low` 完整性标签，导致：
