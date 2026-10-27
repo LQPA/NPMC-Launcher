@@ -43,11 +43,11 @@ Write-Host "仓库    : $repoRoot" -ForegroundColor Cyan
 Write-Host "项目    : src\NPMC.Launcher.App\NPMC.Launcher.App.csproj"
 Write-Host "输出    : $target$(if (-not $insideRepo) { '   (仓库外，不会自动清理)' })"
 
-# 只清空仓库内的输出目录；仓库外的目录留给用户自己管理
-if ($insideRepo -and (Test-Path $target)) {
-    Write-Host "清理旧产物…" -ForegroundColor DarkGray
-    Remove-Item $target -Recurse -Force
-}
+# 先发布到临时 staging，再只把产物复制到目标目录。
+# 绝不递归清空 dist：dist\data 和 dist\minecraft 是用户数据。
+$staging = Join-Path $repoRoot '.publish'
+if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+New-Item -ItemType Directory -Path $staging -Force | Out-Null
 New-Item -ItemType Directory -Path $target -Force | Out-Null
 
 # ---- 构建参数（与仓库其它脚本一致：项目内缓存、单进程构建） ----
@@ -62,7 +62,7 @@ $publishArgs = @(
     '--nologo',
     '-maxcpucount:1',
     '-nodeReuse:false',
-    '-o', $target
+    '-o', $staging
 )
 
 if ($FrameworkDependent) {
@@ -88,9 +88,18 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---- 结果 ----
+$stagedExe = Join-Path $staging 'NPMC.Launcher.App.exe'
+if (-not (Test-Path $stagedExe)) {
+    throw "发布完成但找不到 $stagedExe"
+}
+
+Get-ChildItem $staging -Force | Copy-Item -Destination $target -Recurse -Force
 $exe = Join-Path $target 'NPMC.Launcher.App.exe'
-if (-not (Test-Path $exe)) {
-    throw "发布完成但找不到 $exe"
+
+# 便携启动脚本：复制到别的目录后，先抬 Medium 再启动，避免 Low 权限
+$startScript = Join-Path $repoRoot 'tools\start.cmd'
+if (Test-Path $startScript) {
+    Copy-Item $startScript (Join-Path $target 'start.cmd') -Force
 }
 
 # ---- 完整性级别 ----
