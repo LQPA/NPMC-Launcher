@@ -101,6 +101,11 @@
   - 诊断：新增 `--exercise-reinstall-version`，模拟"已有 A 版本再装 B 版本"：
     准备 → 装 → 再准备 → **用属性 setter** 换版本（和界面同一条路）→ 装。
     实测 setter 会重新解析计划（计划行从 beta 变成 alpha），说明下拉切换本身是通的。
+  - **检查更新默认只推荐正式版**（`UpdatePlanner` 一直如此：`includePrerelease: false`），
+    所以 Sodium 0.9.2 不会提示 0.9.3-beta。新增设置 `IncludePrereleaseUpdates`
+    （设置页「检查更新时包含 beta / alpha」+ 模组页底部「含测试版」复选），打开后
+    beta/alpha 也参与升级判定，状态栏会写「N 可升级（含测试版）」。
+    实测 sodium 0.9.2：默认 0 可升级，打开后 `mc26.3-0.9.2-neoforge → mc26.3-0.9.3-beta.1-neoforge`。
 
 ## 关键文件
 

@@ -2031,7 +2031,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var report = await _updateService.CheckAsync(
                 items.Select(item => item.Entry.Path).ToList(),
                 gameVersion,
-                loaders);
+                loaders,
+                includePrerelease: _settingsIncludePrereleaseUpdates);
 
             // 整合包自带的文件明确清掉"可升级"标记，避免旧检查结果残留
             foreach (var item in items.Except(checkItems))
@@ -2052,7 +2053,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
 
             UpdateCount = report.Updates.Count;
-            Status = DescribeReport(checkItems.Count, report);
+            Status = DescribeReport(checkItems.Count, report, _settingsIncludePrereleaseUpdates);
 
             // 图标后补：不影响列表出现
             _ = SaveMetadataAsync(checkItems, report);
@@ -2084,10 +2085,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// "可升级"、以及"未识别"（两个平台都查不到，通常是自制或未上传的模组）。
     /// 早先只报"都已是当前版本"，会把"认不出来"错说成"已是最新"。
     /// </summary>
-    private static string DescribeReport(int fileCount, ModUpdateReport report)
+    private static string DescribeReport(int fileCount, ModUpdateReport report, bool includePrerelease)
     {
         // 状态栏只有一行，用 · 分隔并把"已识别"的两个来源压在括号里，尽量不触发省略号
-        var text = $"更新检查：{fileCount} 个文件 · {report.Updates.Count} 可升级 · "
+        var upgrades = includePrerelease
+            ? $"{report.Updates.Count} 可升级（含测试版）"
+            : $"{report.Updates.Count} 可升级";
+
+        var text = $"更新检查：{fileCount} 个文件 · {upgrades} · "
                  + $"{report.MatchedCount} 已识别（Modrinth {report.ModrinthMatches} / CurseForge {report.CurseForgeMatches}）";
 
         if (report.UnmatchedCount > 0)

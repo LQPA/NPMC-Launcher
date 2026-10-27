@@ -1032,6 +1032,10 @@
           <Button Content="全部禁用" Command="{Binding DisableAllCommand}" />
           <Button Content="全部启用" Command="{Binding EnableAllCommand}" />
           <!-- 检查更新只对模组有意义 -->
+          <CheckBox Content="含测试版" IsChecked="{Binding SettingsIncludePrereleaseUpdates, Mode=TwoWay}"
+                    IsVisible="{Binding IsModsTab}" FontSize="11" VerticalAlignment="Center"
+                    ToolTip.Tip="检查更新时把 Beta / Alpha 也算作可升级；默认只推荐正式版（设置页也可改）" />
+
           <Button Content="{Binding CheckUpdatesText}" Command="{Binding CheckUpdatesCommand}"
                   IsVisible="{Binding IsModsTab}" />
 
@@ -1458,6 +1462,12 @@
 
                 <CheckBox Content="首选源失败时自动回退到另一个源" Margin="110,0,0,0"
                           IsChecked="{Binding SettingsAllowFallback, Mode=TwoWay}" FontSize="12" />
+
+                <CheckBox Content="检查更新时包含 beta / alpha" Margin="110,0,0,0"
+                          IsChecked="{Binding SettingsIncludePrereleaseUpdates, Mode=TwoWay}" FontSize="12" />
+
+                <TextBlock Text="默认只推荐正式版；有些项目只发预发布（例如 26.3 的 Sodium 0.9.3）时才需要打开。"
+                           Margin="110,0,0,0" FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
 
                 <TextBlock Text="{Binding SettingsSourceText}" Margin="110,0,0,0"
                            FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />

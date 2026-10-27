@@ -33,6 +33,7 @@ public sealed partial class MainWindowViewModel
     private int _settingsSourceIndex;
     private string _settingsMirrorUrl = "";
     private bool _settingsAllowFallback = true;
+    private bool _settingsIncludePrereleaseUpdates;
     private int _settingsConcurrency = 12;
     private int _settingsTimeoutSeconds = 600;
     private string _settingsProxy = "";
@@ -112,6 +113,22 @@ public sealed partial class MainWindowViewModel
         set
         {
             if (!SetProperty(ref _settingsAllowFallback, value)) return;
+            SaveSettings();
+        }
+    }
+
+    /// <summary>
+    /// 检查更新时是否也算 beta / alpha。
+    ///
+    /// 默认关闭：默认只推荐正式版，避免把不稳定的预发布推给用户；
+    /// 有些项目只发预发布（如 26.3 的 Sodium 0.9.3），需要时在这里显式打开。
+    /// </summary>
+    public bool SettingsIncludePrereleaseUpdates
+    {
+        get => _settingsIncludePrereleaseUpdates;
+        set
+        {
+            if (!SetProperty(ref _settingsIncludePrereleaseUpdates, value)) return;
             SaveSettings();
         }
     }
@@ -482,6 +499,7 @@ public sealed partial class MainWindowViewModel
             _settingsSourceIndex = settings.PreferredSource == DownloadSource.Bmclapi ? 1 : 0;
             _settingsMirrorUrl = settings.BmclapiBaseUrl;
             _settingsAllowFallback = settings.AllowSourceFallback;
+            _settingsIncludePrereleaseUpdates = settings.IncludePrereleaseUpdates;
             _settingsConcurrency = settings.DownloadConcurrency is >= 1 and <= 64 ? settings.DownloadConcurrency : 12;
             _settingsTimeoutSeconds = settings.HttpTimeoutSeconds is >= 30 and <= 3600 ? settings.HttpTimeoutSeconds : 600;
             _settingsProxy = settings.HttpProxy ?? "";
@@ -494,6 +512,7 @@ public sealed partial class MainWindowViewModel
             OnPropertyChanged(nameof(SettingsSourceText));
             OnPropertyChanged(nameof(SettingsMirrorUrl));
             OnPropertyChanged(nameof(SettingsAllowFallback));
+            OnPropertyChanged(nameof(SettingsIncludePrereleaseUpdates));
             OnPropertyChanged(nameof(SettingsConcurrency));
             OnPropertyChanged(nameof(SettingsTimeoutSeconds));
             OnPropertyChanged(nameof(SettingsTimeoutText));
@@ -530,6 +549,7 @@ public sealed partial class MainWindowViewModel
             ? new LauncherSettings().BmclapiBaseUrl
             : _settingsMirrorUrl.Trim().TrimEnd('/'),
         AllowSourceFallback = _settingsAllowFallback,
+        IncludePrereleaseUpdates = _settingsIncludePrereleaseUpdates,
         DefaultMemoryMb = _settingsDefaultMemory,
         DownloadConcurrency = _settingsConcurrency,
         HttpTimeoutSeconds = _settingsTimeoutSeconds,

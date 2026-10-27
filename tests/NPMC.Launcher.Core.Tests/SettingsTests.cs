@@ -79,6 +79,7 @@ public class JsonSettingsStoreTests
                 DefaultMemoryMb = 8192,
                 DownloadConcurrency = 20,
                 AllowSourceFallback = false,
+                IncludePrereleaseUpdates = true,
             });
 
             var loaded = await store.LoadAsync();
@@ -87,6 +88,7 @@ public class JsonSettingsStoreTests
             Assert.Equal(8192, loaded.DefaultMemoryMb);
             Assert.Equal(20, loaded.DownloadConcurrency);
             Assert.False(loaded.AllowSourceFallback);
+            Assert.True(loaded.IncludePrereleaseUpdates);
 
             var json = await File.ReadAllTextAsync(store.FilePath);
             Assert.Contains("\"Bmclapi\"", json);

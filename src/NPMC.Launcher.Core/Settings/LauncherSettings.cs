@@ -46,6 +46,15 @@ public sealed record LauncherSettings
     /// </summary>
     public string? DefaultAccountId { get; init; }
 
+    /// <summary>
+    /// 检查更新时是否把 beta / alpha 也算作可升级项。
+    ///
+    /// 默认**关闭**：预发布版本可能随时出问题，不该在用户没要求时主动推荐。
+    /// 但有些项目确实只发预发布（26.3 的 Sodium 就是 0.9.3 只有 beta，正式版 0.9.2
+    /// 反而与当前客户端不兼容），所以给一个显式开关。
+    /// </summary>
+    public bool IncludePrereleaseUpdates { get; init; }
+
     public string Language { get; init; } = "zh-CN";
 
     /// <summary>转成镜像路由设置。</summary>

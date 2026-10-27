@@ -297,6 +297,15 @@ internal static class InstanceDump
 
                 lines.Add($"    {badge}{channel} {(item.HasUpdate ? "可升级" : "  -  ")}  {item.Name,-30} {item.UpdateText}");
             }
+
+            // 默认只看正式版；打开"含测试版"再查一次，验证 beta 能被认出来
+            viewModel.SettingsIncludePrereleaseUpdates = true;
+            viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
+            Thread.Sleep(1500);
+
+            lines.Add($"[含测试版] 可升级={viewModel.UpdateCount}  status = {viewModel.Status}");
+            foreach (var item in viewModel.Content.Where(item => item.HasUpdate).Take(4))
+                lines.Add($"    可升级  {item.Name}  {item.UpdateText}");
         }
 
         // 验证资源包/光影的自动识别（图标地址缓存同样适用）
