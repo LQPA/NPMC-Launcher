@@ -627,19 +627,33 @@
                       FontSize="11" Padding="10,3" />
               <TextBlock Text="下载新模组" FontSize="12" Foreground="#E8EAED" VerticalAlignment="Center" />
             </StackPanel>
-              <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+              <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
                 <TextBox Grid.Column="0" Text="{Binding SearchQuery}"
                          Watermark="{Binding SearchPlaceholder}" FontSize="12" />
+
+                <!-- 高级搜索：模组分类（资源包/光影/存档不显示） -->
+                <ComboBox Grid.Column="1" ItemsSource="{Binding SearchCategories}"
+                          SelectedIndex="{Binding SearchCategoryIndex}"
+                          IsVisible="{Binding IsModCategoryFilterVisible}"
+                          Width="120" Margin="8,0,0,0" FontSize="12"
+                          ToolTip.Tip="按 Modrinth / CurseForge 分类筛选模组">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SearchCategoryOption">
+                      <TextBlock Text="{Binding Display}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+
                 <!-- 搜索来源：CurseForge 需要 API key；它没有光影分类 -->
-                <ComboBox Grid.Column="1" SelectedIndex="{Binding SearchSourceIndex}"
+                <ComboBox Grid.Column="2" SelectedIndex="{Binding SearchSourceIndex}"
                           Width="120" Margin="8,0,0,0" FontSize="12">
                   <ComboBoxItem Content="Modrinth" />
                   <ComboBoxItem Content="CurseForge" IsEnabled="{Binding IsCurseForgeSearchAvailable}" />
                 </ComboBox>
 
-                <Button Grid.Column="2" Content="{Binding SearchButtonText}"
+                <Button Grid.Column="3" Content="{Binding SearchButtonText}"
                         Command="{Binding SearchCommand}" Margin="8,0,0,0" FontSize="12" />
-                <Button Grid.Column="3" Content="{Binding SearchPanelToggleText}"
+                <Button Grid.Column="4" Content="{Binding SearchPanelToggleText}"
                         Command="{Binding ToggleSearchPanelCommand}"
                         Margin="6,0,0,0" FontSize="12" Padding="8,4" />
               </Grid>

@@ -319,6 +319,7 @@ public sealed class CurseForgeClient
         IReadOnlyList<string> loaders,
         int limit = 10,
         int classId = 6,
+        int? categoryId = null,
         CancellationToken cancellationToken = default)
     {
         var parameters = new List<string>
@@ -340,6 +341,7 @@ public sealed class CurseForgeClient
         // 该参数只接受单个加载器；取第一个能识别的
         var loaderType = loaders.Select(ToModLoaderType).FirstOrDefault(type => type.HasValue);
         if (loaderType is not null) parameters.Add($"modLoaderType={loaderType.Value}");
+        if (categoryId is > 0) parameters.Add($"categoryId={categoryId.Value}");
 
         using var document = await SendAsync(
             HttpMethod.Get,

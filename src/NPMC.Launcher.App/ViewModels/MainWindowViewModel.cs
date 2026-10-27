@@ -1407,6 +1407,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(ShowExport));
             OnPropertyChanged(nameof(IsModsTab));
             OnPropertyChanged(nameof(IsDataPackTab));
+            OnPropertyChanged(nameof(IsModCategoryFilterVisible));
+
+            if (value.ContentKind != ContentKind.Mod && _searchCategoryIndex != 0)
+                SearchCategoryIndex = 0;
             if (value.ContentKind == ContentKind.DataPack)
             {
                 DataPackWorld = null;
@@ -2126,6 +2130,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private InstallPlan? _pendingPlan;
     private string? _pendingDirectory;
     private int _searchSourceIndex;
+    private int _searchCategoryIndex;
     private bool _suppressVersionReload;
     private ModSearchResultItem? _pendingItem;
     private InstallVersionChoice? _selectedInstallVersion;
@@ -2150,6 +2155,39 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _ = ResolvePlanForVersionAsync(value);
         }
     }
+
+    /// <summary>模组分类筛选；第一项是「全部」。</summary>
+    public ObservableCollection<SearchCategoryOption> SearchCategories { get; } = new()
+    {
+        new("全部", null, null),
+        new("科技", "technology", 412),
+        new("辅助 / 实用", "utility", 5191),
+        new("生存 / 冒险", "adventure", 422),
+        new("世界生成", "worldgen", 406),
+        new("魔法", "magic", 419),
+        new("存储", "storage", 420),
+        new("优化 / 性能", "optimization", 6814),
+        new("食物 / 农业", "food", 436),
+        new("装备 / 工具", "equipment", 434),
+    };
+
+    public int SearchCategoryIndex
+    {
+        get => _searchCategoryIndex;
+        set
+        {
+            if (!SetProperty(ref _searchCategoryIndex, value)) return;
+            OnPropertyChanged(nameof(SelectedSearchCategoryName));
+        }
+    }
+
+    public string SelectedSearchCategoryName =>
+        _searchCategoryIndex >= 0 && _searchCategoryIndex < SearchCategories.Count
+            ? SearchCategories[_searchCategoryIndex].Display
+            : "全部";
+
+    /// <summary>分类只对模组有意义；资源包/光影/存档不显示这个筛选。</summary>
+    public bool IsModCategoryFilterVisible => SelectedTab.ContentKind == ContentKind.Mod;
 
     /// <summary>搜索来源：0 = Modrinth，1 = CurseForge。</summary>
     public int SearchSourceIndex
@@ -2776,6 +2814,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var source = SelectedSearchSource;
 
+            var category = kind == ContentKind.Mod
+                           && SearchCategoryIndex > 0
+                           && SearchCategoryIndex < SearchCategories.Count
+                ? SearchCategories[SearchCategoryIndex]
+                : null;
+
             // 搜索要用游戏版本号（1.20.1）；实例版本可能是 fabric-loader-0.20.1-1.20.1
             var gameVersion = await ResolveGameVersionAsync(instance);
 
@@ -2804,7 +2848,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (source == UpdateSource.CurseForge)
             {
                 var hits = await _curseForge!.SearchAsync(
-                    query, gameVersion, loaders, 8, kind.CurseForgeClassId()!.Value);
+                    query, gameVersion, loaders, 8, kind.CurseForgeClassId()!.Value,
+                    categoryId: category?.CurseForgeCategoryId);
 
                 var pageSegment = kind == ContentKind.ResourcePack ? "texture-packs" : "mc-mods";
 
@@ -2827,7 +2872,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 var hits = await _modrinth.SearchAsync(
                     query, gameVersion, loaders, 8, kind.ModrinthProjectType(),
-                    browsing ? "downloads" : "relevance");
+                    browsing ? "downloads" : "relevance",
+                    categories: category?.ModrinthCategory is { } modrinthCategory
+                        ? new[] { modrinthCategory }
+                        : null);
 
                 foreach (var hit in hits)
                 {

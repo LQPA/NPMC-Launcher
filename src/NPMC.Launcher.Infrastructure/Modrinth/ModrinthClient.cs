@@ -107,6 +107,7 @@ public sealed class ModrinthClient
         int limit = 10,
         string projectType = "mod",
         string sortIndex = "relevance",
+        IReadOnlyList<string>? categories = null,
         CancellationToken cancellationToken = default)
     {
         var facets = new List<string> { $"[\"project_type:{projectType}\"]" };
@@ -116,6 +117,10 @@ public sealed class ModrinthClient
 
         if (loaders.Count > 0)
             facets.Add($"[{string.Join(",", loaders.Select(loader => $"\"categories:{loader}\""))}]");
+
+        // Modrinth facet 组内是 OR、组间是 AND；分类作为独立的一组。
+        if (categories is { Count: > 0 })
+            facets.Add($"[{string.Join(",", categories.Select(category => $"\"categories:{category}\""))}]");
 
         var url = $"{ApiBase}/search?query={Uri.EscapeDataString(query)}"
                 + $"&facets={Uri.EscapeDataString("[" + string.Join(",", facets) + "]")}"
