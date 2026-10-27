@@ -5,7 +5,7 @@
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新代码提交：`8f9659c`（本文件在它之后单独提交）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:46，44.1 MB，已抬 Medium）
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:52，44.1 MB，已抬 Medium）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
 
@@ -50,6 +50,9 @@
   - **回到内容页签时若还有搜索结果就重新展开面板**：收起按钮早已移除，收起状态下的
     结果没有任何入口能再打开，等于把用户搜到的东西弄丢。
   - 提交：`8f9659c`；`.gitignore` 增加 `/.publish/`（发布暂存目录）。
+  - 诊断：新增 `--exercise-search-install`（走与界面相同的确认链路、**会真的下载**到 `--root`），
+    打印装前/装后的结果数、摘要、面板状态。实测 `20→20`、摘要保留、面板展开、计划收起；
+    资源包页签切换仍会清空（原有语义不变）。
 
 ## 关键文件
 
@@ -88,6 +91,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 4. `E:\aaaa` 是可运行工作副本；`icacls` 上不应出现 `Low`。若复制后变 Low，删掉、从 Medium 的 dist 重拷，或使用 `start.cmd`。
 5. CurseForge 需要 key：`%APPDATA%\NPMC-Launcher\curseforge.key`；设置页也可保存。
 6. 账号：`E:\aaaa\data\accounts.json`；正式微软设备码登录仍需用户完成一次授权。
+7. 用 `--root` 跑 `--dump-instances` 会改写 `%APPDATA%\NPMC-Launcher\last-root.txt`
+   （`LauncherRoot.Resolve` 无条件 `Remember`），跑完要改回 `E:\aaaa`；否则从没有
+   `data`/`minecraft` 的目录启动时会去找那个临时路径。
+8. 诊断用的临时根目录要按**旧式布局**准备：`--root` 直接就是数据根
+   （`<root>\instances.json`、`<root>\versions\<id>\<id>.json`、`<root>\instances\<id>`），
+   `--dump-instances` 不走 `LauncherPaths.Portable`。
 
 ## 用户偏好
 

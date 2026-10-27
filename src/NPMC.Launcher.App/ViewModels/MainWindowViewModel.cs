@@ -3233,6 +3233,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>供诊断用：解析某个搜索结果的依赖计划（不下载）。</summary>
     public Task PrepareInstallForDiagnosticsAsync(ModSearchResultItem item) => BeginInstallAsync(item);
 
+    /// <summary>
+    /// 供诊断用：走与界面「确认安装」完全相同的链路（**会真的下载**）。
+    /// 用来验证"装完之后搜索结果还在"——这条曾经断在 ConfirmInstallAsync 里。
+    /// </summary>
+    public Task ConfirmInstallForDiagnosticsAsync() => ConfirmInstallAsync();
+
     /// <summary>供诊断用：选中第 N 个可用版本并等待计划重新解析完成。</summary>
     public async Task SelectInstallVersionForDiagnosticsAsync(int index)
     {

@@ -414,6 +414,21 @@ internal static class InstanceDump
                         lines.Add($"    {line.Label,-14} {line.Detail}");
                 }
 
+                // 真的下载一次（可选）：装完搜索结果必须还在。
+                // 以前 ConfirmInstallAsync 会清空 SearchResults，界面就只剩搜索框和"第 N 页"。
+                if (args.Any(arg => string.Equals(arg, "--exercise-search-install", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var resultsBefore = viewModel.SearchResults.Count;
+                    var summaryBefore = viewModel.SearchSummaryText;
+
+                    viewModel.ConfirmInstallForDiagnosticsAsync().GetAwaiter().GetResult();
+
+                    lines.Add($"[安装后] 结果 {resultsBefore}→{viewModel.SearchResults.Count} 个"
+                              + $"，摘要保留={viewModel.SearchSummaryText == summaryBefore}"
+                              + $"，面板展开={viewModel.IsSearchPanelExpanded}"
+                              + $"，计划可见={viewModel.IsPlanVisible}");
+                }
+
                 lines.Add($"    status = {viewModel.Status}");
 
                 // 切到别的内容页签：搜索词、结果、计划都应被清空
