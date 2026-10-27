@@ -22,15 +22,72 @@ public sealed class LauncherPaths
     /// <summary>versions / libraries / assets 的根目录。</summary>
     public string SharedRoot { get; }
 
-    public LauncherPaths(string? root = null, string? sharedRoot = null)
+    /// <summary>游戏文件根目录（实例、runtime、默认游戏目录）；与启动器配置分离。</summary>
+    public string GameRoot { get; }
+
+    public LauncherPaths(string? root = null, string? sharedRoot = null, string? gameRoot = null)
     {
         Root = Normalize(root ?? AppContext.BaseDirectory);
         SharedRoot = string.IsNullOrWhiteSpace(sharedRoot) ? Root : Normalize(sharedRoot);
+        GameRoot = string.IsNullOrWhiteSpace(gameRoot) ? SharedRoot : Normalize(gameRoot);
     }
 
-    // ---- 固定属于启动器根目录 ----
-    public string Runtime   => Path.Combine(Root, "runtime");
-    public string Instances => Path.Combine(Root, "instances");
+    /// <summary>
+    /// 便携布局：&lt;base&gt;\data 存启动器配置，&lt;base&gt;\minecraft 存游戏文件。
+    /// 第一次使用时会把旧版散落在 &lt;base&gt; 根目录的文件迁过去。
+    /// </summary>
+    public static LauncherPaths Portable(string baseDirectory)
+    {
+        var root = Normalize(baseDirectory);
+        var data = Path.Combine(root, "data");
+        var minecraft = Path.Combine(root, "minecraft");
+
+        Directory.CreateDirectory(data);
+        Directory.CreateDirectory(minecraft);
+        MigrateLegacyLayout(root, data, minecraft);
+
+        return new LauncherPaths(data, sharedRoot: minecraft, gameRoot: minecraft);
+    }
+
+    private static void MigrateLegacyLayout(string root, string data, string minecraft)
+    {
+        // 旧版把配置和游戏文件都散在根目录；只移动明确属于这两类的条目，不碰其它用户文件。
+        foreach (var name in new[] { "libraries", "versions", "assets", "runtime", "instances" })
+            TryMove(Path.Combine(root, name), Path.Combine(minecraft, name), directory: true);
+
+        TryMove(Path.Combine(root, "launcher_profiles.json"),
+            Path.Combine(minecraft, "launcher_profiles.json"), directory: false);
+
+        foreach (var name in new[] { "settings.json", "accounts.json", "instances.json",
+                                     "microsoft-tokens", "cache", "logs" })
+            TryMove(Path.Combine(root, name), Path.Combine(data, name),
+                directory: name is "microsoft-tokens" or "cache" or "logs");
+    }
+
+    private static void TryMove(string source, string destination, bool directory)
+    {
+        try
+        {
+            if (!directory)
+            {
+                if (!File.Exists(source) || File.Exists(destination)) return;
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Move(source, destination);
+                return;
+            }
+
+            if (!Directory.Exists(source) || Directory.Exists(destination)) return;
+            Directory.Move(source, destination);
+        }
+        catch
+        {
+            // 迁移失败不阻断启动；保留旧目录，用户仍可手动处理
+        }
+    }
+
+    // ---- 固定属于游戏目录 ----
+    public string Runtime   => Path.Combine(GameRoot, "runtime");
+    public string Instances => Path.Combine(GameRoot, "instances");
 
     // ---- 可被实例隔离的目录 ----
     public string Libraries => Path.Combine(SharedRoot, "libraries");

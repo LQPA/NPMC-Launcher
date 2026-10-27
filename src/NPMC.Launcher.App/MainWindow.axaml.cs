@@ -17,7 +17,7 @@ public partial class MainWindow : Window
     {
     }
 
-    public MainWindow(string root)
+    public MainWindow(string root, bool portable = false)
     {
         InitializeComponent();
 
@@ -33,7 +33,8 @@ public partial class MainWindow : Window
         InstanceList.AddHandler(
             InputElement.PointerReleasedEvent, OnInstancePointerReleased, RoutingStrategies.Tunnel);
 
-        var viewModel = new MainWindowViewModel(new LauncherPaths(root))
+        var paths = portable ? LauncherPaths.Portable(root) : new LauncherPaths(root);
+        var viewModel = new MainWindowViewModel(paths)
         {
             // 打开目录的三条路都失败时，把路径写进剪贴板作为兜底。
             // 剪贴板必须由窗口（TopLevel）提供，所以在这里注入而不是在 ViewModel 里直接取。

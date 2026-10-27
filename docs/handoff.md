@@ -850,6 +850,18 @@ Forge / NeoForge 看版本号后缀 `-alpha` / `-beta`，Fabric 的 stable 记 R
 
 ---
 
+## 10.13 便携目录拆分（2026-10-27）
+
+- 默认双击启动改为 `dist\data`（启动器配置/缓存/账号）+ `dist\minecraft`
+  （实例、库、版本、资源、runtime、launcher_profiles）。
+- `LauncherPaths.Portable` 首次启动会把旧根目录里的
+  `libraries/versions/assets/runtime/instances` 与
+  `settings/accounts/instances.json/cache/logs/microsoft-tokens` 分别迁入两处。
+- `--root` / `NPMC_ROOT` 仍保持旧式单根目录语义，诊断与自定义不被破坏。
+- 已有的 `.data` 是另一套根目录；它不会被自动合并进 `dist\minecraft`，需要手动迁移或继续用 `--root .data`。
+
+---
+
 ## 11. 2026-10-27：工作区完整性级别调整
 
 `D:\Agents` 整个目录原先带 `Low` 完整性标签，导致：

@@ -24,16 +24,19 @@ public sealed class InstanceLayout
 
     /// <summary>传给 --gameDir 的目录。</summary>
     public string GameDirectory => Instance.Isolation == IsolationLevel.None
-        ? Launcher.Root
+        ? Launcher.GameRoot
         : Path.Combine(Launcher.Instances, Instance.Id);
 
     /// <summary>versions / libraries / assets 的根目录。</summary>
     public string SharedRoot => Instance.Isolation == IsolationLevel.Full
         ? GameDirectory
-        : Launcher.Root;
+        : Launcher.SharedRoot;
 
     /// <summary>带 SharedRoot 的路径集合，可直接交给安装器/启动器使用。</summary>
-    public LauncherPaths Paths => new(Launcher.Root, SharedRoot);
+    public LauncherPaths Paths => new(
+        Launcher.Root,
+        SharedRoot,
+        Instance.Isolation == IsolationLevel.Full ? GameDirectory : Launcher.GameRoot);
 
     // ---- 游戏目录下的标准子目录 ----
     public string Mods           => Path.Combine(GameDirectory, "mods");

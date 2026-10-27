@@ -19,7 +19,11 @@ public partial class App : Application
             var args = desktop.Args ?? Array.Empty<string>();
 
             var root = LauncherRoot.Resolve(args);
-            var window = new MainWindow(root);
+            var explicitRoot = args.Any(arg =>
+                                   string.Equals(arg, "--root", StringComparison.OrdinalIgnoreCase))
+                               || !string.IsNullOrWhiteSpace(
+                                   Environment.GetEnvironmentVariable(LauncherRoot.EnvironmentVariable));
+            var window = new MainWindow(root, portable: !explicitRoot);
             desktop.MainWindow = window;
 
             // 内存诊断：走真实 Avalonia 平台（否则 Bitmap 无法解码），

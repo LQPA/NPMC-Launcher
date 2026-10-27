@@ -247,7 +247,7 @@ public sealed class ForgeInstaller
         }
 
         // Forge 安装器会往 launcher_profiles.json 里注入 profile；文件不存在时它会直接失败
-        EnsureLauncherProfiles(paths.Root);
+        EnsureLauncherProfiles(paths.SharedRoot);
 
         // 安装过程要写库和版本目录；Low 完整性下的 java 处理文件会出问题（见 IntegrityGuard）
         IntegrityGuard.EnsureExecutableRunsAtLauncherLevel(javaPath);
@@ -261,7 +261,7 @@ public sealed class ForgeInstaller
 
         var startInfo = new ProcessStartInfo(javaPath)
         {
-            WorkingDirectory = paths.Root,
+            WorkingDirectory = paths.SharedRoot,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -273,7 +273,7 @@ public sealed class ForgeInstaller
         startInfo.ArgumentList.Add("-jar");
         startInfo.ArgumentList.Add(plan.InstallerPath);
         startInfo.ArgumentList.Add("--installClient");
-        startInfo.ArgumentList.Add(paths.Root);
+        startInfo.ArgumentList.Add(paths.SharedRoot);
 
         var output = new List<string>();
 

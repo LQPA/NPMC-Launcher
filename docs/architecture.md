@@ -501,13 +501,27 @@ Minecraft access token / UUID / name，并停止对正版账号注入离线皮�
 
 ## 10. 数据与配置（待实现）
 
+便携布局（默认，双击 exe 使用）：
+
 ```
-<root>\
-  settings.json      全局设置（只存相对路径与组件名）
-  instances.json     实例索引
-  accounts.json      账号（refresh token 用 DPAPI 加密，CurrentUser）
-  logs\              启动器自身日志
+<exe>\
+  data\                   启动器自身的配置/周边文件
+    settings.json         全局设置（只存相对路径与组件名）
+    instances.json        实例索引
+    accounts.json         账号
+    microsoft-tokens\     DPAPI 加密的 refresh token
+    cache\ logs\
+  minecraft\              我的世界文件
+    instances\
+    libraries\ versions\ assets\
+    runtime\               Java 运行时
+    launcher_profiles.json
 ```
+
+`--root` / `NPMC_ROOT` 仍按旧式单根目录工作，用于诊断和自定义；
+默认启动使用 `LauncherPaths.Portable(base)`，首次会把根目录里旧的
+`libraries/versions/assets/runtime/instances` 和配置文件分别迁入这两个文件夹。
+写入一律走「临时文件 → `File.Replace`」，断电不损坏配置。
 
 写入一律走「临时文件 → `File.Replace`」，断电不损坏配置。
 
