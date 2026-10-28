@@ -242,22 +242,29 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel viewModel) return;
         if (viewModel.SelectedInstance is not { } instance) return;
 
+        var mrpack = viewModel.ExportFormatIndex == 1;
+
         try
         {
             var files = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Title = "导出实例",
-                SuggestedFileName = instance.Name + ".zip",
-                DefaultExtension = "zip",
-                FileTypeChoices = new[]
-                {
-                    new FilePickerFileType("ZIP 压缩包") { Patterns = new[] { "*.zip" } },
-                },
+                Title = mrpack ? "导出 Modrinth 整合包" : "导出实例",
+                SuggestedFileName = instance.Name + (mrpack ? ".mrpack" : ".zip"),
+                DefaultExtension = mrpack ? "mrpack" : "zip",
+                FileTypeChoices = mrpack
+                    ? new[] { new FilePickerFileType("Modrinth 整合包") { Patterns = new[] { "*.mrpack" } } }
+                    : new[] { new FilePickerFileType("ZIP 压缩包") { Patterns = new[] { "*.zip" } } },
             });
 
             var path = files?.TryGetLocalPath();
-            if (!string.IsNullOrWhiteSpace(path))
-                await viewModel.ExportInstanceAsync(path);
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            // 用户没补扩展名时自己补：.mrpack 没有关联程序，很容易只写出裸文件名
+            if (mrpack && !path.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase)) path += ".mrpack";
+            if (!mrpack && !path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) path += ".zip";
+
+            if (mrpack) await viewModel.ExportMrpackAsync(path);
+            else await viewModel.ExportInstanceAsync(path);
         }
         catch (Exception ex)
         {

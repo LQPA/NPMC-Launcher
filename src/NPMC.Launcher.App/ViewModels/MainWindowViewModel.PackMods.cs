@@ -210,6 +210,7 @@ public sealed partial class MainWindowViewModel
 
         _packFileNames = packNames;
         _packModsHidden = hidden;
+        _contentFileTotal = _modSnapshot.Count;
 
         OnPropertyChanged(nameof(IsContentEmpty));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));

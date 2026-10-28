@@ -59,6 +59,27 @@ internal static class PanelRenderProbe
                 await vm.RefreshCapabilitiesAsync(target);
             }
 
+            // --render-export：直接渲染导出页（整合包表单），不碰内容页签
+            if (args.Any(arg => string.Equals(arg, "--render-export", StringComparison.OrdinalIgnoreCase)))
+            {
+                vm.SelectedTab = vm.ContentTabs.First(tab => tab.Kind == DetailTabKind.Export);
+                vm.ExportFormatIndex = 1;
+
+                for (var i = 0; i < 30; i++)
+                {
+                    await Task.Delay(100);
+                    Dispatcher.UIThread.RunJobs();
+                }
+
+                window.UpdateLayout();
+                RenderTo(window, output, "export");
+
+                File.WriteAllText(output + ".ok.txt",
+                    $"size=export tab={vm.SelectedTab.Title} format={vm.ExportFormatIndex} "
+                    + $"name={vm.ExportPackName} hint={vm.ExportSelectionHint}");
+                return;
+            }
+
             vm.SelectedTab = vm.ContentTabs.First(tab => tab.ContentKind == kind);
 
             // 数据包按世界存放：先进入一个世界，下载入口与安装目录才有依据
@@ -102,17 +123,10 @@ internal static class PanelRenderProbe
                 return;
             }
 
-            var scaling = window.RenderScaling > 0 ? window.RenderScaling : 1.0;
-            var size = new PixelSize(
-                Math.Max(1, (int)Math.Round(root.Bounds.Width * scaling)),
-                Math.Max(1, (int)Math.Round(root.Bounds.Height * scaling)));
-
-            using var bitmap = new RenderTargetBitmap(size, new Vector(96 * scaling, 96 * scaling));
-            bitmap.Render(root);
-            bitmap.Save(output);
+            RenderTo(window, output, "panel");
 
             File.WriteAllText(output + ".ok.txt",
-                $"size={size.Width}x{size.Height} kind={kind} tab={vm.SelectedTab.Title} "
+                $"size={root.Bounds.Width}x{root.Bounds.Height} kind={kind} tab={vm.SelectedTab.Title} "
                 + $"download={vm.IsContentDownloadMode} plan={vm.IsPlanVisible} "
                 + $"results={vm.SearchResults.Count}");
         }
@@ -124,6 +138,20 @@ internal static class PanelRenderProbe
         {
             desktop.Shutdown();
         }
+    }
+
+    /// <summary>把窗口内容渲染成 PNG（离屏，不需要显示器）。</summary>
+    private static void RenderTo(MainWindow window, string output, string label)
+    {
+        var root = window.Content as Control ?? throw new InvalidOperationException("窗口没有 Content");
+        var scaling = window.RenderScaling > 0 ? window.RenderScaling : 1.0;
+        var size = new PixelSize(
+            Math.Max(1, (int)Math.Round(root.Bounds.Width * scaling)),
+            Math.Max(1, (int)Math.Round(root.Bounds.Height * scaling)));
+
+        using var bitmap = new RenderTargetBitmap(size, new Vector(96 * scaling, 96 * scaling));
+        bitmap.Render(root);
+        bitmap.Save(output);
     }
 
     private static ContentKind ParseKind(string? value) => value?.ToLowerInvariant() switch

@@ -627,6 +627,208 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    /// <summary>导出格式：完整 ZIP（含存档）或 Modrinth 整合包（.mrpack）。</summary>
+    public ObservableCollection<string> ExportFormats { get; } = new()
+    {
+        "完整 ZIP（含存档与配置）",
+        "Modrinth 整合包（.mrpack）",
+    };
+
+    private int _exportFormatIndex;
+
+    public int ExportFormatIndex
+    {
+        get => _exportFormatIndex;
+        set
+        {
+            if (!SetProperty(ref _exportFormatIndex, value)) return;
+            OnPropertyChanged(nameof(IsMrpackExport));
+            OnPropertyChanged(nameof(ExportFormatHint));
+        }
+    }
+
+    public bool IsMrpackExport => _exportFormatIndex == 1;
+
+    public string ExportFormatHint => IsMrpackExport
+        ? "生成 Modrinth 整合包：能在 Modrinth 找到的文件只写下载地址（包很小），"
+          + "勾选的内容原样打包进 overrides。导入时需要联网。"
+        : "把当前实例的 mods / config / resourcepacks / shaderpacks / saves 等打包成 ZIP；"
+          + "不会包含 logs 和 crash-reports。";
+
+    // ---- 整合包内容选择（照着「整合包制作」的表单）----
+
+    private string _exportPackName = "";
+    private string _exportPackVersion = "1.0.0";
+
+    /// <summary>整合包名称；选实例时默认填实例名。</summary>
+    public string ExportPackName
+    {
+        get => _exportPackName;
+        set => SetProperty(ref _exportPackName, value);
+    }
+
+    public string ExportPackVersion
+    {
+        get => _exportPackVersion;
+        set => SetProperty(ref _exportPackVersion, value);
+    }
+
+    private bool _exportIncludeMods = true;
+    private bool _exportIncludeConfig = true;
+    private bool _exportIncludeResourcePacks = true;
+    private bool _exportIncludeShaderPacks = true;
+    private bool _exportIncludeSaves;
+    private bool _exportIncludeSettings = true;
+    private bool _exportBundleExtra = true;
+
+    public bool ExportIncludeMods
+    {
+        get => _exportIncludeMods;
+        set { if (SetProperty(ref _exportIncludeMods, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
+    }
+
+    public bool ExportIncludeConfig
+    {
+        get => _exportIncludeConfig;
+        set { if (SetProperty(ref _exportIncludeConfig, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
+    }
+
+    public bool ExportIncludeResourcePacks
+    {
+        get => _exportIncludeResourcePacks;
+        set { if (SetProperty(ref _exportIncludeResourcePacks, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
+    }
+
+    public bool ExportIncludeShaderPacks
+    {
+        get => _exportIncludeShaderPacks;
+        set { if (SetProperty(ref _exportIncludeShaderPacks, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
+    }
+
+    public bool ExportIncludeSaves
+    {
+        get => _exportIncludeSaves;
+        set { if (SetProperty(ref _exportIncludeSaves, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
+    }
+
+    public bool ExportIncludeSettings
+    {
+        get => _exportIncludeSettings;
+        set { if (SetProperty(ref _exportIncludeSettings, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
+    }
+
+    /// <summary>把配置/设置/存档/认不出的文件打进 overrides；关掉只生成下载清单。</summary>
+    public bool ExportBundleExtra
+    {
+        get => _exportBundleExtra;
+        set { if (SetProperty(ref _exportBundleExtra, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
+    }
+
+    /// <summary>一行摘要，说明这次会导出什么（勾选变化时刷新）。</summary>
+    public string ExportSelectionHint
+    {
+        get
+        {
+            if (SelectedInstance is not { } instance) return "";
+
+            var parts = new List<string>();
+
+            if (ExportIncludeMods) parts.Add($"{CountFiles(instance.ModsDirectory, "*.jar")} 个 Mod");
+            if (ExportIncludeConfig) parts.Add("配置");
+            if (ExportIncludeResourcePacks) parts.Add($"{CountFiles(instance.ResourcePacksDirectory, "*.zip")} 个资源包");
+            if (ExportIncludeShaderPacks) parts.Add($"{CountFiles(instance.ShaderPacksDirectory, "*.zip")} 个光影");
+            if (ExportIncludeSettings) parts.Add("游戏设置");
+            if (ExportIncludeSaves) parts.Add("存档");
+
+            if (parts.Count == 0) return "什么都没勾选：导出的整合包里不会有任何内容。";
+
+            return "将导出：" + string.Join("、", parts)
+                   + (ExportBundleExtra ? "；配置与认不出的文件会打包进 overrides" : "；只写下载清单，不打包任何文件");
+        }
+    }
+
+    private static int CountFiles(string directory, string pattern)
+    {
+        try
+        {
+            return Directory.Exists(directory)
+                ? Directory.EnumerateFiles(directory, pattern, SearchOption.AllDirectories).Count()
+                : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>进入导出页时把表单填成当前实例的默认值。</summary>
+    private void RefreshExportForm()
+    {
+        if (SelectedInstance is { } instance && string.IsNullOrWhiteSpace(_exportPackName))
+            ExportPackName = instance.Name;
+
+        OnPropertyChanged(nameof(ExportSelectionHint));
+    }
+
+    /// <summary>
+    /// 导出为 Modrinth 整合包（.mrpack）。
+    ///
+    /// 能被 Modrinth 按哈希认出来的文件只写下载地址（包很小）；认不出来的进 overrides，
+    /// 否则导入方会缺文件。依赖写当前实例的游戏版本与加载器版本。
+    /// </summary>
+    public async Task ExportMrpackAsync(string targetPath)
+    {
+        if (SelectedInstance is not { } instance) return;
+
+        ExportStatus = $"正在导出「{instance.Name}」…";
+
+        try
+        {
+            var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
+            var loader = version is null ? null : LoaderDetector.DetectWithVersion(version);
+            var gameVersion = await ResolveGameVersionAsync(instance);
+
+            var exporter = new MrpackExporter(_modrinth);
+
+            var progress = new Progress<string>(text => ExportStatus = text);
+
+            var options = new MrpackExportOptions
+            {
+                IncludeMods = ExportIncludeMods,
+                IncludeConfig = ExportIncludeConfig,
+                IncludeResourcePacks = ExportIncludeResourcePacks,
+                IncludeShaderPacks = ExportIncludeShaderPacks,
+                IncludeSaves = ExportIncludeSaves,
+                IncludeSettings = ExportIncludeSettings,
+                BundleExtra = ExportBundleExtra,
+            };
+
+            var result = await exporter.ExportAsync(
+                instance.GameDirectory,
+                targetPath,
+                string.IsNullOrWhiteSpace(ExportPackName) ? instance.Name : ExportPackName.Trim(),
+                string.IsNullOrWhiteSpace(ExportPackVersion) ? "1.0.0" : ExportPackVersion.Trim(),
+                $"由 NPMC Launcher 导出（{DateTimeOffset.Now:yyyy-MM-dd HH:mm}）",
+                gameVersion,
+                loader?.Key,
+                loader?.Version,
+                options,
+                progress);
+
+            ExportStatus = $"已导出 .mrpack：{result.FileCount} 个下载项、"
+                           + $"{result.OverrideCount} 个打包文件、{result.UnresolvedCount} 个无法识别"
+                           + $"（{result.Bytes / 1024.0 / 1024.0:F1} MB）";
+            Status = ExportStatus;
+            LauncherLog.Write(_launcher.Root, $"导出 mrpack {instance.Name} → {targetPath}");
+        }
+        catch (Exception ex)
+        {
+            ExportStatus = $"导出失败：{ex.GetBaseException().Message}";
+            Status = ExportStatus;
+            LauncherLog.Write(_launcher.Root, $"导出 mrpack 失败：{ex}");
+        }
+    }
+
     /// <summary>把当前实例的游戏目录（不含日志/崩溃报告）打包成 ZIP。</summary>
     public async Task ExportInstanceAsync(string targetPath)
     {
@@ -1430,6 +1632,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(SecondaryCategoryLabel));
             OnPropertyChanged(nameof(SecondaryCategoryTip));
 
+            // 进导出页时把表单填成当前实例的默认值（名称、勾选摘要）
+            if (value.Kind == DetailTabKind.Export) RefreshExportForm();
+
             // 分类清单跟着内容类型走：模组是内置 14 项，资源包/光影是 Modrinth 标签
             if (value.ContentKind is { } contentType && contentType.SupportsDownload())
                 _ = EnsureCategoriesForKindAsync(contentType);
@@ -1556,14 +1761,50 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool IsContentEmpty => Content.Count == 0;
 
-    public string ContentEmptyHint => SelectedTab.ContentKind switch
+    /// <summary>
+    /// 列表为空时显示什么。
+    ///
+    /// 关键区分：文件夹里**有文件**、只是被筛选/折叠挡住时，不能说"文件夹是空的" ——
+    /// 用户会以为文件丢了（数据包页输入搜索词后显示"这个世界还没有数据包"就是这个坑）。
+    /// </summary>
+    public string ContentEmptyHint
     {
-        ContentKind.Mod => "mods 文件夹是空的。把 .jar 放进这个文件夹（或将来自动安装），就会出现在这里。",
-        ContentKind.ResourcePack => "resourcepacks 文件夹是空的。支持 .zip 和文件夹两种形式。",
-        ContentKind.ShaderPack => "shaderpacks 文件夹是空的。光影通常需要配合 Iris / OptiFine 使用。",
-        ContentKind.DataPack => "这个世界还没有数据包。点「下载数据包」从 Modrinth 安装，或把 .zip 放进该世界的 datapacks 文件夹。",
-        _ => "",
-    };
+        get
+        {
+            var kindName = SelectedTab.ContentKind?.DisplayName() ?? "内容";
+
+            // 有筛选词时先说"没匹配"，哪怕文件夹本来就是空的 ——
+            // 否则用户输入完搜索词却被告知"文件夹是空的"，会以为文件丢了。
+            if (!string.IsNullOrWhiteSpace(_contentFilterQuery))
+            {
+                return _contentFileTotal > 0
+                    ? $"没有匹配「{_contentFilterQuery.Trim()}」的{kindName}"
+                      + $"（共 {_contentFileTotal} 个）；清空筛选框就能看到全部。"
+                    : $"没有匹配「{_contentFilterQuery.Trim()}」的{kindName}；"
+                      + "这里还没有任何文件，清空筛选框可以去下载。";
+            }
+
+            if (_contentFileTotal > 0)
+            {
+                // 有文件却全被挡住：模组页最常见的是"隐藏整合包自带模组"
+                return SelectedTab.ContentKind == ContentKind.Mod
+                    ? $"这 {_contentFileTotal} 个模组都属于整合包自带的文件，已被折叠；取消勾选「隐藏整合包自带模组」即可看到。"
+                    : $"共 {_contentFileTotal} 个{kindName}，但当前都被过滤掉了（检查筛选条件）。";
+            }
+
+            return SelectedTab.ContentKind switch
+            {
+                ContentKind.Mod => "mods 文件夹是空的。把 .jar 放进这个文件夹（或将来自动安装），就会出现在这里。",
+                ContentKind.ResourcePack => "resourcepacks 文件夹是空的。支持 .zip 和文件夹两种形式。",
+                ContentKind.ShaderPack => "shaderpacks 文件夹是空的。光影通常需要配合 Iris / OptiFine 使用。",
+                ContentKind.DataPack => "这个世界还没有数据包。点「下载数据包」从 Modrinth 安装，或把 .zip 放进该世界的 datapacks 文件夹。",
+                _ => "",
+            };
+        }
+    }
+
+    /// <summary>本次扫描在筛选前找到的文件总数（判定"空"与"被筛掉"用）。</summary>
+    private int _contentFileTotal;
 
     // ---- 状态 ----
 
@@ -1679,8 +1920,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 否则"切页签到存档（还没进入世界）"的这次刷新会把稍后那次
             // 真正带世界的扫描结果判为过期并丢弃，列表就永远是空的。
             Content.Clear();
+            _contentFileTotal = 0;
             OnPropertyChanged(nameof(IsContentEmpty));
-        OnPropertyChanged(nameof(IsContentEmptyOrNotList));
+            OnPropertyChanged(nameof(IsContentEmptyOrNotList));
+            OnPropertyChanged(nameof(ContentEmptyHint));
             RaiseCommandStates();
             UpdateDataPackTabCount();
             return;
@@ -1718,6 +1961,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 否则列表上的搜索框对它们就是摆设。
             var query = _contentFilterQuery.Trim();
 
+            // 记住筛选前的总数：为空时要用它区分"文件夹是空的"和"筛选后没有结果"
+            _contentFileTotal = entries.Count;
+
             foreach (var entry in entries)
             {
                 if (query.Length > 0
@@ -1729,6 +1975,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             RaisePackModFilterChanged();
             OnPropertyChanged(nameof(IsContentEmpty));
+            OnPropertyChanged(nameof(ContentEmptyHint));
             OnPropertyChanged(nameof(IsContentEmptyOrNotList));
             RaiseCommandStates();
         }

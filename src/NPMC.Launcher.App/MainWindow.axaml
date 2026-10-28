@@ -1024,17 +1024,60 @@
                    Padding="10" VerticalContentAlignment="Top" />
         </Grid>
 
-        <!-- 导出实例 -->
+        <!-- 导出整合包 -->
         <Grid Grid.Row="2" Margin="0,14,0,0" IsVisible="{Binding ShowExport}">
-          <StackPanel Spacing="12">
-            <TextBlock Text="导出实例" FontSize="16" FontWeight="SemiBold" Foreground="#F2F3F5" />
-            <TextBlock Text="把当前实例的 mods / config / resourcepacks / shaderpacks / saves 等打包成 ZIP；不会包含 logs 和 crash-reports。"
-                       FontSize="11" Foreground="#949CA9" TextWrapping="Wrap" MaxWidth="620" />
-            <Button Content="选择导出位置…" Click="OnExportInstanceClick"
-                    FontSize="12" HorizontalAlignment="Left" Padding="14,4" />
-            <TextBlock Text="{Binding ExportStatus}" FontSize="11" Foreground="#7BC47F"
-                       TextWrapping="Wrap" />
-          </StackPanel>
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="12">
+              <TextBlock Text="导出整合包" FontSize="16" FontWeight="SemiBold" Foreground="#F2F3F5" />
+
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="格式" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
+                <ComboBox ItemsSource="{Binding ExportFormats}"
+                          SelectedIndex="{Binding ExportFormatIndex}"
+                          Width="230" FontSize="12" />
+              </StackPanel>
+
+              <TextBlock Text="{Binding ExportFormatHint}" FontSize="11" Foreground="#949CA9"
+                         TextWrapping="Wrap" MaxWidth="620" />
+
+              <!-- 整合包信息与内容清单：只对 .mrpack 有意义（ZIP 按完整打包） -->
+              <StackPanel Spacing="10" IsVisible="{Binding IsMrpackExport}">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <TextBlock Text="整合包名称" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <TextBox Text="{Binding ExportPackName}" Width="280" FontSize="12" />
+                  <TextBlock Text="版本" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <TextBox Text="{Binding ExportPackVersion}" Width="90" FontSize="12" />
+                </StackPanel>
+
+                <TextBlock Text="导出内容" FontSize="12" Foreground="#C9CED6" Margin="0,2,0,0" />
+                <WrapPanel>
+                  <CheckBox Content="Mod（含已禁用的）" IsChecked="{Binding ExportIncludeMods}"
+                            FontSize="12" Width="190" />
+                  <CheckBox Content="Mod 配置" IsChecked="{Binding ExportIncludeConfig}"
+                            FontSize="12" Width="150" />
+                  <CheckBox Content="资源包" IsChecked="{Binding ExportIncludeResourcePacks}"
+                            FontSize="12" Width="110" />
+                  <CheckBox Content="光影包" IsChecked="{Binding ExportIncludeShaderPacks}"
+                            FontSize="12" Width="110" />
+                  <CheckBox Content="游戏设置" IsChecked="{Binding ExportIncludeSettings}"
+                            FontSize="12" Width="110" />
+                  <CheckBox Content="单人存档（可能很大）" IsChecked="{Binding ExportIncludeSaves}"
+                            FontSize="12" Width="200" />
+                </WrapPanel>
+
+                <CheckBox Content="把配置、设置、存档与无法识别的文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
+                          IsChecked="{Binding ExportBundleExtra}" FontSize="11" />
+
+                <TextBlock Text="{Binding ExportSelectionHint}" FontSize="11" Foreground="#949CA9"
+                           TextWrapping="Wrap" MaxWidth="620" />
+              </StackPanel>
+
+              <Button Content="选择导出位置…" Click="OnExportInstanceClick"
+                      FontSize="12" HorizontalAlignment="Left" Padding="14,4" />
+              <TextBlock Text="{Binding ExportStatus}" FontSize="11" Foreground="#7BC47F"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </ScrollViewer>
         </Grid>
 
         <!-- 操作 -->

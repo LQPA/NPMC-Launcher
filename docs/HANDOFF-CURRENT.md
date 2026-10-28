@@ -151,6 +151,29 @@
       「打开当前文件夹」重复的「打开该世界的数据包目录」，`OpenDatapacksFolderCommand`、
       `HasDatapacksEntry`、`ResolveDatapacksDirectory` 一并删除（`ShowDataPackActions`
       也换成了 `ShowWorldPicker`）。
+  - **空列表提示分两种情况（2026-10-28）**：以前只要 `Content` 为空就报"文件夹是空的"，
+    用户输入筛选词后看到"这个世界还没有数据包"会以为文件丢了。现在 `_contentFileTotal`
+    记录筛选前的总数：
+    - 有筛选词 → 「没有匹配「q」的 X（共 N 个）；清空筛选框就能看到全部。」
+      （N=0 时补一句"这里还没有任何文件"）；
+    - 没筛选词但总数>0 → 模组页说明"被折叠的整合包自带模组"，其他类型提示检查筛选；
+    - 总数=0 → 原来的空文件夹文案。
+    实测：数据包世界输入 `ad` → 「没有匹配「ad」的数据包；这里还没有任何文件…」；
+    模组页输入 `zzz` → 「没有匹配「zzz」的模组（共 2 个）…」。
+  - **导出整合包（.mrpack）表单（2026-10-28）**：导出页从"一个按钮"改成"格式 + 整合包名称/版本 +
+    导出内容清单 + 高级选项"，参照 PCL 的整合包制作界面，但**只做模组包导出，不打包启动器自身**。
+    - 内容清单：Mod（含已禁用）/ Mod 配置 / 资源包 / 光影包 / 游戏设置 / 单人存档（默认不勾）；
+    - 高级：`ExportBundleExtra`（默认开）关掉就只写下载清单（实测条目只有 `modrinth.index.json`）；
+    - `.mrpack` 规则：Modrinth 能按 sha1 认出来的文件只写 `downloads`（sha1+sha512），
+      认不出的进 `overrides/`；dependencies 写 `minecraft` + 加载器键
+      （`fabric-loader`/`quilt-loader`/`forge`/`neoforge`）。
+    - **坑：新版 NeoForge 的 profile 里没有 `net.neoforged:neoforge:<ver>` 这个库**，
+      加载器版本只在版本 id 上（`neoforge-26.3.0.99`）；`LoaderDetector.DetectWithVersion`
+      先从 libraries 取，取不到再从 `id`/`inheritsFrom` 用正则兜底。
+    - 实测：`--exercise-mrpack` → name/deps=`minecraft=26.3,neoforge=26.3.0.99`、
+      1 个下载项（sodium）、`overrides/config/…`+`overrides/options.txt`+认不出的 iris jar；
+      `--exercise-mrpack-list-only` → 只有 index。
+    - 导出页离屏渲染：`--render-search-panel <png> --render-export`（会选中导出页并切到 mrpack）。
 
 ## 关键文件
 
@@ -237,17 +260,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 
 ## 下次开工先做（2026-10-28 更新）
 
-1. **一键全部升级**（小~中）：目前检查更新后要逐行点「升级」；要做批量、进度与失败汇总。
-2. **搜索质量**（小）：①「硬核科技」过滤（Modrinth technology 太宽）②末页探测
+1. **搜索质量**（小）：①「硬核科技」过滤（Modrinth technology 太宽）②末页探测
    `total_hits`/CF `pagination.totalCount`，避免整页时出现空页。
+2. **一键全部升级**（小~中）：目前检查更新后要逐行点「升级」；要做批量、进度与失败汇总。
 3. **Fabric/Quilt 的 Low 完整性**（中）：`java.exe` 是 Low 时 `SetFileSecurity` 失败（错误 5），
    重映射会挂；正解是让 JVM 的临时/remap 目录落到可写位置，而不是硬抬标签。
 4. **补 VM 层测试**（中）：这轮踩过的坑（Avalonia CanExecute 只求值一次、facet 分组、
-   识别缓存新增字段的反序列化、版本号重复时的 Display、数据包 loaders 过滤）都值得写成测试。
-5. 顺带可做：资源包/光影分类中译、CF 资源包分类映射、右侧详情/计划布局、发布签名与
+   识别缓存新增字段的反序列化、版本号重复时的 Display、数据包 loaders 过滤、mrpack 选项）
+   都值得写成测试。
+5. **CurseForge 整合包导出**（中，可选）：CF 的 `manifest.json` 需要 projectID/fileID，
+   只能靠 CF 的指纹接口（要 API key）反查；Modrinth 侧已经是 mrpack，CF 侧需要另做映射。
+6. 顺带可做：资源包/光影分类中译、CF 资源包分类映射、右侧详情/计划布局、发布签名与
    SHA256 清单、用户手册。
 
-已完成（原列表第 1 项）：数据包下载界面，见上面「数据包也能下载」。
+已完成：数据包下载界面、导出整合包表单（mrpack）。
 
 ## 本次会话新增的诊断入口（收尾时整理）
 

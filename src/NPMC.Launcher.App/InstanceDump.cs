@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.IO.Compression;
+using System.Text.Json;
 using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
@@ -401,6 +403,13 @@ internal static class InstanceDump
                 lines.Add($"    世界：{viewModel.DataPackWorld?.Name ?? "(无)"}"
                           + $"  管理页={viewModel.IsManagingDataPacks}"
                           + $"  筛选框={viewModel.IsContentFilterVisible}");
+
+                // 输入筛选词但没有命中时，提示必须是"没匹配"而不是"文件夹是空的"
+                viewModel.ContentFilterQuery = "ad";
+                viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+                lines.Add($"    [空提示] 行数={viewModel.Content.Count} 提示={viewModel.ContentEmptyHint}");
+                viewModel.ContentFilterQuery = "";
+                viewModel.RefreshContentAsync().GetAwaiter().GetResult();
             }
 
             viewModel.OpenContentDownloadCommand.Execute(null);
@@ -628,6 +637,67 @@ internal static class InstanceDump
                                   + $" 计划可见={viewModel.IsPlanVisible}"
                                   + $" 可选版本={viewModel.InstallVersions.Count}"
                                   + $" 当前={viewModel.SelectedInstallVersion?.Display ?? "(无)"}");
+                    }
+
+                    // 空列表提示：文件夹里有文件、只是被筛选挡住时，不能报"文件夹是空的"
+                    viewModel.ContentFilterQuery = "zzz-不存在的名字";
+                    viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+
+                    lines.Add($"    [筛选空] 行数={viewModel.Content.Count} 提示={viewModel.ContentEmptyHint}");
+                    viewModel.ContentFilterQuery = "";
+                    viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+
+                    // 导出 .mrpack：能被 Modrinth 认出来的文件进 files[]，其余进 overrides
+                    var mrpackIndex = Array.FindIndex(args, arg =>
+                        string.Equals(arg, "--exercise-mrpack", StringComparison.OrdinalIgnoreCase));
+
+                    if (mrpackIndex >= 0 && mrpackIndex + 1 < args.Length)
+                    {
+                        var mrpackTarget = args[mrpackIndex + 1];
+                        viewModel.ExportMrpackAsync(mrpackTarget).GetAwaiter().GetResult();
+
+                        lines.Add($"    [mrpack] {viewModel.ExportStatus}");
+
+                        if (File.Exists(mrpackTarget))
+                        {
+                            using var archive = ZipFile.OpenRead(mrpackTarget);
+                            var indexEntry = archive.GetEntry("modrinth.index.json");
+
+                            if (indexEntry is not null)
+                            {
+                                using var stream = indexEntry.Open();
+                                using var document = JsonDocument.Parse(stream);
+                                var indexRoot = document.RootElement;
+
+                                var dependencies = indexRoot.GetProperty("dependencies");
+                                lines.Add($"      index: name={indexRoot.GetProperty("name")} "
+                                          + $"files={indexRoot.GetProperty("files").GetArrayLength()} "
+                                          + $"deps={string.Join(",", dependencies.EnumerateObject().Select(p => p.Name + "=" + p.Value))}");
+
+                                foreach (var file in indexRoot.GetProperty("files").EnumerateArray().Take(3))
+                                    lines.Add($"      file: {file.GetProperty("path")} "
+                                              + $"sha512={(file.GetProperty("hashes").GetProperty("sha512").GetString() ?? "").Length} 字符");
+                            }
+
+                            lines.Add($"      条目：{string.Join(" | ", archive.Entries.Take(8).Select(entry => entry.FullName))}");
+                        }
+
+                        // 只写下载清单（不打包 overrides）：验证"包最小、但没有配置"
+                        if (args.Any(arg => string.Equals(arg, "--exercise-mrpack-list-only", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            viewModel.ExportBundleExtra = false;
+                            var listOnly = mrpackTarget + ".list.mrpack";
+                            viewModel.ExportMrpackAsync(listOnly).GetAwaiter().GetResult();
+
+                            if (File.Exists(listOnly))
+                            {
+                                using var listArchive = ZipFile.OpenRead(listOnly);
+                                lines.Add($"    [清单模式] 条目 {listArchive.Entries.Count} 个："
+                                          + string.Join(", ", listArchive.Entries.Select(entry => entry.FullName)));
+                            }
+
+                            viewModel.ExportBundleExtra = true;
+                        }
                     }
                 }
 
