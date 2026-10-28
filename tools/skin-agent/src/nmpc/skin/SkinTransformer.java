@@ -91,6 +91,10 @@ final class SkinTransformer implements ClassFileTransformer {
                 private int legacyAccess;
                 private String legacySignature;
                 private String[] legacyExceptions;
+                private boolean skinManagerRenamed;
+                private int skinManagerAccess;
+                private String skinManagerSignature;
+                private String[] skinManagerExceptions;
 
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String descriptor,
@@ -108,19 +112,28 @@ final class SkinTransformer implements ClassFileTransformer {
                                 descriptor, signature, exceptions);
                     }
 
+                    // SkinManager.get：同样不能整段替换（否则其他玩家也被接管），
+                    // 原方法改名保留，生成的同名方法按 UUID 分流，非本地账号交回原实现。
+                    // 必须在创建 target 之前分流：否则 ClassWriter 里已经登记了一个空的 get，
+                    // 验证器会报 "Absent Code attribute"（实测 1.21.11 NeoForge）。
+                    if (isSkinManager && SkinAgent.modernReady && "get".equals(name)
+                            && descriptor.endsWith(")Ljava/util/concurrent/CompletableFuture;")) {
+                        skinManagerRenamed = true;
+                        skinManagerAccess = access;
+                        skinManagerSignature = signature;
+                        skinManagerExceptions = exceptions;
+
+                        SkinAgent.log("wrapping " + className + "." + name + descriptor);
+                        return super.visitMethod(access, "nmpc$get$impl",
+                                descriptor, signature, exceptions);
+                    }
+
                     MethodVisitor target = super.visitMethod(access, name, descriptor, signature, exceptions);
 
                     // 调试：SkinManager 的方法签名各版本不一样，先把候选打出来（每次启动一条）
                     if (isSkinManager && (descriptor.endsWith(")Ljava/util/concurrent/CompletableFuture;")
                             || name.startsWith("get") || name.startsWith("load"))) {
                         SkinAgent.log("skinmanager: " + name + descriptor);
-                    }
-
-                    // 不写死参数类型：只要叫 get、只有一个参数、返回 CompletableFuture 就接管
-                    if (isSkinManager && SkinAgent.modernReady && "get".equals(name)
-                            && descriptor.endsWith(")Ljava/util/concurrent/CompletableFuture;")) {
-                        SkinAgent.log("replacing " + className + "." + name + descriptor);
-                        return replaceGet(target);
                     }
 
                     if (isSkinPort && "getSkin".equals(name) && SKINPORT_GET_DESCRIPTOR.equals(descriptor)) {
@@ -140,6 +153,31 @@ final class SkinTransformer implements ClassFileTransformer {
 
                 @Override
                 public void visitEnd() {
+                    if (skinManagerRenamed)
+                    {
+                        // get(GameProfile) → SkinBridgeModern.get(this, profile)
+                        MethodVisitor method = super.visitMethod(
+                            skinManagerAccess & ~(Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE),
+                            "get", GET_DESCRIPTOR, skinManagerSignature, skinManagerExceptions);
+
+                        method.visitCode();
+                        if (classMajor >= 50)
+                        {
+                            method.visitFrame(Opcodes.F_NEW, 2, new Object[] {
+                                    className,
+                                    "com/mojang/authlib/GameProfile"
+                            }, 0, null);
+                        }
+
+                        method.visitVarInsn(Opcodes.ALOAD, 0);
+                        method.visitVarInsn(Opcodes.ALOAD, 1);
+                        method.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridgeModern", "get",
+                                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/concurrent/CompletableFuture;", false);
+                        method.visitInsn(Opcodes.ARETURN);
+                        method.visitMaxs(2, 2);
+                        method.visitEnd();
+                    }
+
                     if (legacyRenamed)
                     {
                         MethodVisitor method = super.visitMethod(
@@ -222,23 +260,6 @@ final class SkinTransformer implements ClassFileTransformer {
                 target.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinPortBridge", "get",
                         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false);
                 target.visitTypeInsn(Opcodes.CHECKCAST, "lain/mods/skins/api/interfaces/ISkin");
-                target.visitInsn(Opcodes.ARETURN);
-                target.visitMaxs(2, 2);
-                target.visitEnd();
-            }
-        };
-    }
-
-    /** return SkinBridgeModern.get(skinManager, profile) */
-    private static MethodVisitor replaceGet(MethodVisitor target) {
-        return new MethodVisitor(ASM_API) {
-            @Override
-            public void visitEnd() {
-                target.visitCode();
-                target.visitVarInsn(Opcodes.ALOAD, 0);
-                target.visitVarInsn(Opcodes.ALOAD, 1);
-                target.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridgeModern", "get",
-                        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/concurrent/CompletableFuture;", false);
                 target.visitInsn(Opcodes.ARETURN);
                 target.visitMaxs(2, 2);
                 target.visitEnd();

@@ -104,9 +104,27 @@ Forge 1.21.1（52.1.20）的 profile 在 `libraries` 里同时列了
 （`texturesFor: ours=true loader=SecureModuleClassLoader[SECURE-BOOTSTRAP]`）。
 注意：**不要**为了"去重"把 classifier 再吃掉，natives 变体同样会因此覆盖主 jar。
 
+### 7. 1.21.11 Forge/NeoForge：`SkinManager.get` 钩子的两个坑
+
+1.21.11 的 mojmap `SkinManager` 有 `get(GameProfile) → CompletableFuture<Optional<PlayerSkin>>`，
+我们的钩子会命中（Fabric 是 intermediary，不命中，所以 Fabric 一直正常）。两个坑都实测过：
+
+- **`registerTextures` 的第一个参数是 UUID，不是 GameProfile**。旧代码传 profile →
+  `IllegalArgumentException: argument type mismatch`，桥接吞掉异常后返回
+  `Optional.empty()` → 默认皮肤。现在按声明参数类型转换（UUID 或 GameProfile 都行）。
+- **改名必须发生在创建 target 之前**：`visitMethod` 里若先
+  `super.visitMethod(access, "get", ...)` 再改走 `nmpc$get$impl`，ClassWriter 里会留下
+  一个没有 Code 的 `get`，游戏直接 `ClassFormatError: Absent Code attribute ...` 崩掉。
+  现在 rename 分支在 target 创建之前（与 `getTextures` 一致）。
+- 另外：非本地账号现在会**交回原实现** `nmpc$get$impl`（以前返回空），
+  否则多人游戏里别人的皮肤也会被我们挡掉。
+
+实测结果：`wrapping ...SkinManager.get(...)` + `bridge get: id=… ours=true`，
+Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单、26.2/26.3 的缺口）。
-用户已确认 **NeoForge 1.21.1、Forge 1.21.1、Fabric 1.21.11、Fabric 1.15 皮肤都生效**；
+用户已确认 **NeoForge 1.21.1、Forge 1.21.1、Fabric 1.21.11、Forge 1.21.11、NeoForge 1.21.11、Fabric 1.15 皮肤都生效**；
 其它版本由用户后续自测。
 
 ## 当前状态
@@ -114,12 +132,13 @@ Forge/NeoForge/Fabric 的类名与加载器差异、测试清单、26.2/26.3 的
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（20:06，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（20:21，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
   整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已在 NeoForge 1.21.1、
-  Forge 1.21.1、Fabric 1.21.11、Fabric 1.15 实测通过**，其它版本待用户自测。
+  Forge 1.21.1、Fabric 1.21.11、Forge 1.21.11、NeoForge 1.21.11、Fabric 1.15 实测通过**，
+  其它版本待用户自测。
 - 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 330 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。

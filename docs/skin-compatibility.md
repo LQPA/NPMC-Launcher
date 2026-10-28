@@ -19,7 +19,7 @@
 | 1.20.5 – 1.20.6 | 5.x（推断，未本地验证） | 切到 `unpackTextures(Property) → MinecraftProfileTextures` | `modern` | 未验证 |
 | 1.21.1 | 6.0.54 | `unpackTextures`；`getPackedTextures`；`fetchProfile(UUID, boolean)` | `modern` | **已实测（NeoForge 21.1.265 / Forge 52.1.20）** |
 | 1.21.6 | 6.0.58 | 同上（与 6.0.54 同一套） | `modern` | 未验证 |
-| 1.21.11 | 7.0.61 | 同上；**环境属性必须三个全有**（见 §3） | `modern` | **已实测（Fabric 0.20.1）** |
+| 1.21.11 | 7.0.61 | 同上；**环境属性必须三个全有**（见 §3） | `modern` | **已实测（Fabric 0.20.1 / Forge 61.2.4 / NeoForge 21.11.48）** |
 | 26.1.2 | 7.0.63 | 同上；客户端 `SkinManager.get` 在没有 textures 时直接返回空 | `modern` | 上一轮验证过（见交接文档） |
 | 26.2 | 9.0.75 | `Yggdrasil*` 类族退役，改用 `MinecraftServices*`（推断） | **不挂 agent** | 未验证 / 未支持 |
 | 26.3 | 10.0.77 | `MinecraftServicesSessionService implements SessionService`（`unpackTextures` 仍在） | **不挂 agent** | 未验证 / 未支持 |
@@ -91,7 +91,7 @@ session 指本地，其余指官方。**多设没用，少设是致命的**。
 |---|---|---|
 | `YggdrasilMinecraftSessionService.getTextures(GameProfile, Z)Map` | authlib 1–4 | 改名保留原方法 + 生成分流方法，调 `SkinBridgeLegacy.isLocal/textures` |
 | `YggdrasilMinecraftSessionService.unpackTextures(Property)MinecraftProfileTextures` | authlib 5–7（要求 `modernReady`） | 整段替换为 `SkinBridgeModern.texturesFor(property)` |
-| `SkinManager.get(<单参数>)CompletableFuture` | **mojmap** 名字、`modernReady` | 整段替换为 `SkinBridgeModern.get(skinManager, profile)`（26.1.2 需要；1.21.1 没有 `get`，不触发；Fabric 下类名是 intermediary，不触发） |
+| `SkinManager.get(<单参数>)CompletableFuture` | **mojmap** 名字、`modernReady` | 原方法改名 `nmpc$get$impl` 保留；生成同名方法调 `SkinBridgeModern.get`：本地账号用 `registerTextures` 注册本地纹理，其它玩家交回原实现（26.1.2 / 1.21.11 Forge/NeoForge 需要；1.21.1 没有 `get`，不触发；Fabric 下类名是 intermediary，不触发） |
 | `ForgeSkinPort$DefaultSkinProvider.getSkin(IPlayerProfile)ISkin` | 1.7.10 SkinPort | `SkinPortBridge.get(provider, profile)` |
 
 本地 HTTP 服务（`SkinHttpServer`，`ServerSocket` + daemon 线程）：
@@ -109,7 +109,8 @@ session 指本地，其余指官方。**多设没用，少设是致命的**。
 | 场景 | 期望日志（关键行） |
 |---|---|
 | NeoForge 1.21.1（authlib 6） | `bootstrap search: ...nmpc-skin-bridge.jar`、`module support installed`、`transforming ...YggdrasilMinecraftSessionService`、`replacing ...unpackTextures`、`profile <uuid> -> ...png`、`texturesFor: ours=true` |
-| Fabric 1.15（authlib 1.5.25，Java 8） | `bootstrap search: ...`（**不再是** `system search`）、`wrapping ...getTextures(...)`、`legacy textures served url=http://127.0.0.1:<port>/...`；**不应**出现 `NoClassDefFoundError: nmpc/skin/SkinBridgeLegacy` |
+| Fabric 1.15（authlib 1.5.25，Java 8） | `bootstrap search: ...`、`wrapping ...getTextures(...)`、`legacy textures served url=http://127.0.0.1:<port>/...`；**不应**出现 `NoClassDefFoundError: nmpc/skin/SkinBridgeLegacy` |
+| Forge/NeoForge 1.21.11（authlib 7，mojmap） | `wrapping ...SkinManager.get(...)`（不是 `replacing`）、`bridge get: id=... ours=true`；**不应**出现 `argument type mismatch`、`Absent Code attribute` 或启动崩溃 |
 | Fabric 1.21.11（authlib 7） | 同上，且 `read edge added: null -> null`（Fabric 没有模块）；`latest.log` 里 `sessionHost=http://127.0.0.1:<port>`；**不应**出现 `Ignoring hosts properties` |
 | Forge 1.20.1（authlib 4） | `wrapping ...getTextures(...)`、`legacy textures served url=...`（桥接日志前缀是 `legacy`） |
 | 1.7.10（authlib 1 + SkinPort） | `bootstrap: java 1.8..., skipped`、`wrapping ...getTextures`、`skinport get id=... name=...` |

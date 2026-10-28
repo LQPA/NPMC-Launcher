@@ -8,6 +8,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -45,38 +46,89 @@ public final class SkinBridgeModern {
     }
 
     /**
-     * 替换 SkinManager.get(GameProfile)：本地账号直接注册本地纹理；
-     * 其它玩家返回空，走各自的默认皮肤。
+     * 替换 SkinManager.get(GameProfile)：
+     *   - 本地账号：把本地纹理注册进去（registerTextures）；
+     *   - 其它玩家：调用被改名保留的原方法 nmpc$get$impl，保持多人游戏正常。
+     *
+     * 1.21.11 的 registerTextures 第一个参数是 **UUID**（不是 GameProfile），
+     * 直接传 profile 会 `IllegalArgumentException: argument type mismatch`（实测），
+     * 所以按声明参数类型转换。
      */
     public static CompletableFuture get(Object skinManager, Object profile) {
         try {
             String id = String.valueOf(invoke(profile, "id", "getId")).replace("-", "");
             String uuid = property("nmpc.skin.uuid", "");
+            boolean ours = !id.isEmpty() && id.equalsIgnoreCase(uuid);
 
-            log("get: id=" + id + " ours=" + id.equalsIgnoreCase(uuid));
+            log("get: id=" + id + " ours=" + ours);
 
-            if (id.isEmpty() || !id.equalsIgnoreCase(uuid)) {
-                return CompletableFuture.completedFuture(Optional.empty());
+            if (ours) {
+                try {
+                    CompletableFuture future = register(skinManager, profile);
+                    if (future != null) return future;
+                } catch (Throwable error) {
+                    log("get: register failed: " + error);
+                }
             }
 
-            ClassLoader loader = skinManager.getClass().getClassLoader();
-            Object textures = buildTextures(loader);
+            // 不是本地账号、或注册失败：交回原实现（默认皮肤 / 真实皮肤），别把别人也挡掉
+            return original(skinManager, profile);
+        } catch (Throwable error) {
+            log("get failed: " + error);
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+    }
 
+    /** 调 SkinManager.registerTextures，按实际参数类型传 UUID 或 GameProfile。 */
+    private static CompletableFuture register(Object skinManager, Object profile) throws Exception {
+        Object textures = buildTextures(skinManager.getClass().getClassLoader());
+
+        for (Method method : skinManager.getClass().getDeclaredMethods()) {
+            if (!method.getName().equals("registerTextures") || method.getParameterCount() != 2) continue;
+
+            method.setAccessible(true);
+
+            Class<?>[] types = method.getParameterTypes();
+            Object first = types[0] == UUID.class ? profileId(profile) : profile;
+
+            Object result = method.invoke(skinManager, first, textures);
+            if (result instanceof CompletableFuture) {
+                return ((CompletableFuture) result).thenApply(Optional::of);
+            }
+        }
+
+        return null;
+    }
+
+    /** 原 SkinManager.get：改写时被改名成 nmpc$get$impl 保留下来。 */
+    private static CompletableFuture original(Object skinManager, Object profile) {
+        try {
             for (Method method : skinManager.getClass().getDeclaredMethods()) {
-                if (!method.getName().equals("registerTextures") || method.getParameterCount() != 2) continue;
+                if (!method.getName().equals("nmpc$get$impl") || method.getParameterCount() != 1) continue;
 
                 method.setAccessible(true);
 
-                Object future = method.invoke(skinManager, profile, textures);
-                if (future instanceof CompletableFuture) {
-                    return ((CompletableFuture) future).thenApply(Optional::of);
-                }
+                Object result = method.invoke(skinManager, profile);
+                if (result instanceof CompletableFuture) return (CompletableFuture) result;
             }
         } catch (Throwable error) {
-            log("get failed: " + error);
+            log("original get failed: " + error);
         }
 
         return CompletableFuture.completedFuture(Optional.empty());
+    }
+
+    /** GameProfile 的 UUID（getId 返回值可能是 UUID，也可能是字符串）。 */
+    private static UUID profileId(Object profile) {
+        Object value = invoke(profile, "id", "getId");
+
+        if (value instanceof UUID) return (UUID) value;
+
+        try {
+            return UUID.fromString(String.valueOf(value));
+        } catch (Throwable malformed) {
+            return null;
+        }
     }
 
     /** 构建 MinecraftProfileTextures(skin, cape, elytra, SignatureState.UNSIGNED)。 */
