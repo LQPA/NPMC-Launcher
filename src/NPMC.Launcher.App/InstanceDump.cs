@@ -460,7 +460,39 @@ internal static class InstanceDump
 
             // 主分类（风格/特性）；找不到就去次要维度（分辨率/性能）里找
             var categoryName = Arg("--exercise-category");
-            if (categoryName is not null)
+
+            // 模组分类标签（Modrinth）是异步拉取的，先等它到齐
+            if (viewModel.SelectedTab?.ContentKind == ContentKind.Mod)
+            {
+                for (var i = 0; i < 80 && viewModel.SearchCategoryChips.Count == 0; i++)
+                    Thread.Sleep(100);
+            }
+
+            if (categoryName is not null && viewModel.SearchCategoryChips.Count > 0)
+            {
+                var names = categoryName.Split(
+                    new[] { ',', '，', '+', '＋' },
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+                foreach (var name in names)
+                {
+                    var chip = viewModel.SearchCategoryChips.FirstOrDefault(item =>
+                        string.Equals(item.Display, name, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(item.Slug, name, StringComparison.OrdinalIgnoreCase));
+
+                    if (chip is null)
+                    {
+                        lines.Add($"    没找到标签「{name}」");
+                        continue;
+                    }
+
+                    chip.IsSelected = true;
+                }
+
+                var selected = viewModel.SearchCategoryChips.Where(item => item.IsSelected).Select(item => item.Display);
+                lines.Add($"    已选标签：{string.Join(" + ", selected)}（来源={viewModel.SelectedSearchSource}）");
+            }
+            else if (categoryName is not null)
             {
                 var primary = FindIndex(viewModel.SearchCategories, categoryName);
                 if (primary > 0)

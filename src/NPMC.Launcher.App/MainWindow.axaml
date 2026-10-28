@@ -761,7 +761,7 @@
                 <!-- 分类：模组 / 资源包 / 光影各一套（资源包与光影的标签来自 Modrinth） -->
                 <ComboBox Grid.Column="0" ItemsSource="{Binding SearchCategories}"
                           SelectedIndex="{Binding SearchCategoryIndex}"
-                          IsVisible="{Binding IsCategoryFilterVisible}"
+                          IsVisible="{Binding IsCategoryComboVisible}"
                           Width="150" FontSize="12" PlaceholderText="全部"
                           ToolTip.Tip="{Binding CategoryFilterTip}">
                   <ComboBox.ItemTemplate>
@@ -807,6 +807,27 @@
                   </ComboBox.ItemTemplate>
                 </ComboBox>
               </Grid>
+
+              <!-- 模组细分标签：多选取交集（Modrinth facet：组内 OR、组间 AND） -->
+              <StackPanel Spacing="4" Margin="0,8,0,0" IsVisible="{Binding IsModCategoryChipsVisible}">
+                <TextBlock Text="细分标签（可多选，取交集；例如「科技 + 存储」）"
+                           FontSize="10" Foreground="#6E7684" />
+                <ItemsControl ItemsSource="{Binding SearchCategoryChips}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SearchCategoryChip">
+                      <ToggleButton Content="{Binding Display}"
+                                    IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                    ToolTip.Tip="{Binding Description}"
+                                    FontSize="11" Padding="8,2" Margin="0,0,6,4" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
               </StackPanel>
 
               <!--

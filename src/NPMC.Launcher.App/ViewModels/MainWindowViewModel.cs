@@ -2766,6 +2766,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>搜索分类；模组是固定 14 项，资源包/光影按 Modrinth 标签动态填（首项都是「全部」）。</summary>
     public ObservableCollection<SearchCategoryOption> SearchCategories { get; } = new();
 
+    /// <summary>模组分类的可多选标签（Modrinth 维度，取交集）。</summary>
+    public ObservableCollection<SearchCategoryChip> SearchCategoryChips { get; } = new();
+
+    public IReadOnlyList<string> SelectedModrinthCategories =>
+        SearchCategoryChips.Where(chip => chip.IsSelected).Select(chip => chip.Slug).ToList();
+
+    /// <summary>模组 + Modrinth 时用标签多选；CurseForge 保持平台原生的单分类下拉。</summary>
+    public bool IsModCategoryChipsVisible =>
+        SelectedTab?.ContentKind == ContentKind.Mod
+        && SelectedSearchSource == UpdateSource.Modrinth
+        && SearchCategoryChips.Count > 0;
+
+    public bool IsCategoryComboVisible => IsCategoryFilterVisible && !IsModCategoryChipsVisible;
+
     /// <summary>当前 SearchCategories 属于哪类项目；-1 表示还没按类型填过。</summary>
     private ContentKind? _categoryKind;
 
@@ -2807,9 +2821,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (kind == ContentKind.Mod)
         {
             foreach (var option in ModCategoryOptions()) SearchCategories.Add(option);
+
+            BuildCategoryChips(tags
+                               ?? _categoryCache.Get(ContentKind.Mod.ModrinthProjectType())
+                               ?? FallbackModCategoryTags());
         }
         else
         {
+            BuildCategoryChips(Array.Empty<ModrinthCategoryTag>());
             var resolved = tags
                            ?? _categoryCache.Get(kind.ModrinthProjectType())
                            ?? Array.Empty<ModrinthCategoryTag>();
@@ -2832,6 +2851,52 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsSecondaryCategoryVisible));
         OnPropertyChanged(nameof(SecondaryCategoryLabel));
         OnPropertyChanged(nameof(SecondaryCategoryTip));
+        OnPropertyChanged(nameof(IsModCategoryChipsVisible));
+        OnPropertyChanged(nameof(IsCategoryComboVisible));
+    }
+
+    /// <summary>
+    /// 拉不到 Modrinth 分类时的兜底：用我们中文表里已知的模组分类。
+    /// 这样断网/接口失败时仍然能多选，只是列表少了几个冷门分类。
+    /// </summary>
+    private static IReadOnlyList<ModrinthCategoryTag> FallbackModCategoryTags()
+        => ModCategoryOptions()
+            .Skip(1)
+            .Where(option => option.ModrinthCategory is not null)
+            .Select(option => new ModrinthCategoryTag(option.ModrinthCategory!, "categories"))
+            .ToList();
+
+    /// <summary>
+    /// 用 Modrinth 官方的模组分类重建标签。**分类本身不自行发明**，
+    /// 这里只是把 slug 换成中文名与说明；多选时搜索层会按 facet 取交集。
+    /// </summary>
+    private void BuildCategoryChips(IReadOnlyList<ModrinthCategoryTag> tags)
+    {
+        foreach (var chip in SearchCategoryChips) chip.Changed -= OnCategoryChipChanged;
+        SearchCategoryChips.Clear();
+
+        foreach (var tag in tags
+                     .Where(tag => tag.Header.Equals("categories", StringComparison.OrdinalIgnoreCase))
+                     .OrderBy(tag => ModCategoryInfo.Order(tag.Name))
+                     .ThenBy(tag => tag.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var (display, description) = ModCategoryInfo.Describe(tag.Name);
+            var chip = new SearchCategoryChip(tag.Name, display, description);
+            chip.Changed += OnCategoryChipChanged;
+            SearchCategoryChips.Add(chip);
+        }
+
+        OnPropertyChanged(nameof(IsModCategoryChipsVisible));
+        OnPropertyChanged(nameof(IsCategoryComboVisible));
+        OnPropertyChanged(nameof(SelectedModrinthCategories));
+    }
+
+    private void OnCategoryChipChanged(SearchCategoryChip chip)
+    {
+        // 标签是 Modrinth 的 facet；选了就把来源切回 Modrinth（CF 只有单分类）
+        if (chip.IsSelected && SearchSourceIndex != 0) SearchSourceIndex = 0;
+
+        OnPropertyChanged(nameof(SelectedModrinthCategories));
     }
 
     /// <summary>第二个分类维度：资源包的分辨率、光影的性能档位。</summary>
@@ -2918,7 +2983,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private async Task EnsureCategoriesForKindAsync(ContentKind kind)
     {
         ApplyCategories(kind, null);
-        if (kind == ContentKind.Mod) return;
 
         var projectType = kind.ModrinthProjectType();
 
@@ -2999,6 +3063,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _searchSourceIndex, value)) return;
             OnPropertyChanged(nameof(SelectedSearchSource));
+            OnPropertyChanged(nameof(IsModCategoryChipsVisible));
+            OnPropertyChanged(nameof(IsCategoryComboVisible));
         }
     }
 
@@ -3679,6 +3745,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? SearchCategories[SearchCategoryIndex]
                 : null;
 
+            // Modrinth 模组：用可多选标签（多选 = facet 交集）；
+            // CurseForge 与资源包/光影仍走单个分类下拉。
+            IReadOnlyList<string>? modrinthCategories = null;
+
+            if (kind == ContentKind.Mod && source == UpdateSource.Modrinth)
+            {
+                if (SelectedModrinthCategories is { Count: > 0 } selectedCategories)
+                    modrinthCategories = selectedCategories;
+            }
+            else if (category?.ModrinthCategory is { } categorySlug)
+            {
+                modrinthCategories = new[] { categorySlug };
+            }
+
             // 第二个维度：资源包分辨率 / 光影性能；Modrinth 里它们是独立的 facet 组
             var secondary = SearchSecondaryIndex > 0
                             && SearchSecondaryIndex < SearchSecondaryCategories.Count
@@ -3759,9 +3839,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     query, gameVersion, loaders, SearchPageSize + 1, kind.ModrinthProjectType(),
                     sort.ModrinthIndex,
                     offset: offset,
-                    categories: category?.ModrinthCategory is { } modrinthCategory
-                        ? new[] { modrinthCategory }
-                        : null,
+                    categories: modrinthCategories,
                     secondaryCategory: secondary);
 
                 _searchHasNextPage = hits.Count >= SearchPageSize;

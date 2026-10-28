@@ -98,13 +98,39 @@ public sealed class ModrinthClient
         return versions;
     }
 
-    /// <summary>搜索项目（按相关性）。facets 会把项目类型、游戏版本与加载器都限死。</summary>
-    /// <param name="sortIndex">排序：relevance / downloads / follows / newest / updated。</param>
-    /// <param name="secondaryCategory">
-    /// 第二个分类条件（与 <paramref name="categories"/> 互不替代）。
-    /// Modrinth 的 facet 是"组内 OR、组间 AND"，所以资源包的"风格 + 分辨率"必须是两个组，
-    /// 塞进同一个组会变成"或"（16x 或 vanilla-like），结果就不对了。
-    /// </param>
+    /// <summary>
+    /// 组装 Modrinth 的 facets。规则：**组内 OR、组间 AND**。
+    /// 分类多选时每个分类单独成组，这样「科技 + 存储」= 同时具备两个标签；
+    /// 加载器仍然是一组 OR（fabric OR quilt 等），版本单独一组。
+    /// </summary>
+    public static IReadOnlyList<string> BuildFacets(
+        string projectType,
+        string? gameVersion,
+        IReadOnlyList<string> loaders,
+        IReadOnlyList<string>? categories = null,
+        string? secondaryCategory = null)
+    {
+        var facets = new List<string> { $"[\"project_type:{projectType}\"]" };
+
+        if (!string.IsNullOrWhiteSpace(gameVersion))
+            facets.Add($"[\"versions:{gameVersion}\"]");
+
+        if (loaders.Count > 0)
+            facets.Add($"[{string.Join(",", loaders.Select(loader => $"\"categories:{loader}\""))}]");
+
+        if (categories is { Count: > 0 })
+        {
+            foreach (var category in categories.Distinct(StringComparer.Ordinal))
+                facets.Add($"[\"categories:{category}\"]");
+        }
+
+        if (!string.IsNullOrWhiteSpace(secondaryCategory))
+            facets.Add($"[\"categories:{secondaryCategory}\"]");
+
+        return facets;
+    }
+
+    /// <summary>搜索项目（按相关性）；facets 会把项目类型、游戏版本与加载器都限死。</summary>
     public async Task<IReadOnlyList<ModrinthSearchHit>> SearchAsync(
         string query,
         string? gameVersion,
@@ -117,20 +143,7 @@ public sealed class ModrinthClient
         string? secondaryCategory = null,
         CancellationToken cancellationToken = default)
     {
-        var facets = new List<string> { $"[\"project_type:{projectType}\"]" };
-
-        if (!string.IsNullOrWhiteSpace(gameVersion))
-            facets.Add($"[\"versions:{gameVersion}\"]");
-
-        if (loaders.Count > 0)
-            facets.Add($"[{string.Join(",", loaders.Select(loader => $"\"categories:{loader}\""))}]");
-
-        // Modrinth facet 组内是 OR、组间是 AND；分类作为独立的一组。
-        if (categories is { Count: > 0 })
-            facets.Add($"[{string.Join(",", categories.Select(category => $"\"categories:{category}\""))}]");
-
-        if (!string.IsNullOrWhiteSpace(secondaryCategory))
-            facets.Add($"[\"categories:{secondaryCategory}\"]");
+        var facets = BuildFacets(projectType, gameVersion, loaders, categories, secondaryCategory);
 
         var url = $"{ApiBase}/search?query={Uri.EscapeDataString(query)}"
                 + $"&facets={Uri.EscapeDataString("[" + string.Join(",", facets) + "]")}"

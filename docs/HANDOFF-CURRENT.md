@@ -192,7 +192,7 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 实测（1.12.2，设置里填标题/标语/JVM 参数后从界面启动）：窗口标题变成「NPMC 测试标题」、
 主界面标语变成「NPMC 自定义横幅」、`logs/nmpc-command.txt` 里有 `-Dnmpc.advanced=1`；
 `options.txt` 为 `resourcePacks:["nmpc-splash.zip"]`，资源包 396 字节。用户确认生效。
-测试：369 通过（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
+测试：372 通过（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
 
 ### 12. 单启动器多实例启动（2026-10-28 晚）
 
@@ -261,7 +261,27 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 - `InstanceLayout.Paths` 始终用 `Launcher.GameRoot`，Full 隔离只把共享资源搬进实例，
   `runtime` 与 `instances` 留在启动器游戏根（Java 运行时共享，不重复占盘）。
 
-`SharedRootTests`、`InstanceLayoutTests` 恢复通过，并新增便携布局断言。测试 **369 通过、0 失败**。
+`SharedRootTests`、`InstanceLayoutTests` 恢复通过，并新增便携布局断言。测试 **372 通过、0 失败**。
+
+### 16. 搜索：平台原生的多选分类（2026-10-28 晚）
+
+用户反馈「technology 太宽、不知道怎么用标签筛出细分类型」。按平台规则改成：
+
+- **Modrinth 模组**：下拉框换成可多选的分类标签（chips），分类来自
+  `/tag/category`（19 个，带中文名与说明；拉不到时退回内置的 14 个）。
+  多选是 **facet 组间 AND**：每个选中分类单独成组，例如「科技 + 存储」= 同时带两个标签。
+- **CurseForge**：保持单分类下拉（CF 搜索 API 只有 `categoryId`，网站也是单选），
+  界面会提示这是平台原生限制；选 Modrinth 标签时自动把来源切回 Modrinth。
+- 每个标签有中文说明（`ModCategoryInfo`），例如「科技：机器、能源、自动化；想找细分可加选存储/运输」。
+- `ModrinthClient.BuildFacets` 抽成可测方法；诊断入口支持逗号/加号分隔：
+  `--exercise-search --exercise-category "科技+存储"`。
+
+实测（1.12.2-forge，查询 storage）：只选「存储」→ 20 个结果；
+「科技 + 存储」→ 12 个（Refined Storage、Storage Drawers 等科技存储模组），
+说明交集确实生效。测试 **372 通过、0 失败**（新增 `ModrinthFacetsTests`）。
+
+已知仍未做：没有"排除 utility/equipment"的负向过滤（Modrinth facet 不支持 NOT），
+如果之后仍觉得科技太宽，可再加客户端排除或人工预设。
 
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
@@ -276,7 +296,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:33，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:47，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
@@ -624,7 +644,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 13. （已修复，2026-10-28）布局语义统一：`GameRoot` 默认等于 `Root`（便携布局显式传 minecraft），
     `runtime` / `instances` 永远跟着 `GameRoot`；`SharedRoot` 只换 versions/libraries/assets；
     Full 隔离只把共享资源搬进实例，runtime 仍共享。`SharedRootTests` 与 `InstanceLayoutTests`
-    已恢复通过，并补了便携布局断言（测试 369 通过、0 失败）。
+    已恢复通过，并补了便携布局断言（测试 372 通过、0 失败）。
 14. 26.3 + Sodium 0.9.2 的 mixin 崩溃是模组侧不兼容（`LevelExtractorMixin` 找不到
     `extractVisibleBlockEntities`），与本机库缓存问题无关；建议换 Sodium 更新版本或反馈上游。
 15. **Sodium 在 26.3 上只有 beta 能用**（2026-10-27 实测）：
