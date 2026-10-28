@@ -174,6 +174,15 @@
       1 个下载项（sodium）、`overrides/config/…`+`overrides/options.txt`+认不出的 iris jar；
       `--exercise-mrpack-list-only` → 只有 index。
     - 导出页离屏渲染：`--render-search-panel <png> --render-export`（会选中导出页并切到 mrpack）。
+    - 导出内容清单的两处坑（2026-10-28 实测）：
+      1. `mods/.trash` 是删除操作的回收站，**不能**算进导出（哈希能认出来，但用户显然不想导出删掉的东西）；
+         `MrpackExporter` 与导出摘要都跳过 `.trash`。
+      2. 同一个 jar 的"启用 + 禁用"两份内容完全相同 → sha1 相同，
+         之前的 `ToDictionary` 直接抛 `An item with the same key has already been added`；
+         现在用"哈希 → 路径列表"，两份都会成为下载项（路径分别是 `x.jar` 与 `x.jar.disabled`）。
+    - 禁用项（`*.jar.disabled` / `*.zip.disabled`）也会导出：内容不变，导入方会得到同样禁用的文件。
+    - 换实例时导出表单会整体刷新（`RefreshExportForm(force: true)`）：包名与"将导出…"摘要
+      都换成新实例的；以前会保留上一个实例的摘要（实测 495 个 Mod 的摘要留在 6 个 Mod 的实例上）。
 
 ## 关键文件
 

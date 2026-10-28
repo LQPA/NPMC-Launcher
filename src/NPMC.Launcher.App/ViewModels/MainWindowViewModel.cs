@@ -733,10 +733,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var parts = new List<string>();
 
-            if (ExportIncludeMods) parts.Add($"{CountFiles(instance.ModsDirectory, "*.jar")} 个 Mod");
+            if (ExportIncludeMods)
+                parts.Add($"{CountFiles(instance.ModsDirectory, "*.jar", "*.jar.disabled")} 个 Mod");
             if (ExportIncludeConfig) parts.Add("配置");
-            if (ExportIncludeResourcePacks) parts.Add($"{CountFiles(instance.ResourcePacksDirectory, "*.zip")} 个资源包");
-            if (ExportIncludeShaderPacks) parts.Add($"{CountFiles(instance.ShaderPacksDirectory, "*.zip")} 个光影");
+            if (ExportIncludeResourcePacks)
+                parts.Add($"{CountFiles(instance.ResourcePacksDirectory, "*.zip", "*.zip.disabled")} 个资源包");
+            if (ExportIncludeShaderPacks)
+                parts.Add($"{CountFiles(instance.ShaderPacksDirectory, "*.zip", "*.zip.disabled")} 个光影");
             if (ExportIncludeSettings) parts.Add("游戏设置");
             if (ExportIncludeSaves) parts.Add("存档");
 
@@ -747,13 +750,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private static int CountFiles(string directory, string pattern)
+    /// <summary>统计某目录下的文件（跳过 mods/.trash 回收站；支持 *.ext 与 *.ext.disabled）。</summary>
+    private static int CountFiles(string directory, params string[] patterns)
     {
         try
         {
-            return Directory.Exists(directory)
-                ? Directory.EnumerateFiles(directory, pattern, SearchOption.AllDirectories).Count()
-                : 0;
+            if (!Directory.Exists(directory)) return 0;
+
+            return Directory
+                .EnumerateFiles(directory, "*", SearchOption.AllDirectories)
+                .Count(path =>
+                {
+                    if (path.Split(Path.DirectorySeparatorChar)
+                        .Any(part => part.Equals(".trash", StringComparison.OrdinalIgnoreCase)))
+                        return false;
+
+                    var name = Path.GetFileName(path);
+                    return patterns.Any(pattern => name.EndsWith(pattern.TrimStart('*'), StringComparison.OrdinalIgnoreCase));
+                });
         }
         catch
         {
@@ -761,10 +775,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>进入导出页时把表单填成当前实例的默认值。</summary>
-    private void RefreshExportForm()
+    /// <summary>进入导出页 / 切换实例时把表单填成当前实例的默认值。</summary>
+    private void RefreshExportForm(bool force = false)
     {
-        if (SelectedInstance is { } instance && string.IsNullOrWhiteSpace(_exportPackName))
+        if (SelectedInstance is { } instance && (force || string.IsNullOrWhiteSpace(_exportPackName)))
             ExportPackName = instance.Name;
 
         OnPropertyChanged(nameof(ExportSelectionHint));
@@ -1027,6 +1041,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(WindowWidth));
             OnPropertyChanged(nameof(WindowHeight));
             SyncPresetFromInstance();
+
+            // 导出表单也属于"跟着实例走"：包名与内容摘要必须换成新实例的，
+            // 否则会拿上一个实例的名字去导出（用户实测：495 个 Mod 的摘要留在 6 个 Mod 的实例上）
+            RefreshExportForm(force: true);
 
             RaiseFolderVisibilityChanged();
             RaiseCommandStates();

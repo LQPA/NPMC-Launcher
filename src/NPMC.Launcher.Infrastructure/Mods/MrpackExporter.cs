@@ -59,13 +59,19 @@ public sealed class MrpackExporter
 {
     public const string IndexFileName = "modrinth.index.json";
 
-    /// <summary>会被当作"可下载内容"去 Modrinth 反查的目录。</summary>
-    private static readonly (string Directory, string Pattern, bool ClientSide, bool ServerSide)[] ContentDirectories =
+    /// <summary>会被当作"可下载内容"去 Modrinth 反查的目录（含已禁用的 *.xxx.disabled）。</summary>
+    private static readonly (string Directory, string[] Patterns, bool ClientSide, bool ServerSide)[] ContentDirectories =
     {
-        ("mods", "*.jar", true, true),
-        ("resourcepacks", "*.zip", true, false),
-        ("shaderpacks", "*.zip", true, false),
+        ("mods", new[] { "*.jar", "*.jar.disabled" }, true, true),
+        ("resourcepacks", new[] { "*.zip", "*.zip.disabled" }, true, false),
+        ("shaderpacks", new[] { "*.zip", "*.zip.disabled" }, true, false),
     };
+
+    /// <summary>
+    /// 不进导出的子目录。`mods/.trash` 是被删除模组的回收站：哈希能认出来，
+    /// 但把"删掉的东西"打进整合包显然不是用户想要的。
+    /// </summary>
+    private static readonly string[] IgnoredSegments = { ".trash" };
 
     /// <summary>整目录进 overrides 的配置目录。</summary>
     private static readonly string[] OverrideDirectories = { "config", "defaultconfigs" };
@@ -172,7 +178,7 @@ public sealed class MrpackExporter
     {
         var files = new List<(string, string)>();
 
-        foreach (var (directory, pattern, _, _) in ContentDirectories)
+        foreach (var (directory, patterns, _, _) in ContentDirectories)
         {
             var included = directory switch
             {
@@ -187,9 +193,13 @@ public sealed class MrpackExporter
             var root = Path.Combine(gameDirectory, directory);
             if (!Directory.Exists(root)) continue;
 
-            foreach (var file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
             {
                 var relative = Path.GetRelativePath(gameDirectory, file);
+
+                if (IsIgnored(relative)) continue;
+                if (!patterns.Any(pattern => MatchesPattern(Path.GetFileName(file), pattern))) continue;
+
                 files.Add((relative, file));
             }
         }
@@ -197,6 +207,19 @@ public sealed class MrpackExporter
         // 排序只为让输出稳定（导出两次得到相同的 index 顺序）
         files.Sort((left, right) => string.CompareOrdinal(left.Item1, right.Item1));
         return files;
+    }
+
+    /// <summary>路径里带回收站等不该导出的段。</summary>
+    private static bool IsIgnored(string relativePath) =>
+        relativePath
+            .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries)
+            .Any(part => IgnoredSegments.Contains(part, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>简单的通配符匹配（`*.jar` / `*.jar.disabled`），够用且不引第三方包。</summary>
+    private static bool MatchesPattern(string fileName, string pattern)
+    {
+        if (pattern.StartsWith('*')) return fileName.EndsWith(pattern[1..], StringComparison.OrdinalIgnoreCase);
+        return string.Equals(fileName, pattern, StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<string> CollectOverrideFiles(string gameDirectory, MrpackExportOptions options)
@@ -275,11 +298,19 @@ public sealed class MrpackExporter
     {
         var result = new Dictionary<string, MrpackFileEntry>(StringComparer.OrdinalIgnoreCase);
 
-        // Modrinth 的小写约定：查询用小写，匹配回来也用小写
-        var bySha1 = files.ToDictionary(
-            file => hashes[file.RelativePath].Sha1.ToLowerInvariant(),
-            file => file.RelativePath,
-            StringComparer.OrdinalIgnoreCase);
+        // Modrinth 的小写约定：查询用小写，匹配回来也用小写。
+        // 一个哈希可能对应多个文件（同一个 jar 的启用/禁用副本内容完全相同），
+        // 所以这里用"哈希 → 相对路径列表"，而不是一对一。
+        var bySha1 = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var file in files)
+        {
+            var sha1 = hashes[file.RelativePath].Sha1.ToLowerInvariant();
+            if (!bySha1.TryGetValue(sha1, out var relatives))
+                bySha1[sha1] = relatives = new List<string>();
+
+            relatives.Add(file.RelativePath);
+        }
 
         var versions = await _modrinth
             .GetVersionsByHashesAsync(bySha1.Keys.ToList(), cancellationToken)
@@ -289,26 +320,30 @@ public sealed class MrpackExporter
 
         foreach (var (sha1, version) in versions)
         {
-            if (!bySha1.TryGetValue(sha1, out var relative)) continue;
-            if (!hashes.TryGetValue(relative, out var hash)) continue;
+            if (!bySha1.TryGetValue(sha1, out var relatives)) continue;
 
-            var file = version.Files.FirstOrDefault(candidate =>
-                string.Equals(candidate.Sha1, hash.Sha1, StringComparison.OrdinalIgnoreCase));
+            var versionFile = version.Files.FirstOrDefault(candidate =>
+                string.Equals(candidate.Sha1, sha1, StringComparison.OrdinalIgnoreCase));
 
-            if (file is null || string.IsNullOrWhiteSpace(file.Url)) continue;
+            if (versionFile is null || string.IsNullOrWhiteSpace(versionFile.Url)) continue;
 
-            var (directory, _, clientSide, serverSide) = ContentDirectories
-                .FirstOrDefault(item => relative.StartsWith(item.Directory + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase));
+            foreach (var relative in relatives)
+            {
+                if (!hashes.TryGetValue(relative, out var hash)) continue;
 
-            result[relative] = new MrpackFileEntry(
-                relative.Replace('\\', '/'),
-                hash.Sha1.ToLowerInvariant(),
-                hash.Sha512.ToLowerInvariant(),
-                file.Size,
-                file.Url,
-                clientSide,
-                serverSide);
+                var (_, _, clientSide, serverSide) = ContentDirectories
+                    .FirstOrDefault(item => relative.StartsWith(item.Directory + Path.DirectorySeparatorChar,
+                        StringComparison.OrdinalIgnoreCase));
+
+                result[relative] = new MrpackFileEntry(
+                    relative.Replace('\\', '/'),
+                    hash.Sha1.ToLowerInvariant(),
+                    hash.Sha512.ToLowerInvariant(),
+                    versionFile.Size,
+                    versionFile.Url,
+                    clientSide,
+                    serverSide);
+            }
         }
 
         return result;

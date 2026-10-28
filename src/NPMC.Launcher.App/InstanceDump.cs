@@ -713,6 +713,49 @@ internal static class InstanceDump
         }
 
         // 验证下载页：切过去 → 等版本清单拉回来 → 打印前几个
+        // 单独导出一次 .mrpack（不搜索、不安装）：验证"导出内容清单"的过滤规则
+        var mrpackOnlyIndex = Array.FindIndex(args, arg =>
+            string.Equals(arg, "--exercise-mrpack-only", StringComparison.OrdinalIgnoreCase));
+
+        if (mrpackOnlyIndex >= 0 && mrpackOnlyIndex + 1 < args.Length)
+        {
+            viewModel.SelectedInstance ??= viewModel.Instances.FirstOrDefault();
+
+            var target = args[mrpackOnlyIndex + 1];
+
+            if (viewModel.SelectedInstance is null)
+            {
+                lines.Add("[mrpack] 没有选中实例，跳过");
+            }
+            else
+            {
+                viewModel.ExportMrpackAsync(target).GetAwaiter().GetResult();
+
+                lines.Add("");
+                lines.Add($"[mrpack] {viewModel.ExportStatus}");
+
+                if (File.Exists(target))
+                {
+                    using var archive = ZipFile.OpenRead(target);
+                    lines.Add($"      条目 {archive.Entries.Count} 个：{string.Join(" | ", archive.Entries.Select(entry => entry.FullName))}");
+                }
+            }
+        }
+
+        // 导出表单必须"跟着实例走"：换实例后包名与内容摘要都要换
+        if (args.Any(arg => string.Equals(arg, "--exercise-export-form", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[导出表单跟随实例]");
+
+            foreach (var instance in viewModel.Instances.Take(2))
+            {
+                viewModel.SelectedInstance = instance;
+                lines.Add($"    {instance.Name}：名称={viewModel.ExportPackName}");
+                lines.Add($"      摘要={viewModel.ExportSelectionHint}");
+            }
+        }
+
         if (args.Any(arg => string.Equals(arg, "--exercise-downloads", StringComparison.OrdinalIgnoreCase)))
         {
             viewModel.ShowDownloadsCommand.Execute(null);
