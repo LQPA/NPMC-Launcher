@@ -4181,6 +4181,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private FabricLoaderVersion? _selectedFabricLoader;
     private ForgeLoaderVersion? _selectedForgeLoader;
     private ForgeLoaderVersion? _selectedNeoForgeLoader;
+    private QuiltLoaderVersion? _selectedQuiltLoader;
 
     private LoaderKind _selectedLoader = LoaderKind.Vanilla;
     private bool _checkingLoaders = true;
@@ -4200,9 +4201,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public ObservableCollection<ForgeLoaderVersion> NeoForgeLoaderVersions { get; } = new();
 
+    public ObservableCollection<QuiltLoaderVersion> QuiltLoaderVersions { get; } = new();
+
     public bool HasFabricLoaderVersions => FabricLoaderVersions.Count > 0;
     public bool HasForgeLoaderVersions => ForgeLoaderVersions.Count > 0;
     public bool HasNeoForgeLoaderVersions => NeoForgeLoaderVersions.Count > 0;
+    public bool HasQuiltLoaderVersions => QuiltLoaderVersions.Count > 0;
 
     public FabricLoaderVersion? SelectedFabricLoader
     {
@@ -4236,6 +4240,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    public QuiltLoaderVersion? SelectedQuiltLoader
+    {
+        get => _selectedQuiltLoader;
+        set
+        {
+            if (!SetProperty(ref _selectedQuiltLoader, value)) return;
+            SyncInstanceNameFromSelection();
+        }
+    }
+
     /// <summary>当前选中的加载器。</summary>
     public LoaderKind SelectedLoader
     {
@@ -4253,9 +4267,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(IsFabricSelected));
             OnPropertyChanged(nameof(IsForgeSelected));
             OnPropertyChanged(nameof(IsNeoForgeSelected));
+            OnPropertyChanged(nameof(IsQuiltSelected));
             OnPropertyChanged(nameof(ShowFabricVersions));
             OnPropertyChanged(nameof(ShowForgeVersions));
             OnPropertyChanged(nameof(ShowNeoForgeVersions));
+            OnPropertyChanged(nameof(ShowQuiltVersions));
 
             RefreshLoaderHint();
             SyncInstanceNameFromSelection();
@@ -4286,15 +4302,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
         set { if (value) SelectedLoader = LoaderKind.NeoForge; }
     }
 
+    public bool IsQuiltSelected
+    {
+        get => _selectedLoader == LoaderKind.Quilt;
+        set { if (value) SelectedLoader = LoaderKind.Quilt; }
+    }
+
     public bool IsCheckingLoaders => _checkingLoaders;
 
     public bool CanSelectFabric => !_checkingLoaders && HasFabricLoaderVersions;
     public bool CanSelectForge => !_checkingLoaders && HasForgeLoaderVersions;
     public bool CanSelectNeoForge => !_checkingLoaders && HasNeoForgeLoaderVersions;
+    public bool CanSelectQuilt => !_checkingLoaders && HasQuiltLoaderVersions;
 
     public bool ShowFabricVersions => _selectedLoader == LoaderKind.Fabric && HasFabricLoaderVersions;
     public bool ShowForgeVersions => _selectedLoader == LoaderKind.Forge && HasForgeLoaderVersions;
     public bool ShowNeoForgeVersions => _selectedLoader == LoaderKind.NeoForge && HasNeoForgeLoaderVersions;
+    public bool ShowQuiltVersions => _selectedLoader == LoaderKind.Quilt && HasQuiltLoaderVersions;
 
     /// <summary>加载器那一行的说明：为什么某些项是灰的 / 选 Forge 系要注意 Java。</summary>
     public string LoaderHint => _loaderHint;
@@ -4306,6 +4330,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         LoaderKind.Fabric => HasFabricLoaderVersions,
         LoaderKind.Forge => HasForgeLoaderVersions,
         LoaderKind.NeoForge => HasNeoForgeLoaderVersions,
+        LoaderKind.Quilt => HasQuiltLoaderVersions,
         _ => true,
     };
 
@@ -4322,6 +4347,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!HasFabricLoaderVersions) parts.Add("Fabric：该版本没有可用版本");
             if (!HasForgeLoaderVersions) parts.Add("Forge：该版本没有可用版本");
             if (!HasNeoForgeLoaderVersions) parts.Add("NeoForge：该版本没有可用版本");
+            if (!HasQuiltLoaderVersions) parts.Add("Quilt：该版本没有可用版本");
         }
 
         // Forge / NeoForge 1.13+ 要跑官方安装器，安装阶段需要 Java
@@ -4329,6 +4355,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             parts.Add("Forge / NeoForge 由官方安装器安装，安装阶段需要 Java；"
                       + "本机缺少时会先自动补装，也可以在「设置」页预下载对应运行时");
+        }
+
+        if (_selectedLoader == LoaderKind.Quilt)
+        {
+            parts.Add("Quilt 直接从 meta.quiltmc.org 取 profile，不需要 Java 安装器；"
+                      + "它兼容 Fabric 模组，加载器版本带 beta 的是预览版");
         }
 
         _loaderHint = string.Join("　·　", parts);
@@ -4348,6 +4380,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             LoaderKind.Fabric when _selectedFabricLoader is { } fabric => $"{version}-fabric-{fabric.Version}",
             LoaderKind.Forge when _selectedForgeLoader is { } forge => $"{version}-forge-{forge.Loader}",
             LoaderKind.NeoForge when _selectedNeoForgeLoader is { } neo => $"{version}-neoforge-{neo.Loader}",
+            LoaderKind.Quilt when _selectedQuiltLoader is { } quilt => $"{version}-quilt-{quilt.Version}",
             _ => version,
         };
     }
@@ -4397,10 +4430,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        // 2) 磁盘缓存
-        if (!force && _loaderDiskCache.TryGet(minecraft, out var snapshot))
+        // 2) 磁盘缓存（旧缓存没有 Quilt 段：那是引入 Quilt 之前写的，当作过期重查）
+        if (!force && _loaderDiskCache.TryGet(minecraft, out var snapshot) && snapshot.Quilt is not null)
         {
-            var fromDisk = new LoaderAvailability(snapshot.Fabric, snapshot.Forge, snapshot.NeoForge);
+            var fromDisk = new LoaderAvailability(
+                snapshot.Fabric,
+                snapshot.Forge,
+                snapshot.NeoForge,
+                snapshot.Quilt ?? new List<QuiltLoaderVersion>());
             _loaderCache[minecraft] = fromDisk;
 
             if (token != _loaderCheckToken) return;
@@ -4420,15 +4457,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             var fabricTask = new FabricLoaderInstaller(_http).GetLoaderVersionsAsync(minecraft);
+            var quiltTask = new QuiltLoaderInstaller(_http).GetLoaderVersionsAsync(minecraft);
             var forgeTask = ForgeVersions.GetAsync(_downloader.GetStringAsync, minecraft);
             var neoTask = NeoForgeVersions.GetAsync(_downloader.GetStringAsync, minecraft);
 
-            await Task.WhenAll(fabricTask, forgeTask, neoTask);
+            await Task.WhenAll(fabricTask, quiltTask, forgeTask, neoTask);
 
             // 中途又切了版本：这次结果作废，别去改界面
             if (token != _loaderCheckToken) return;
 
-            var availability = new LoaderAvailability(fabricTask.Result, forgeTask.Result, neoTask.Result);
+            var availability = new LoaderAvailability(
+                fabricTask.Result, forgeTask.Result, neoTask.Result, quiltTask.Result);
             _loaderCache[minecraft] = availability;
 
             _loaderDiskCache.Store(new LoaderAvailabilitySnapshot(
@@ -4436,7 +4475,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 DateTimeOffset.UtcNow,
                 fabricTask.Result.ToList(),
                 forgeTask.Result.ToList(),
-                neoTask.Result.ToList()));
+                neoTask.Result.ToList(),
+                quiltTask.Result.ToList()));
 
             if (_selectedDownloadVersion?.Id == minecraft) ApplyLoaderAvailability(availability);
         }
@@ -4481,6 +4521,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         NeoForgeLoaderVersions.Clear();
         foreach (var loader in availability.NeoForge) NeoForgeLoaderVersions.Add(loader);
 
+        QuiltLoaderVersions.Clear();
+        foreach (var loader in availability.Quilt) QuiltLoaderVersions.Add(loader);
+
         SelectedFabricLoader = FabricLoaderVersions.FirstOrDefault(loader => loader.Stable)
                                ?? FabricLoaderVersions.FirstOrDefault();
 
@@ -4491,9 +4534,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedNeoForgeLoader = NeoForgeLoaderVersions.FirstOrDefault(loader => loader.Channel == ReleaseChannel.Release)
                                  ?? NeoForgeLoaderVersions.FirstOrDefault();
 
+        SelectedQuiltLoader = QuiltLoaderVersions.FirstOrDefault(loader => loader.Stable)
+                              ?? QuiltLoaderVersions.FirstOrDefault();
+
         OnPropertyChanged(nameof(HasFabricLoaderVersions));
         OnPropertyChanged(nameof(HasForgeLoaderVersions));
         OnPropertyChanged(nameof(HasNeoForgeLoaderVersions));
+        OnPropertyChanged(nameof(HasQuiltLoaderVersions));
 
         // 当前选中的加载器在这个游戏版本没有 → 退回原版，别留一个灰色的选中项
         if (_selectedLoader != LoaderKind.Vanilla && !IsLoaderAvailable(_selectedLoader))
@@ -4510,13 +4557,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(CanSelectFabric));
         OnPropertyChanged(nameof(CanSelectForge));
         OnPropertyChanged(nameof(CanSelectNeoForge));
+        OnPropertyChanged(nameof(CanSelectQuilt));
         OnPropertyChanged(nameof(ShowFabricVersions));
         OnPropertyChanged(nameof(ShowForgeVersions));
         OnPropertyChanged(nameof(ShowNeoForgeVersions));
+        OnPropertyChanged(nameof(ShowQuiltVersions));
         OnPropertyChanged(nameof(IsVanillaSelected));
         OnPropertyChanged(nameof(IsFabricSelected));
         OnPropertyChanged(nameof(IsForgeSelected));
         OnPropertyChanged(nameof(IsNeoForgeSelected));
+        OnPropertyChanged(nameof(IsQuiltSelected));
     }
 
     /// <summary>实际会用的实例名：留空就用默认名（版本号 / 带加载器版本）。</summary>
@@ -4845,6 +4895,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     ? $"Forge {forgeChoice.Loader} 已安装（官方安装器，版本 {forgeResult.VersionId}）"
                     : $"Forge {forgeChoice.Loader} 已安装（库 {forgeResult.LibrariesDownloaded} 个）";
             }
+            else if (_selectedLoader == LoaderKind.Quilt)
+            {
+                DownloadStatus = $"正在安装 Quilt 加载器（游戏 {choice.Id}）…";
+                DownloadProgressText = "";
+
+                var quilt = new QuiltLoaderInstaller(_http);
+                var quiltResult = await quilt.InstallAsync(
+                    _launcher, choice.Id, _selectedQuiltLoader?.Version, _downloader);
+
+                instanceVersionId = quiltResult.ProfileId;
+                DownloadStatus = $"Quilt {quiltResult.LoaderVersion} 已安装（库 {quiltResult.LibrariesDownloaded} 个）";
+            }
             else if (_selectedLoader == LoaderKind.NeoForge && _selectedNeoForgeLoader is { } neoChoice)
             {
                 DownloadStatus = $"正在安装 NeoForge {neoChoice.Loader}（游戏 {choice.Id}）…";
@@ -5150,6 +5212,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 instanceVersion = fabricResult.ProfileId;
             }
+            else if (plan.Index.IsQuilt)
+            {
+                ModpackStatus = $"正在安装 Quilt {plan.Index.LoaderVersion}…";
+
+                var quilt = new QuiltLoaderInstaller(_http);
+                var quiltResult = await quilt.InstallAsync(
+                    _launcher, gameVersion, plan.Index.LoaderVersion, _downloader, cancellationToken);
+
+                instanceVersion = quiltResult.ProfileId;
+                ModpackStatus = $"Quilt {quiltResult.LoaderVersion} 已安装（库 {quiltResult.LibrariesDownloaded} 个）";
+            }
             else if (plan.Index.LoaderName is { } otherLoader
                      && otherLoader.Contains("forge", StringComparison.OrdinalIgnoreCase))
             {
@@ -5215,7 +5288,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
             else if (plan.Index.LoaderName is { } unsupportedLoader)
             {
-                ModpackStatus = $"该整合包需要 {unsupportedLoader}，目前只能自动安装 Fabric / Forge / NeoForge。";
+                ModpackStatus = $"该整合包需要 {unsupportedLoader}，目前只能自动安装 Fabric / Quilt / Forge / NeoForge。";
                 return;
             }
 
@@ -6110,10 +6183,12 @@ public enum LoaderKind
     Fabric = 1,
     Forge = 2,
     NeoForge = 3,
+    Quilt = 4,
 }
 
 /// <summary>某个游戏版本的加载器可用清单（三家并行查回来的结果）。</summary>
 internal sealed record LoaderAvailability(
     IReadOnlyList<FabricLoaderVersion> Fabric,
     IReadOnlyList<ForgeLoaderVersion> Forge,
-    IReadOnlyList<ForgeLoaderVersion> NeoForge);
+    IReadOnlyList<ForgeLoaderVersion> NeoForge,
+    IReadOnlyList<QuiltLoaderVersion> Quilt);

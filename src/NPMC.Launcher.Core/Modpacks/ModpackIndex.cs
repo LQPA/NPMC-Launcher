@@ -28,8 +28,11 @@ public sealed record ModpackIndex(
     string? LoaderVersion,
     IReadOnlyList<ModpackFile> Files)
 {
-    /// <summary>是否为 Fabric 系整合包（目前只有这一种能自动装加载器）。</summary>
+    /// <summary>是否为 Fabric 系整合包。</summary>
     public bool IsFabric => string.Equals(LoaderName, "fabric-loader", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>是否为 Quilt 整合包（Quilt 兼容 Fabric 模组，但加载器要单独装）。</summary>
+    public bool IsQuilt => string.Equals(LoaderName, "quilt-loader", StringComparison.OrdinalIgnoreCase);
 
     public int ModCount => Files.Count(file => file.IsMod);
 

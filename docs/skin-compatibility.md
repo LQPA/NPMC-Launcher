@@ -79,7 +79,7 @@ session 指本地，其余指官方。**多设没用，少设是致命的**。
 | Forge 1.16 – 1.20.1 | ModLauncher + **JPMS 模块** | 官方类名 + SRG 方法名 | authlib 在 module layer：桥接类必须进 **bootstrap**，且给模块加 **read edge**，否则 `NoClassDefFoundError` / `IllegalAccessError` |
 | NeoForge 1.21+ | ModLauncher + JPMS 模块 | **mojmap**（方法名也是 mojmap） | 同上；`SkinManager` 钩子能命中（1.21.1 日志里打出 `getInsecureSkin` / `getOrLoad` / `registerTextures`） |
 | Fabric 1.14+ | KnotClassLoader（无 JPMS 模块） | **intermediary**（`net/minecraft/class_xxxx` / `method_xxxx`） | ① `-javaagent` 的 jar 在系统类路径上，**里面不能有 ASM**（`LoaderUtil.verifyClasspath` 会拒绝重复 ASM）；② 桥接类**只能挂 bootstrap**：`appendToSystemClassLoaderSearch` 对 Knot 不算数，会报 `ClassNotFoundException: ... hasn't been exposed to the game`（1.15 Fabric 实测）；③ authlib 类名不变（authlib 不参与 remap），`getTextures` / `unpackTextures` 钩子照常命中；④ 写死 mojmap 的 `SkinManager` 钩子**匹配不上** |
-| Quilt | 与 Fabric 同一套（Knot 派生） | intermediary | 与 Fabric 完全同类：`-javaagent` 不能带 ASM、桥接只能进 bootstrap、SkinManager 钩子不命中（authlib 钩子够用）。启动器没有 Quilt 安装器，只能启动已有实例；未实测 |
+| Quilt | 与 Fabric 同一套（Knot 派生） | intermediary | 与 Fabric 完全同类：`-javaagent` 不能带 ASM、桥接只能进 bootstrap、SkinManager 钩子不命中。**实测 1.21.1 + Quilt 0.31.0-beta.4 皮肤生效**（走 `getPackedTextures` + `texturesFor`）；启动器已支持安装 Quilt（见交接 §9） |
 
 ### Fabric 的 SkinManager 具体名字（1.21.11）
 
@@ -141,8 +141,8 @@ port / decoded 前缀）。
 2. **Fabric/Quilt 的 `SkinManager` 钩子**：目前没接。1.21.11 / 26.x 不需要（authlib 层
    已经够用），但如果以后某个版本必须靠它，得按 §4 的 intermediary 名字匹配，
    并且每个版本都要重新查。
-3. **尚未实测：只剩 Quilt**。1.21.6（authlib 6.0.58，机制与 1.21.1 完全一致）按用户决定
-   跳过，不再专门测；22w13oneblockatatime（authlib 3.3.39）已实测通过。
+3. **尚未实测：只剩 1.21.6**（authlib 6.0.58，机制与 1.21.1 完全一致，按用户决定跳过）。
+   Quilt 已实测（1.21.1 + Quilt 0.31.0-beta.4），22w13oneblockatatime 也已实测通过。
    其余 1.7.10 ~ 26.3 的原版 / Fabric / Forge / NeoForge 组合都已实机确认（见 §1 表）。
 
    **Quilt 是什么**：Quilt Loader 是 Fabric 的社区分支（QuiltMC），兼容大部分 Fabric

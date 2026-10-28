@@ -1226,7 +1226,7 @@
               <StackPanel Spacing="12">
                 <TextBlock Text="安装内容" FontSize="12" Foreground="#B4BCC8" />
 
-                <!-- 加载器四选一：一个实例只能挂一个加载器的 profile；没有对应版本的项会置灰 -->
+                <!-- 加载器五选一：一个实例只能挂一个加载器的 profile；没有对应版本的项会置灰 -->
                 <Grid ColumnDefinitions="64,*">
                   <TextBlock Text="模组加载器" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
                   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
@@ -1241,10 +1241,13 @@
                     <RadioButton GroupName="LoaderPick" Content="NeoForge" FontSize="12"
                                  IsChecked="{Binding IsNeoForgeSelected, Mode=TwoWay}"
                                  IsEnabled="{Binding CanSelectNeoForge}" />
+                    <RadioButton GroupName="LoaderPick" Content="Quilt" FontSize="12"
+                                 IsChecked="{Binding IsQuiltSelected, Mode=TwoWay}"
+                                 IsEnabled="{Binding CanSelectQuilt}" />
                     <Button Content="重新检查" Command="{Binding RefreshLoadersCommand}"
                             FontSize="10" Padding="8,2" VerticalAlignment="Center"
                             IsVisible="{Binding !IsCheckingLoaders}"
-                            ToolTip.Tip="跳过缓存，重新向 Fabric / Forge / NeoForge 查询该版本的加载器" />
+                            ToolTip.Tip="跳过缓存，重新向 Fabric / Quilt / Forge / NeoForge 查询该版本的加载器" />
                   </StackPanel>
                 </Grid>
 
@@ -1278,6 +1281,28 @@
                             FontSize="12" HorizontalAlignment="Stretch">
                     <ComboBox.ItemTemplate>
                       <DataTemplate x:DataType="mods:ForgeLoaderVersion">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Border Width="16" Height="16" CornerRadius="3"
+                                  Background="{Binding ChannelColor}" VerticalAlignment="Center"
+                                  ToolTip.Tip="{Binding ChannelLabel}">
+                            <TextBlock Text="{Binding ChannelBadge}" FontSize="9" FontWeight="Bold"
+                                       Foreground="#FFFFFF" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                          </Border>
+                          <TextBlock Text="{Binding DisplayText}" FontSize="12" VerticalAlignment="Center" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </Grid>
+
+                <Grid ColumnDefinitions="64,*" IsVisible="{Binding ShowQuiltVersions}">
+                  <TextBlock Text="Quilt" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding QuiltLoaderVersions}"
+                            SelectedItem="{Binding SelectedQuiltLoader}"
+                            FontSize="12" HorizontalAlignment="Stretch">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="mc:QuiltLoaderVersion">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                           <Border Width="16" Height="16" CornerRadius="3"
                                   Background="{Binding ChannelColor}" VerticalAlignment="Center"

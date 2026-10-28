@@ -9,7 +9,9 @@ public sealed record LoaderAvailabilitySnapshot(
     DateTimeOffset CheckedAt,
     List<FabricLoaderVersion> Fabric,
     List<ForgeLoaderVersion> Forge,
-    List<ForgeLoaderVersion> NeoForge);
+    List<ForgeLoaderVersion> NeoForge,
+    // 旧缓存里没有这一段：反序列化为 null，按"空列表"处理
+    List<QuiltLoaderVersion>? Quilt = null);
 
 /// <summary>
 /// 加载器清单的磁盘缓存（&lt;root&gt;\cache\loader-versions.json）。

@@ -2197,6 +2197,7 @@ internal static class InstanceDump
             {
                 "fabric" => LoaderKind.Fabric,
                 "neoforge" => LoaderKind.NeoForge,
+                "quilt" => LoaderKind.Quilt,
                 _ => LoaderKind.Forge,
             };
 
@@ -2219,7 +2220,12 @@ internal static class InstanceDump
                 // 三家加载器并行查，等检查结束
                 for (var i = 0; i < 600 && viewModel.IsCheckingLoaders; i++) Thread.Sleep(100);
 
-                lines.Add($"    Fabric={viewModel.CanSelectFabric} Forge={viewModel.CanSelectForge} NeoForge={viewModel.CanSelectNeoForge}");
+                lines.Add($"    Fabric={viewModel.CanSelectFabric} Forge={viewModel.CanSelectForge} "
+                          + $"NeoForge={viewModel.CanSelectNeoForge} Quilt={viewModel.CanSelectQuilt}");
+                lines.Add($"    Quilt 版本 {viewModel.QuiltLoaderVersions.Count} 个"
+                          + (viewModel.HasQuiltLoaderVersions
+                              ? $"（最新 {viewModel.QuiltLoaderVersions[0].Version}）"
+                              : ""));
                 lines.Add($"    提示：{viewModel.LoaderHint}");
 
                 viewModel.SelectedLoader = kind;
@@ -2228,6 +2234,7 @@ internal static class InstanceDump
                 {
                     LoaderKind.Fabric => viewModel.FabricLoaderVersions.Select(loader => loader.Version).ToList(),
                     LoaderKind.NeoForge => viewModel.NeoForgeLoaderVersions.Select(loader => loader.Loader).ToList(),
+                    LoaderKind.Quilt => viewModel.QuiltLoaderVersions.Select(loader => loader.Version).ToList(),
                     _ => viewModel.ForgeLoaderVersions.Select(loader => loader.Loader).ToList(),
                 };
 
@@ -2249,6 +2256,11 @@ internal static class InstanceDump
                     {
                         viewModel.SelectedNeoForgeLoader = viewModel.NeoForgeLoaderVersions
                             .First(loader => loader.Loader == chosen);
+                    }
+                    else if (kind == LoaderKind.Quilt)
+                    {
+                        viewModel.SelectedQuiltLoader = viewModel.QuiltLoaderVersions
+                            .First(loader => loader.Version == chosen);
                     }
                     else
                     {
