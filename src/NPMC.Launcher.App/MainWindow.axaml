@@ -1053,20 +1053,24 @@
                 <WrapPanel>
                   <CheckBox Content="Mod（含已禁用的）" IsChecked="{Binding ExportIncludeMods}"
                             FontSize="12" Width="190" />
-                  <CheckBox Content="Mod 配置" IsChecked="{Binding ExportIncludeConfig}"
-                            IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="150" />
                   <CheckBox Content="资源包" IsChecked="{Binding ExportIncludeResourcePacks}"
                             FontSize="12" Width="110" />
                   <CheckBox Content="光影包" IsChecked="{Binding ExportIncludeShaderPacks}"
                             FontSize="12" Width="110" />
+                </WrapPanel>
+
+                <!-- 打包开关在前，受它控制的三项缩进排在后面：勾选关系一眼可见 -->
+                <CheckBox Content="把配置、设置、存档与无法识别的文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
+                          IsChecked="{Binding ExportBundleExtra}" FontSize="11" />
+
+                <WrapPanel Margin="26,0,0,0">
+                  <CheckBox Content="Mod 配置" IsChecked="{Binding ExportIncludeConfig}"
+                            IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="150" />
                   <CheckBox Content="游戏设置" IsChecked="{Binding ExportIncludeSettings}"
                             IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="110" />
                   <CheckBox Content="单人存档（可能很大）" IsChecked="{Binding ExportIncludeSaves}"
                             IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="200" />
                 </WrapPanel>
-
-                <CheckBox Content="把配置、设置、存档与无法识别的文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
-                          IsChecked="{Binding ExportBundleExtra}" FontSize="11" />
 
                 <TextBlock Text="{Binding ExportSelectionHint}" FontSize="11" Foreground="#949CA9"
                            TextWrapping="Wrap" MaxWidth="620" />
