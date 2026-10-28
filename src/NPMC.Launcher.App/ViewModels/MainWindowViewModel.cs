@@ -3132,6 +3132,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // 只有清单里的文件才是平台托管过的；overrides/ 带进来的自制模组要保持 `?`
+        var packIndexNames = packInfo?.PackFiles
+            .Where(file => file.FromIndex)
+            .Select(file => PackFileCollector.LogicalName(file.FileName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         var packSource = packInfo?.IsCurseForge == true
             ? UpdateSource.CurseForge
             : UpdateSource.Modrinth;
@@ -3143,14 +3150,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!Content.Contains(item)) continue;
             var name = Path.GetFileName(item.Entry.Path);
-            var isPack = packNames.Contains(PackFileCollector.LogicalName(name));
+            var logical = PackFileCollector.LogicalName(name);
+            var isPack = packNames.Contains(logical);
 
-            // 整合包自带：来源直接按整合包归属，不再联网猜
-            if (isPack) item.SetIdentification(packSource);
+            // 整合包清单里的文件：来源直接按整合包归属，不再联网猜
+            if (packIndexNames.Contains(logical)) item.SetIdentification(packSource);
 
             if (!_contentMetadata.TryGet(item.Entry.FileName, out var remembered)) continue;
 
-            if (!isPack && remembered.Identified)
+            // overrides/ 里的文件照样可以用"哈希识别"的结果：真在 Modrinth 上就认，
+            // 认不出来就保持 `?`（不能因为是整合包就强行打来源徽标）
+            if (remembered.Identified && !packIndexNames.Contains(logical))
                 item.SetIdentification(remembered.Source, remembered.Channel);
         }
 
@@ -5286,10 +5296,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 .Where(file => !BlockedFileMatches(layout.GameDirectory, file))
                 .ToList();
 
-            // 整合包自带文件：清单里的 + overrides/ 带进来的（否则那些模组会被当成用户模组）
+            // 整合包自带文件：清单里的 + overrides/ 带进来的（模组/资源包/光影都算），
+            // 否则它们会被当成用户自己加的内容
             var packFiles = PackFileCollector.Collect(
                 plan.Index.Files.Select(file => new PackFileEntry(Path.GetFileName(file.Path), file.Sha1)),
-                Path.Combine(layout.GameDirectory, "mods"));
+                layout.GameDirectory);
 
             InstanceModpackStore.Save(layout.GameDirectory, new InstanceModpackInfo(
                 _modpackSource, _modpackProjectId, plan.Name, plan.VersionLabel, missing)

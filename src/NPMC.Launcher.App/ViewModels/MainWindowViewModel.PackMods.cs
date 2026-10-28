@@ -179,6 +179,14 @@ public sealed partial class MainWindowViewModel
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // 只有清单里的文件（平台确实托管过）才打整合包来源徽标；
+        // overrides/ 带进来的自制模组平台不认识，必须保持 `?`（用户明确要求）
+        var packIndexNames = info?.PackFiles
+            .Where(file => file.FromIndex)
+            .Select(file => PackFileCollector.LogicalName(file.FileName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         var packSource = info?.IsCurseForge == true ? UpdateSource.CurseForge : UpdateSource.Modrinth;
         var query = _contentFilterQuery.Trim();
 
@@ -191,7 +199,8 @@ public sealed partial class MainWindowViewModel
             var name = Path.GetFileName(entry.Path);
 
             // 逻辑名比较：整合包里的 mod 被禁用后会变成 x.jar.disabled，仍应算整合包自带
-            var isPack = packNames.Contains(PackFileCollector.LogicalName(name));
+            var logical = PackFileCollector.LogicalName(name);
+            var isPack = packNames.Contains(logical);
 
             if (isPack && _hidePackMods)
             {
@@ -208,7 +217,7 @@ public sealed partial class MainWindowViewModel
                 _modItemCache[entry.Path] = item;
             }
 
-            if (isPack) item.SetIdentification(packSource);
+            if (packIndexNames.Contains(logical)) item.SetIdentification(packSource);
 
             Content.Add(item);
         }
