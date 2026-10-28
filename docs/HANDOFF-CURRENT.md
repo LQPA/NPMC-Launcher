@@ -124,8 +124,10 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单、26.2/26.3 的缺口）。
-用户已确认 **NeoForge 1.21.1、Forge 1.21.1、Fabric 1.21.11、Forge 1.21.11、NeoForge 1.21.11、Fabric 1.15 皮肤都生效**；
-其它版本由用户后续自测。
+用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
+1.21.1（含 ATM10）、1.21.11、26.1.2 的原版 + Fabric/Forge/NeoForge 组合全部皮肤生效**。
+剩下只有 **26.2（authlib 9）/ 26.3（authlib 10）** 没有支持（agent 不挂，见 §7），
+以及 `.data` 里的 1.21.6、fabric 1.21.6、fabric 22w13 快照未测。
 
 ## 当前状态
 
@@ -136,9 +138,8 @@ Forge/NeoForge/Fabric 的类名与加载器差异、测试清单、26.2/26.3 的
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
-  整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已在 NeoForge 1.21.1、
-  Forge 1.21.1、Fabric 1.21.11、Forge 1.21.11、NeoForge 1.21.11、Fabric 1.15 实测通过**，
-  其它版本待用户自测。
+  整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已覆盖 1.7.10 ~ 26.1.2 的
+  原版 / Fabric / Forge / NeoForge 全部组合（用户实机确认）**，只剩 26.2 / 26.3 未支持。
 - 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 330 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。

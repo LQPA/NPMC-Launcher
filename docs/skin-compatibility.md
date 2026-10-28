@@ -12,15 +12,16 @@
 
 | 游戏版本 | authlib | 皮肤入口（authlib 侧） | 我们用的 jar | 本轮验证 |
 |---|---|---|---|---|
-| 1.7.10 | 1.5.21 | `getTextures(GameProfile, boolean) → Map`；另需对付 SkinPort 模组 | stub + `impl-legacy`（Java 8） | 以前验证过，本轮未回归 |
-| 1.8 – 1.14.x | 1.x – 3.x | 同上（`getTextures`） | stub + `impl-legacy` | 未验证 |
-| 1.15 | 1.5.25 | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（Fabric 0.20.1）** |
-| 1.20.1 | 4.0.43 | `getTextures(...)` 仍在；开始有 `getSecurePropertyValue`（签名校验） | `modern`（Java 17） | 未验证 |
+| 1.7.10 | 1.5.21 | `getTextures(GameProfile, boolean) → Map`；另需对付 SkinPort 模组 | stub + `impl-legacy`（Java 8） | **已实测（原版 + Forge，含 SkinPort 整合包）** |
+| 1.9 | 1.x | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（原版 + Forge）** |
+| 1.12.2 | 1.5.x | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（原版 + Forge）** |
+| 1.15 | 1.5.25 | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（原版 + Fabric 0.20.1 + Forge）** |
+| 1.20.1 | 4.0.43 | `getTextures(...)` 仍在；开始有 `getSecurePropertyValue`（签名校验） | `modern`（Java 17）+ `getTextures` 包装 | **已实测（原版 + Fabric + Forge + NeoForge）** |
 | 1.20.5 – 1.20.6 | 5.x（推断，未本地验证） | 切到 `unpackTextures(Property) → MinecraftProfileTextures` | `modern` | 未验证 |
-| 1.21.1 | 6.0.54 | `unpackTextures`；`getPackedTextures`；`fetchProfile(UUID, boolean)` | `modern` | **已实测（NeoForge 21.1.265 / Forge 52.1.20）** |
+| 1.21.1 | 6.0.54 | `unpackTextures`；`getPackedTextures`；`fetchProfile(UUID, boolean)` | `modern` | **已实测（原版 + Fabric + Forge + NeoForge + ATM10）** |
 | 1.21.6 | 6.0.58 | 同上（与 6.0.54 同一套） | `modern` | 未验证 |
-| 1.21.11 | 7.0.61 | 同上；**环境属性必须三个全有**（见 §3） | `modern` | **已实测（Fabric 0.20.1 / Forge 61.2.4 / NeoForge 21.11.48）** |
-| 26.1.2 | 7.0.63 | 同上；客户端 `SkinManager.get` 在没有 textures 时直接返回空 | `modern` | 上一轮验证过（见交接文档） |
+| 1.21.11 | 7.0.61 | 同上；**环境属性必须三个全有**（见 §3） | `modern` | **已实测（原版 + Fabric / Forge / NeoForge）** |
+| 26.1.2 | 7.0.63 | 同上；客户端 `SkinManager.get` 在没有 textures 时直接返回空 | `modern` | **已实测（原版 + Forge 64.1.5 + NeoForge 26.1.2.124）** |
 | 26.2 | 9.0.75 | `Yggdrasil*` 类族退役，改用 `MinecraftServices*`（推断） | **不挂 agent** | 未验证 / 未支持 |
 | 26.3 | 10.0.77 | `MinecraftServicesSessionService implements SessionService`（`unpackTextures` 仍在） | **不挂 agent** | 未验证 / 未支持 |
 
@@ -131,7 +132,8 @@ port / decoded 前缀）。
      intermediary 名，见 §4）。
 2. **Fabric/Quilt 的 `SkinManager` 钩子**：目前没接。1.21.11 不需要（authlib 路径已经够用），
    但如果以后某个版本必须靠它，得按 §4 的 intermediary 名字匹配，并且每个版本都要重新查。
-3. **Forge 1.20.1 / 1.21.6 / 26.1.2 / Quilt 未回归**：本轮只实测了
-   NeoForge 1.21.1 与 Fabric 1.21.11，其它版本建议按 §6 的表逐项跑。
+3. **尚未实测**：1.21.6（含 fabric 1.21.6，authlib 6.0.58，机制同 1.21.1）、
+   fabric 22w13 快照、Quilt。其余 1.7.10 ~ 26.1.2 的原版 / Fabric / Forge / NeoForge
+   组合都已由用户实机确认（见 §1 表）。
 4. **authlib 5 的实际游戏版本**（1.20.5/1.20.6）未本地验证，表里是推断；
    到时候看版本 JSON 就能确认。
