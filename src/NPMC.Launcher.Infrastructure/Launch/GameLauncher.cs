@@ -155,6 +155,10 @@ public static class GameLauncher
             logConfigFile: logConfig,
             gameDirectory: layout?.GameDirectory);
 
+        // 高级选项：自定义横幅（主界面标语）→ 生成一个覆盖 splashes.txt 的资源包并启用
+        SplashTextPack.Apply(
+            plan.WorkingDirectory, rootVersionId, version.Arguments is not null, instanceSettings.SplashText);
+
         // 离线皮肤：账号选了皮肤（自定义 / 同名正版）且该版本 authlib 支持时，挂上 javaagent。
         // 只在 JVM 参数里加一项，不动实例目录、不装模组。
         var skinAgent = SkinAgentProvider.TryCreateLaunch(
@@ -209,6 +213,10 @@ public static class GameLauncher
 
         if (instanceSettings.ExtraJvmArguments.Count > 0)
             plan = plan with { JvmArguments = plan.JvmArguments.Concat(instanceSettings.ExtraJvmArguments).ToList() };
+
+        // 高级选项：额外的游戏参数（原样追加在版本参数之后，由用户自己负责合法性）
+        if (instanceSettings.ExtraGameArguments.Count > 0)
+            plan = plan with { GameArguments = plan.GameArguments.Concat(instanceSettings.ExtraGameArguments).ToList() };
 
         var problems = new List<string>();
         var notices = new List<string>();
@@ -272,7 +280,8 @@ public static class GameLauncher
            || version.Id.Contains("quilt", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>启动 java。调用方负责等待退出（<c>WaitForExitAsync</c>）与处置进程对象。</summary>
-    public static Process Start(PreparedLaunch prepared)
+    /// <param name="windowTitle">自定义游戏窗口标题；空表示保持游戏自己的标题。</param>
+    public static Process Start(PreparedLaunch prepared, string? windowTitle = null)
     {
         if (!prepared.CanLaunch)
             throw new InvalidOperationException(string.Join("；", prepared.Problems));
@@ -363,6 +372,9 @@ public static class GameLauncher
             CloseQuietly(stdoutWriter);
             CloseQuietly(stderrWriter);
         };
+
+        // 高级选项：自定义窗口标题（Win32 外部改名，运行期间持续保持）
+        if (!string.IsNullOrWhiteSpace(windowTitle)) GameWindowTitle.Start(process, windowTitle!);
 
         return process;
     }

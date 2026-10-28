@@ -598,6 +598,56 @@
 
             </StackPanel>
           </Border>
+
+          <!-- 高级选项：默认收起；不填就不产生任何效果 -->
+          <Expander Header="高级选项（启动参数 / 游戏标题 / 横幅）"
+                    IsExpanded="{Binding IsAdvancedOptionsOpen, Mode=TwoWay}"
+                    HorizontalAlignment="Stretch">
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16,14">
+              <StackPanel Spacing="12">
+                <TextBlock Text="自定义启动参数" FontSize="12" Foreground="#B4BCC8" />
+                <TextBlock Text="每行一个参数，原样追加在版本自带参数之后；留空表示不追加。"
+                           FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" />
+
+                <Grid ColumnDefinitions="96,*">
+                  <TextBlock Grid.Column="0" Text="JVM 参数" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Top" Margin="0,6,0,0" />
+                  <TextBox Grid.Column="1" Text="{Binding InstanceJvmArgumentsText, Mode=TwoWay}"
+                           AcceptsReturn="True" Height="62" FontSize="11"
+                           Watermark="每行一个，例如 -XX:+UseG1GC" />
+                </Grid>
+
+                <Grid ColumnDefinitions="96,*">
+                  <TextBlock Grid.Column="0" Text="游戏参数" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Top" Margin="0,6,0,0" />
+                  <TextBox Grid.Column="1" Text="{Binding InstanceGameArgumentsText, Mode=TwoWay}"
+                           AcceptsReturn="True" Height="62" FontSize="11"
+                           Watermark="每行一个，例如 --demo" />
+                </Grid>
+
+                <TextBlock Text="自定义游戏标题" FontSize="12" Foreground="#B4BCC8" Margin="0,6,0,0" />
+                <Grid ColumnDefinitions="96,*">
+                  <TextBlock Grid.Column="0" Text="标题" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding InstanceCustomTitle, Mode=TwoWay}"
+                           FontSize="12" Watermark="留空 = 保持游戏自己的窗口标题" />
+                </Grid>
+                <TextBlock Text="启动后由启动器把游戏窗口标题改成这里填的文字（运行时每秒保持一次，加载世界后也不会被游戏改回去）。"
+                           FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" Margin="96,0,0,0" />
+
+                <TextBlock Text="自定义横幅（主界面标语）" FontSize="12" Foreground="#B4BCC8" Margin="0,6,0,0" />
+                <Grid ColumnDefinitions="96,*">
+                  <TextBlock Grid.Column="0" Text="标语" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding InstanceSplashText, Mode=TwoWay}"
+                           FontSize="12" Watermark="留空 = 用原版标语（显示在 Minecraft 标题右侧）" />
+                </Grid>
+                <TextBlock Text="启动时生成一个轻量资源包覆盖主界面的 splashes.txt 并自动启用；清空后下次启动恢复原版。"
+                           FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" Margin="96,0,0,0" />
+              </StackPanel>
+            </Border>
+          </Expander>
           </StackPanel>
         </ScrollViewer>
 

@@ -166,6 +166,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             CopyInstanceAsync,
             () => SelectedInstance is not null && !IsGameRunning);
 
+
         BeginRenameCommand = new RelayCommand(BeginRename, () => SelectedInstance is not null);
         ConfirmRenameCommand = new AsyncRelayCommand(ConfirmRenameAsync);
         CancelRenameCommand = new RelayCommand(CancelRename);
@@ -1080,7 +1081,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             IsGameRunning = true;
-            using var process = GameLauncher.Start(prepared);
+            using var process = GameLauncher.Start(prepared, instance.Model.Settings.CustomTitle);
 
             Status = $"游戏已启动（PID {process.Id}）  日志 {prepared.LatestLog}";
 
@@ -1168,6 +1169,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(WindowWidth));
             OnPropertyChanged(nameof(WindowHeight));
             SyncPresetFromInstance();
+            NotifyAdvancedOptionsChanged();
 
             // 导出表单也属于"跟着实例走"：包名与内容摘要必须换成新实例的，
             // 否则会拿上一个实例的名字去导出（用户实测：495 个 Mod 的摘要留在 6 个 Mod 的实例上）
@@ -1695,6 +1697,104 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedPreset));
     }
 
+    // ---- 实例高级选项（概览页，默认收起）----
+
+    private bool _isAdvancedOptionsOpen;
+
+    /// <summary>高级选项面板是否展开（纯界面状态，不落盘）。</summary>
+    public bool IsAdvancedOptionsOpen
+    {
+        get => _isAdvancedOptionsOpen;
+        set => SetProperty(ref _isAdvancedOptionsOpen, value);
+    }
+
+    /// <summary>额外的 JVM 参数，一行一个。</summary>
+    public string InstanceJvmArgumentsText
+    {
+        get => SelectedInstance is { } item
+            ? string.Join('\n', item.Model.Settings.ExtraJvmArguments)
+            : "";
+        set
+        {
+            if (SelectedInstance is not { } item) return;
+
+            var arguments = ParseArgumentLines(value);
+            if (arguments.SequenceEqual(item.Model.Settings.ExtraJvmArguments)) return;
+
+            item.ApplySettings(item.Model.Settings with { ExtraJvmArguments = arguments });
+            OnPropertyChanged();
+            ScheduleInstanceSave();
+        }
+    }
+
+    /// <summary>额外的游戏参数，一行一个。</summary>
+    public string InstanceGameArgumentsText
+    {
+        get => SelectedInstance is { } item
+            ? string.Join('\n', item.Model.Settings.ExtraGameArguments)
+            : "";
+        set
+        {
+            if (SelectedInstance is not { } item) return;
+
+            var arguments = ParseArgumentLines(value);
+            if (arguments.SequenceEqual(item.Model.Settings.ExtraGameArguments)) return;
+
+            item.ApplySettings(item.Model.Settings with { ExtraGameArguments = arguments });
+            OnPropertyChanged();
+            ScheduleInstanceSave();
+        }
+    }
+
+    /// <summary>自定义游戏窗口标题；留空表示不修改。</summary>
+    public string InstanceCustomTitle
+    {
+        get => SelectedInstance?.Model.Settings.CustomTitle ?? "";
+        set
+        {
+            if (SelectedInstance is not { } item) return;
+
+            var title = (value ?? "").Trim();
+            if (string.Equals(title, item.Model.Settings.CustomTitle ?? "", StringComparison.Ordinal)) return;
+
+            item.ApplySettings(item.Model.Settings with { CustomTitle = title.Length == 0 ? null : title });
+            OnPropertyChanged();
+            ScheduleInstanceSave();
+        }
+    }
+
+    /// <summary>自定义横幅（主界面标题右侧的黄色标语）；留空表示用原版。</summary>
+    public string InstanceSplashText
+    {
+        get => SelectedInstance?.Model.Settings.SplashText ?? "";
+        set
+        {
+            if (SelectedInstance is not { } item) return;
+
+            // splashes.txt 是逐行列表；这里只取第一行，避免用户输入换行后游戏随机挑到一半
+            var text = (value ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
+            if (string.Equals(text, item.Model.Settings.SplashText ?? "", StringComparison.Ordinal)) return;
+
+            item.ApplySettings(item.Model.Settings with { SplashText = text.Length == 0 ? null : text });
+            OnPropertyChanged();
+            ScheduleInstanceSave();
+        }
+    }
+
+    private static List<string> ParseArgumentLines(string? text) =>
+        (text ?? "")
+        .Split('\n')
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0)
+        .ToList();
+
+    private void NotifyAdvancedOptionsChanged()
+    {
+        OnPropertyChanged(nameof(InstanceJvmArgumentsText));
+        OnPropertyChanged(nameof(InstanceGameArgumentsText));
+        OnPropertyChanged(nameof(InstanceCustomTitle));
+        OnPropertyChanged(nameof(InstanceSplashText));
+    }
     /// <summary>
     /// 立刻落盘。
     ///
@@ -5929,6 +6029,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         TryDeleteDirectory(root);
         return "不是世界（没有 level.dat）";
     }
+
 
     private static void TryDeleteDirectory(string directory)
     {

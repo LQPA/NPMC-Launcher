@@ -46,6 +46,18 @@ public sealed record InstanceSettings
     public string? AccountId { get; init; }
 
     public List<string> ExtraJvmArguments { get; init; } = new();
+
+    /// <summary>额外的游戏参数（每个元素一个参数，追加在版本自带的参数之后）。</summary>
+    public List<string> ExtraGameArguments { get; init; } = new();
+
+    /// <summary>自定义游戏窗口标题；空表示保持游戏自己的标题。</summary>
+    public string? CustomTitle { get; init; }
+
+    /// <summary>
+    /// 自定义横幅（主界面标题右侧的黄色标语）；空表示用原版标语。
+    /// 启动时由启动器生成一个轻量资源包覆盖 splashes.txt。
+    /// </summary>
+    public string? SplashText { get; init; }
 }
 
 /// <summary>

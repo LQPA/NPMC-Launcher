@@ -175,6 +175,25 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 （joptsimple 选项名；`javap` 确认过），窗口客户区从 854×480 变成设置里的 1280×720
 （用户确认）。太老、不认识的版本会忽略未知参数，不会崩。
 
+### 11. 概览页「高级选项」（2026-10-28 晚）
+
+概览页设置卡片下方新增可收起的「高级选项（启动参数 / 游戏标题 / 横幅）」，默认收起；
+值都保存在实例设置里（instances.json），不填就完全不影响启动：
+
+- **自定义启动参数**：JVM 参数 / 游戏参数，每行一个，分别追加到 JVM 参数与游戏参数末尾。
+- **自定义游戏标题**：启动后由启动器用 Win32 `SetWindowText` 把游戏窗口标题改成填的文字
+  （运行期间每秒重新应用一次，加载世界后游戏自己改标题也会被盖回来）。仅 Windows。
+- **自定义横幅（主界面标语）**：改 Minecraft 标题右侧的黄色 splash。
+  实现是生成 `resourcepacks/nmpc-splash.zip`（覆盖 `assets/minecraft/texts/splashes.txt`）
+  并在 options.txt 的 `resourcePacks` 里启用：1.13+ 写 `file/nmpc-splash.zip`，
+  1.12.2 及以前写裸文件名 `nmpc-splash.zip`。清空后下次启动删除资源包并移除条目。
+  `pack.mcmeta` 同时写 `pack_format`（按版本表）与 `supported_formats` 1..999。
+
+实测（1.12.2，设置里填标题/标语/JVM 参数后从界面启动）：窗口标题变成「NPMC 测试标题」、
+主界面标语变成「NPMC 自定义横幅」、`logs/nmpc-command.txt` 里有 `-Dnmpc.advanced=1`；
+`options.txt` 为 `resourcePacks:["nmpc-splash.zip"]`，资源包 396 字节。用户确认生效。
+测试：351 通过 + 2 个既有失败（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -188,13 +207,13 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（21:27，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（21:46，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
   整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已覆盖 1.7.10 ~ 26.3 的
   原版 / Fabric / Forge / NeoForge 组合（用户实机确认）**，只剩 1.21.6 / 快照 / Quilt 未测。
-- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 338 通过 + 2 个既有失败
+- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 351 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）

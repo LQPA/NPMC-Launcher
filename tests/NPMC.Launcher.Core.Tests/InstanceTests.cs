@@ -376,6 +376,34 @@ public class JsonInstanceStoreTests
     }
 
     [Fact]
+    public async Task Round_trip_preserves_advanced_settings()
+    {
+        var dir = NewTempDir();
+        try
+        {
+            var store = new JsonInstanceStore(new LauncherPaths(dir));
+            var instance = LauncherInstance.Create("adv", "adv", "1.21.1", IsolationLevel.Version,
+                new InstanceSettings
+                {
+                    ExtraJvmArguments = new List<string> { "-XX:+UseG1GC" },
+                    ExtraGameArguments = new List<string> { "--demo", "--width", "1600" },
+                    CustomTitle = "我的世界 · ATM10",
+                    SplashText = "NPMC 自定义横幅",
+                });
+
+            await store.SaveAsync(new[] { instance });
+            var loaded = await store.LoadAsync();
+
+            Assert.Single(loaded);
+            Assert.Equal(new[] { "-XX:+UseG1GC" }, loaded[0].Settings.ExtraJvmArguments);
+            Assert.Equal(new[] { "--demo", "--width", "1600" }, loaded[0].Settings.ExtraGameArguments);
+            Assert.Equal("我的世界 · ATM10", loaded[0].Settings.CustomTitle);
+            Assert.Equal("NPMC 自定义横幅", loaded[0].Settings.SplashText);
+        }
+        finally { TryDelete(dir); }
+    }
+
+    [Fact]
     public async Task Save_leaves_no_tmp_file_behind()
     {
         var dir = NewTempDir();
