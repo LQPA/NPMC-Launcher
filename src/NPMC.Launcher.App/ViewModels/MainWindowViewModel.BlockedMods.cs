@@ -26,6 +26,7 @@ public sealed class BlockedModItem : ObservableObject
     public string FileName => File.FileName;
 
     public string PageUrl => File.PageUrl;
+    public string ProjectUrl => File.ProjectUrl;
 
     public string Sha1 => File.Sha1;
 
@@ -69,7 +70,9 @@ public sealed partial class MainWindowViewModel
         {
             try
             {
-                Process.Start(new ProcessStartInfo(item.PageUrl) { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo(
+                    string.IsNullOrWhiteSpace(item.ProjectUrl) ? item.PageUrl : item.ProjectUrl)
+                { UseShellExecute = true });
             }
             catch (Exception ex)
             {
@@ -79,7 +82,7 @@ public sealed partial class MainWindowViewModel
             }
         }
 
-        BlockedModsHint = "已在浏览器打开下载页；下载完成后会自动校验 SHA1 并放进实例。";
+        BlockedModsHint = "已打开项目主页：在 Files 里找最新兼容版本（具体文件页可能 404）；下载后自动校验 SHA1 并放进实例。";
         OnPropertyChanged(nameof(BlockedModsHint));
     }
 

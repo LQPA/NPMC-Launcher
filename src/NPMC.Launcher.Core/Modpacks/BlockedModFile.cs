@@ -20,6 +20,15 @@ public sealed record BlockedModFile(
     public string PageUrl =>
         $"https://www.curseforge.com/minecraft/mc-mods/{ProjectSlug}/files/{FileId}";
 
+    /// <summary>
+    /// 项目主页。具体文件页可能 404（作者删了旧文件），但项目主页通常还在，
+    /// 可以在 Files 里找最新兼容版本；所以手动补的时候优先打开这个。
+    /// </summary>
+    public string ProjectUrl =>
+        string.IsNullOrWhiteSpace(ProjectSlug)
+            ? ""
+            : $"https://www.curseforge.com/minecraft/mc-mods/{ProjectSlug}";
+
     public string RelativePath => $"{TargetFolder}/{FileName}";
 
     public string DisplayName => string.IsNullOrWhiteSpace(ProjectName) ? FileName : ProjectName;
