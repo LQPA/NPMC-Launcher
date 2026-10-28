@@ -240,6 +240,13 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 `1.12.2`（无整合包、0 模组）→ `-Xmx4096M`；当时物理 30.9 GB、空闲 13.1 GB，
 按公式两者都未被空闲内存压低，与预期一致。
 
+### 14. 设置页的「默认内存 → 自动」（2026-10-28 晚）
+
+设置 → 实例默认 → 默认内存新增「自动」复选框（`LauncherSettings.DefaultMemoryAuto`）。
+开启后数字框禁用，只影响**之后新建**的实例：`NewInstanceSettings()` 会把 `AutoMemory = true`
+写进新实例，老的实例保持原样（想改就去概览页勾自动）。
+提示文字说明推荐依据（整合包推荐 / 模组数量 / 当前空闲内存），实例页里仍可单独改回手动。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -253,7 +260,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:16，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:21，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

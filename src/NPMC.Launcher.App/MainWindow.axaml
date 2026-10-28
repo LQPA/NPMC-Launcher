@@ -1755,10 +1755,18 @@
                   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                     <NumericUpDown Value="{Binding SettingsDefaultMemory, Mode=TwoWay}"
                                    Minimum="512" Maximum="65536" Increment="256" FormatString="0"
-                                   Width="130" FontSize="12" />
-                    <TextBlock Text="MB · 新建实例时的默认值（实例页里可以单独改）"
+                                   Width="130" FontSize="12" IsEnabled="{Binding !SettingsDefaultMemoryAuto}" />
+                    <TextBlock Text="MB"
                                FontSize="11" Foreground="#6E7684" VerticalAlignment="Center" />
+                    <CheckBox Content="自动" IsChecked="{Binding SettingsDefaultMemoryAuto, Mode=TwoWay}"
+                              FontSize="12" VerticalAlignment="Center"
+                              ToolTip.Tip="新建实例默认按整合包/模组数量/当前空闲内存自动推荐；已有实例不受影响" />
                   </StackPanel>
+                </Grid>
+                <Grid ColumnDefinitions="110,*" IsVisible="{Binding SettingsDefaultMemoryAuto}">
+                  <TextBlock Grid.Column="1"
+                             Text="新建实例将使用自动内存（整合包推荐 / 模组数量 / 当前空闲内存），实例页里可单独改回手动。"
+                             FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" />
                 </Grid>
 
                 <Grid ColumnDefinitions="110,*">

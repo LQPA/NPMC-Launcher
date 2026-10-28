@@ -16,6 +16,7 @@ public class LauncherSettingsTests
         Assert.Equal(DownloadSource.Official, settings.PreferredSource);
         Assert.True(settings.AllowSourceFallback);
         Assert.Equal(4096, settings.DefaultMemoryMb);
+        Assert.False(settings.DefaultMemoryAuto);
         Assert.True(settings.DownloadConcurrency > 0);
     }
 
@@ -77,6 +78,7 @@ public class JsonSettingsStoreTests
             {
                 PreferredSource = DownloadSource.Bmclapi,
                 DefaultMemoryMb = 8192,
+                DefaultMemoryAuto = true,
                 DownloadConcurrency = 20,
                 AllowSourceFallback = false,
                 IncludePrereleaseUpdates = true,
@@ -86,6 +88,7 @@ public class JsonSettingsStoreTests
 
             Assert.Equal(DownloadSource.Bmclapi, loaded.PreferredSource);
             Assert.Equal(8192, loaded.DefaultMemoryMb);
+            Assert.True(loaded.DefaultMemoryAuto);
             Assert.Equal(20, loaded.DownloadConcurrency);
             Assert.False(loaded.AllowSourceFallback);
             Assert.True(loaded.IncludePrereleaseUpdates);

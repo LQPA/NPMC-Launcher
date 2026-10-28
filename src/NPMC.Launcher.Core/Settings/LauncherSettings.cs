@@ -20,6 +20,9 @@ public sealed record LauncherSettings
     /// <summary>默认最大堆内存（MB）。实例没有单独设置时使用。</summary>
     public int DefaultMemoryMb { get; init; } = 4096;
 
+    /// <summary>新建实例时默认使用自动内存（按整合包/模组/空闲内存推荐）。已有实例不受影响。</summary>
+    public bool DefaultMemoryAuto { get; init; }
+
     /// <summary>并发下载数（资源对象、运行时文件）。</summary>
     public int DownloadConcurrency { get; init; } = 12;
 

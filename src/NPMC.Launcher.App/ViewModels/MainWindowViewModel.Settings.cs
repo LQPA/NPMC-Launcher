@@ -38,6 +38,7 @@ public sealed partial class MainWindowViewModel
     private int _settingsTimeoutSeconds = 600;
     private string _settingsProxy = "";
     private int _settingsDefaultMemory = 4096;
+    private bool _settingsDefaultMemoryAuto;
     private JavaChoice? _settingsJavaChoice;
     private string _settingsJavaHint = "";
     private string? _settingsDefaultJavaPath;
@@ -190,8 +191,23 @@ public sealed partial class MainWindowViewModel
         }
     }
 
+    /// <summary>新建实例时默认自动内存（已有实例不受影响）。</summary>
+    public bool SettingsDefaultMemoryAuto
+    {
+        get => _settingsDefaultMemoryAuto;
+        set
+        {
+            if (!SetProperty(ref _settingsDefaultMemoryAuto, value)) return;
+            SaveSettings();
+        }
+    }
+
     /// <summary>新建实例时用的初始设置：内存取设置页的"默认内存"，其余用默认值。</summary>
-    private InstanceSettings NewInstanceSettings() => new() { MemoryMb = _settingsDefaultMemory };
+    private InstanceSettings NewInstanceSettings() => new()
+    {
+        MemoryMb = _settingsDefaultMemory,
+        AutoMemory = _settingsDefaultMemoryAuto,
+    };
 
     // ---- 全局默认 Java ----
 
@@ -504,6 +520,7 @@ public sealed partial class MainWindowViewModel
             _settingsTimeoutSeconds = settings.HttpTimeoutSeconds is >= 30 and <= 3600 ? settings.HttpTimeoutSeconds : 600;
             _settingsProxy = settings.HttpProxy ?? "";
             _settingsDefaultMemory = settings.DefaultMemoryMb;
+            _settingsDefaultMemoryAuto = settings.DefaultMemoryAuto;
             _settingsDefaultJavaPath = settings.DefaultJavaPath;
             _settingsDefaultAccountId = settings.DefaultAccountId;
 
@@ -519,6 +536,7 @@ public sealed partial class MainWindowViewModel
             OnPropertyChanged(nameof(SettingsProxy));
             OnPropertyChanged(nameof(SettingsProxyText));
             OnPropertyChanged(nameof(SettingsDefaultMemory));
+            OnPropertyChanged(nameof(SettingsDefaultMemoryAuto));
 
             if (_settingsJavaLoaded)
             {
@@ -551,6 +569,7 @@ public sealed partial class MainWindowViewModel
         AllowSourceFallback = _settingsAllowFallback,
         IncludePrereleaseUpdates = _settingsIncludePrereleaseUpdates,
         DefaultMemoryMb = _settingsDefaultMemory,
+        DefaultMemoryAuto = _settingsDefaultMemoryAuto,
         DownloadConcurrency = _settingsConcurrency,
         HttpTimeoutSeconds = _settingsTimeoutSeconds,
         HttpProxy = string.IsNullOrWhiteSpace(_settingsProxy) ? null : _settingsProxy.Trim(),
