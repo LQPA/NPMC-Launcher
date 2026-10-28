@@ -25,7 +25,12 @@ public sealed partial class MainWindowViewModel
     }
 
     /// <summary>当前实例是整合包，且确实有可以折叠的模组。</summary>
-    public bool CanHidePackMods => SelectedInstance is { HasModpackInfo: true } && _packFileNames.Count > 0;
+    /// <summary>
+    /// 是否显示"隐藏整合包自带模组"这一行。
+    /// 只对模组页有意义 —— 资源包/光影没有"整合包自带"的概念，也不影响启动。
+    /// </summary>
+    public bool CanHidePackMods =>
+        IsModsTab && SelectedInstance is { HasModpackInfo: true } && _packFileNames.Count > 0;
 
 
     public string PackModsHint => _packModsHidden > 0

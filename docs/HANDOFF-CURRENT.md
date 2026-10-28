@@ -151,6 +151,17 @@
       「打开当前文件夹」重复的「打开该世界的数据包目录」，`OpenDatapacksFolderCommand`、
       `HasDatapacksEntry`、`ResolveDatapacksDirectory` 一并删除（`ShowDataPackActions`
       也换成了 `ShowWorldPicker`）。
+  - **自定义窗口（2026-10-28）**：`ExtendClientAreaToDecorationsHint + NoChrome` + 自绘标题栏
+    （拖动 `BeginMoveDrag`、双击最大化、— / □ / ✕ 三个按钮），系统边框仍保留，
+    所以拉伸/贴边吸附还能用。顶部原来的"root 路径 + 权限"那一条删了（正式版没必要），
+    刷新按钮挪进标题栏。注意 `CanHidePackMods` 现在要求 `IsModsTab`：
+    资源包/光影页不再出现「隐藏整合包自带模组」。
+  - **Forge/NeoForge 安装器改用自带临时目录（2026-10-28）**：ATM10（1.21.1 + NeoForge 21.1.259）
+    安装失败的真实原因是安装器的 `PostProcessors` 在 `%TEMP%` 建 `neoforge_installer*` 时
+    `AccessDeniedException`（日志见 `E:\aaaa\minecraft\neoforge-21.1.259-installer.jar.log`），
+    **不是 Java 版本问题**（它用的是 java-runtime-delta 的 Java 21.0.7，完全正确；
+    重装 Java 不会有帮助）。现在启动安装器时显式带
+    `-Djava.io.tmpdir=<root>\cache\tmp\forge-installer`，绕开用户 %TEMP% 的权限/杀软问题。
   - **空列表提示分两种情况（2026-10-28）**：以前只要 `Content` 为空就报"文件夹是空的"，
     用户输入筛选词后看到"这个世界还没有数据包"会以为文件丢了。现在 `_contentFileTotal`
     记录筛选前的总数：

@@ -141,5 +141,9 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(BackToContentListText));
         OnPropertyChanged(nameof(ContentFilterWatermark));
         OnPropertyChanged(nameof(ContentDownloadTip));
+
+        // 「隐藏整合包自带模组」只属于模组页：切到资源包/光影要立刻藏起来
+        OnPropertyChanged(nameof(CanHidePackMods));
+        OnPropertyChanged(nameof(PackModsHint));
     }
 }

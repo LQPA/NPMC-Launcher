@@ -259,6 +259,12 @@ public sealed class ForgeInstaller
 
         progress?.Report($"运行 Forge 官方安装器（{Path.GetFileName(plan.InstallerPath)}）…");
 
+        // 安装器的 PostProcessors 会在 java.io.tmpdir 里建临时目录（neoforge_installer*）。
+        // 用户机器上这一步报过 AccessDeniedException（%TEMP% 写不进去：回收站残留、
+        // 杀软、Low 完整性都可能），所以显式给一个我们自己能写的临时目录。
+        var installerTemp = Path.Combine(paths.Root, "cache", "tmp", "forge-installer");
+        Directory.CreateDirectory(installerTemp);
+
         var startInfo = new ProcessStartInfo(javaPath)
         {
             WorkingDirectory = paths.SharedRoot,
@@ -270,6 +276,7 @@ public sealed class ForgeInstaller
             StandardErrorEncoding = Encoding.UTF8,
         };
 
+        startInfo.ArgumentList.Add($"-Djava.io.tmpdir={installerTemp}");
         startInfo.ArgumentList.Add("-jar");
         startInfo.ArgumentList.Add(plan.InstallerPath);
         startInfo.ArgumentList.Add("--installClient");

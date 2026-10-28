@@ -1933,7 +1933,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 // 有文件却全被挡住：模组页最常见的是"隐藏整合包自带模组"
                 return SelectedTab.ContentKind == ContentKind.Mod
-                    ? $"这 {_contentFileTotal} 个模组都属于整合包自带的文件，已被折叠；取消勾选「隐藏整合包自带模组」即可看到。"
+                    ? $"已折叠 {_contentFileTotal} 个整合包自带模组；取消勾选「隐藏整合包自带模组」即可看到。"
                     : $"共 {_contentFileTotal} 个{kindName}，但当前都被过滤掉了（检查筛选条件）。";
             }
 

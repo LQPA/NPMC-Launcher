@@ -9,24 +9,57 @@
         Width="1280" Height="720"
         MinWidth="880" MinHeight="600"
         WindowStartupLocation="CenterScreen"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome"
         Background="#1B1D23">
+
+  <Window.Styles>
+    <!-- 自绘标题栏按钮：无边框、悬停高亮，关闭键悬停变红（PCL / BAKA XL 的习惯） -->
+    <Style Selector="Button.caption">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Width" Value="46" />
+      <Setter Property="Height" Value="39" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="#C9CED6" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.caption:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#2E323B" />
+    </Style>
+    <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#C0392B" />
+    </Style>
+    <Style Selector="Button.caption.close:pointerover">
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+  </Window.Styles>
 
   <Grid RowDefinitions="Auto,*,Auto">
 
-    <!-- ================= 顶部 ================= -->
+    <!-- ================= 自定义标题栏（拖动 / 最小化 / 最大化 / 关闭） ================= -->
     <Border Grid.Row="0" Background="#23262E"
-            BorderBrush="#31353F" BorderThickness="0,0,0,1" Padding="24,14">
-      <Grid ColumnDefinitions="*,Auto">
-        <StackPanel Spacing="2">
-          <TextBlock Text="NPMC Launcher" FontSize="18" FontWeight="SemiBold" Foreground="#F2F3F5" />
-          <StackPanel Orientation="Horizontal" Spacing="10">
-            <TextBlock Text="{Binding RootPath}" FontSize="11" Foreground="#949CA9"
-                       TextTrimming="CharacterEllipsis" />
-            <TextBlock Text="{Binding IntegrityText}" FontSize="11" Foreground="#6E7684" />
-          </StackPanel>
+            BorderBrush="#31353F" BorderThickness="0,0,0,1"
+            PointerPressed="OnTitleBarPressed">
+      <Grid ColumnDefinitions="Auto,*,Auto" Height="40">
+        <StackPanel Orientation="Horizontal" Spacing="10" Margin="14,0,0,0" VerticalAlignment="Center">
+          <TextBlock Text="NPMC Launcher" FontSize="12" FontWeight="SemiBold" Foreground="#E8EAED" />
         </StackPanel>
-        <Button Grid.Column="1" Content="刷新" VerticalAlignment="Center"
-                Command="{Binding RefreshCommand}" />
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Stretch">
+          <Button Content="刷新" Command="{Binding RefreshCommand}" FontSize="11"
+                  Background="Transparent" BorderThickness="0" Padding="12,0" Height="39"
+                  Foreground="#C9CED6" VerticalAlignment="Center" />
+          <Button Classes="caption" Content="—" Click="OnMinimizeClick"
+                  ToolTip.Tip="最小化" />
+          <Button Classes="caption" Content="□" Click="OnMaximizeClick"
+                  x:Name="MaximizeButton" ToolTip.Tip="最大化 / 还原" />
+          <Button Classes="caption close" Content="✕" Click="OnCloseClick"
+                  ToolTip.Tip="关闭" />
+        </StackPanel>
       </Grid>
     </Border>
 
@@ -995,7 +1028,7 @@
           <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"
                       Spacing="8" Margin="24" IsVisible="{Binding IsContentEmptyOrNotList}">
             <TextBlock Text="{Binding ContentEmptyHint}" FontSize="12" Foreground="#949CA9"
-                       TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" LineHeight="19" />
+                       TextWrapping="Wrap" MaxWidth="360" TextAlignment="Center" LineHeight="19" />
           </StackPanel>
 
             <!-- 存档页签的操作行：只在世界列表里出现（数据包管理页有自己的「打开当前文件夹」） -->

@@ -434,4 +434,35 @@ public partial class MainWindow : Window
 
         e.Handled = true;
     }
+
+    // ---- 自定义标题栏 ----
+
+    private void OnTitleBarPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+
+        // 双击标题栏 = 最大化/还原；第一次按下时拖动窗口
+        if (e.ClickCount == 2)
+        {
+            ToggleMaximize();
+            e.Handled = true;
+            return;
+        }
+
+        BeginMoveDrag(e);
+    }
+
+    private void OnMinimizeClick(object? sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void OnMaximizeClick(object? sender, RoutedEventArgs e) => ToggleMaximize();
+
+    private void OnCloseClick(object? sender, RoutedEventArgs e) => Close();
+
+    private void ToggleMaximize()
+    {
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+        if (MaximizeButton is not null)
+            MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+    }
 }
