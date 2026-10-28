@@ -56,6 +56,8 @@ public static class MemoryAutoCalculator
     /// <summary>纯按模组数量估算（不参考整合包推荐）。</summary>
     public static int ModTier(int modsCount) => modsCount switch
     {
+        // 纯原版：2048 对 1.21 也够用；更老的版本 1024 虽然能跑，但高清材质/高渲染距离会吃紧
+        0 => 2048,
         <= 20 => 4096,
         <= 60 => 5120,
         <= 120 => 6144,
@@ -90,7 +92,7 @@ public static class MemoryAutoCalculator
             need = ModTier(modsCount);
             reason = modsCount > 0
                 ? $"按 {modsCount} 个模组估算 {need} MB"
-                : $"原版/轻量整合包建议 {need} MB";
+                : $"纯原版建议 {need} MB";
         }
 
         var capacity = Math.Min((long)(freeMb * CeilingShare), Math.Min(totalMb / 2, MaximumMb));

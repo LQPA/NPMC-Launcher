@@ -26,7 +26,8 @@ public class MemoryAutoCalculatorTests
     }
 
     [Theory]
-    [InlineData(0, 4096)]
+    [InlineData(0, 2048)]
+    [InlineData(1, 4096)]
     [InlineData(42, 5120)]
     [InlineData(100, 6144)]
     [InlineData(180, 8192)]
