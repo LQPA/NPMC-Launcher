@@ -900,29 +900,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 - 用户已授权：以后发布完**自动**把 `dist\NPMC.Launcher.App.exe` 与 `start.cmd` 覆盖复制到
   `E:\aaaa`（`data\`、`minecraft\` 不动），无需每次再问。
 
-## 下次开工先做（2026-10-28 更新）
+## 下次开工先做（2026-10-29 更新）
 
-1. **离线皮肤：只剩 1.21.6 / 快照 / Quilt 没测**（小）：26.2 / 26.3 已支持并实测
-   （见 §8）。按 `docs/skin-compatibility.md` §6 的表补这几项即可；
-   26.2 Forge/NeoForge、26.3 Forge 没逐个点开，逻辑同已验证版本。
-2. **authlib 11+ 的预研**（可选）：上限目前截在 10；新主版本出现时先核对
-   `SessionService.getPackedTextures` / `unpackTextures` 的签名。
-3. **搜索质量**（小）：①「硬核科技」过滤（Modrinth technology 太宽）②末页探测
-   `total_hits`/CF `pagination.totalCount`，避免整页时出现空页。
-4. **一键全部升级**（小~中）：目前检查更新后要逐行点「升级」；要做批量、进度与失败汇总。
-5. **Fabric/Quilt 的 Low 完整性**（中）：`java.exe` 是 Low 时 `SetFileSecurity` 失败（错误 5），
-   重映射会挂；正解是让 JVM 的临时/remap 目录落到可写位置，而不是硬抬标签。
-6. **补 VM 层测试**（中）：这轮踩过的坑（Avalonia CanExecute 只求值一次、facet 分组、
-   识别缓存新增字段的反序列化、版本号重复时的 Display、数据包 loaders 过滤、mrpack 选项）
-   都值得写成测试。
-7. **CurseForge 整合包导出**（中，可选）：CF 的 `manifest.json` 需要 projectID/fileID，
-   只能靠 CF 的指纹接口（要 API key）反查；Modrinth 侧已经是 mrpack，CF 侧需要另做映射。
-8. 顺带可做：资源包/光影分类中译、CF 资源包分类映射、右侧详情/计划布局、发布签名与
-   SHA256 清单、用户手册。
+1. **正式代码签名证书**（阻塞公开分发）：现在用的是自签名
+   `CN=NPMC Launcher (self-signed)`，本机/团队导入受信任根后正常，别的机器仍提示未知发布者。
+   买到 OV/EV 证书后直接 `.\tools\publish.ps1 -PfxPath <pfx>` 即可。
+2. **用户手册 + 发布说明**：安装/创建实例/装加载器/皮肤/整合包导入导出/令牌安全，
+   以及版本号与 SHA256 发布流程。
+3. **1.21.6 皮肤实测**（小）：现在只剩这一个皮肤版本没实机验证；26.4 快照（authlib 12）
+   已在 2026-10-29 实测通过。
+4. **VM 回归测试补齐**（中）：已有 App 层 7 个测试；还缺识别缓存新字段反序列化、
+   重复版本号 Display、数据包 loaders 过滤、mrpack 选项，以及 CanExecute 只求值一次
+   这类需要 UI 线程的用例。
+5. **搜索质量**（用户暂缓）：硬核科技过滤、末页空页探测、负向过滤/分页。
+6. **Fabric/Quilt Low 完整性结构修复**（中，可选）：当前靠 `IntegrityGuard` 自动把
+   `java.exe` 抬到 Medium，本机已正常；只有启动器自身是 Low 且抬不动时才需要
+   “把 remap 目录落到低完整性也可写的位置”的结构方案。
+7. **UI 打磨**：资源包/光影分类中译、CF 资源包分类映射、右侧详情/计划布局。
+8. authlib 13 出现时再核对；12 已实测（26.4-snapshot-6 + Java 25）。
 
-已完成：数据包下载界面、导出整合包表单（mrpack）、离线皮肤覆盖 1.7.10 ~ 26.3
-（-javaagent 拆分、authlib 7 三个 host 属性、SkinManager.get 包装、26.3 的
-getPackedTextures 钩子），用户实机确认。
+本轮已完成：一键全部升级、内容列表多选批量操作、整合包推荐内存接入、CF 整合包导出、
+authlib 12 实机验证、自签名发布 + SHA256 清单、token 目录 ACL/隐藏/清除按钮，
+以及 App 层 7 个 VM 测试。测试总数 **399 通过、0 失败**。
 
 ## 本次会话新增的诊断入口（收尾时整理）
 
