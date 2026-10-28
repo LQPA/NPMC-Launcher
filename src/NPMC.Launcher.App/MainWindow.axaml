@@ -998,13 +998,11 @@
                        TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" LineHeight="19" />
           </StackPanel>
 
-            <!-- 存档页签的操作行（世界列表 / 数据包管理各给一个入口；下载模式下让位） -->
+            <!-- 存档页签的操作行：只在世界列表里出现（数据包管理页有自己的「打开当前文件夹」） -->
             <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" Margin="0,10,0,0"
-                        IsVisible="{Binding ShowDataPackActions}">
+                        IsVisible="{Binding ShowWorldPicker}">
               <Button Content="打开存档根目录" Command="{Binding OpenSavesFolderCommand}"
-                      IsVisible="{Binding ShowWorldPicker}" FontSize="12" />
-              <Button Content="打开该世界的数据包目录" Command="{Binding OpenDatapacksFolderCommand}"
-                      IsVisible="{Binding IsManagingDataPacks}" FontSize="12" />
+                      FontSize="12" />
             </StackPanel>
         </Grid>
 

@@ -131,8 +131,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         OpenSavesFolderCommand = new AsyncRelayCommand(OpenSavesFolder,
             () => HasSavesDirectory, OnOpenError);
-        OpenDatapacksFolderCommand = new AsyncRelayCommand(OpenDatapacksFolder,
-            () => HasDatapacksEntry, OnOpenError);
 
         OpenContentFolderCommand = new AsyncRelayCommand(OpenContentFolder,
             () => IsContentList && SelectedInstance is not null, OnOpenError);
@@ -1057,8 +1055,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 : Content.Count;
     }
 
+    /// <summary>世界行上的「打开目录」：打开世界本身（里面才是 datapacks/、region/、level.dat）。</summary>
     private async void OpenWorldFolder(WorldItem world)
-        => await OpenDirectoryAsync(Path.Combine(world.Directory, "datapacks"));
+        => await OpenDirectoryAsync(world.Directory);
 
     /// <summary>进入某个世界的数据包管理页。</summary>
     private async void ManageWorldDataPacks(WorldItem world)
@@ -1594,7 +1593,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ICommand OpenResourcePacksFolderCommand { get; }
     public ICommand OpenShaderPacksFolderCommand { get; }
     public ICommand OpenSavesFolderCommand { get; }
-    public ICommand OpenDatapacksFolderCommand { get; }
     public ICommand OpenContentFolderCommand { get; }
     public ICommand DisableAllCommand { get; }
     public ICommand EnableAllCommand { get; }
@@ -5580,30 +5578,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private Task OpenSavesFolder()
         => SelectedInstance is null ? Task.CompletedTask : OpenDirectoryAsync(SelectedInstance.SavesDirectory);
 
-    /// <summary>
-    /// 打开"当前世界的"数据包目录。
-    ///
-    /// 数据包是**按世界**存放的（saves/&lt;世界&gt;/datapacks），
-    /// 所以取最近修改过的那个世界；没有世界就没有入口可言。
-    /// </summary>
-    private Task OpenDatapacksFolder()
-    {
-        if (ResolveDatapacksDirectory() is not { } directory)
-        {
-            Status = "还没有世界，先在游戏里创建一个世界才能添加数据包。";
-            return Task.CompletedTask;
-        }
-
-        return OpenDirectoryAsync(directory);
-    }
-
     /// <summary>存档目录入口：目录存在就显示（原版也有存档）。</summary>
     public bool HasSavesDirectory =>
         SelectedInstance is not null && Directory.Exists(SelectedInstance.SavesDirectory);
-
-    /// <summary>数据包入口：1.13+ 且有世界才显示。</summary>
-    public bool HasDatapacksEntry =>
-        SelectedInstance is not null && SupportsDatapacks && ResolveDatapacksDirectory() is not null;
 
     /// <summary>数据包是 1.13 才有的功能。</summary>
     private bool SupportsDatapacks =>
@@ -5616,29 +5593,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var match = System.Text.RegularExpressions.Regex.Match(text, @"^\d+(\.\d+)?(\.\d+)?");
         return match.Success ? match.Value : "";
-    }
-
-    /// <summary>最近修改过的世界的数据包目录；没有世界返回 null。</summary>
-    private string? ResolveDatapacksDirectory()
-    {
-        if (SelectedInstance is not { } instance) return null;
-
-        try
-        {
-            var saves = instance.SavesDirectory;
-            if (!Directory.Exists(saves)) return null;
-
-            var world = new DirectoryInfo(saves)
-                .EnumerateDirectories()
-                .OrderByDescending(directory => directory.LastWriteTimeUtc)
-                .FirstOrDefault();
-
-            return world is null ? null : Path.Combine(world.FullName, "datapacks");
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private Task OpenContentFolder()
@@ -5721,7 +5675,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasResourcePacksDirectory));
         OnPropertyChanged(nameof(HasShaderPacksDirectory));
         OnPropertyChanged(nameof(HasSavesDirectory));
-        OnPropertyChanged(nameof(HasDatapacksEntry));
     }
 
     private void RaiseCommandStates()
@@ -5745,7 +5698,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         (NextSearchPageCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (BeginRenameCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (OpenSavesFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
-        (OpenDatapacksFolderCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DisableAllCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (EnableAllCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
     }

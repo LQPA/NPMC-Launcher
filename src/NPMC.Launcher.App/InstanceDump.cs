@@ -815,11 +815,10 @@ internal static class InstanceDump
                 lines.Add($"      入口 mods={viewModel.HasModsDirectory} 资源包={viewModel.HasResourcePacksDirectory} 光影={viewModel.HasShaderPacksDirectory}");
                 lines.Add($"      页签 {tabs}");
                 lines.Add($"      列表行 {candidate.ContentText}");
-                lines.Add($"      存档入口={viewModel.HasSavesDirectory} 数据包入口={viewModel.HasDatapacksEntry}");
+                lines.Add($"      存档入口={viewModel.HasSavesDirectory}");
                 lines.Add($"      按钮可用 mods={viewModel.OpenModsFolderCommand.CanExecute(null)}"
                           + $" 光影={viewModel.OpenShaderPacksFolderCommand.CanExecute(null)}"
                           + $" 存档={viewModel.OpenSavesFolderCommand.CanExecute(null)}"
-                          + $" 数据包={viewModel.OpenDatapacksFolderCommand.CanExecute(null)}"
                           + $" 删除={viewModel.DeleteInstanceCommand.CanExecute(null)}");
             }
         }

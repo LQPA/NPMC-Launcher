@@ -61,9 +61,6 @@ public sealed partial class MainWindowViewModel
     public bool IsContentFilterVisible =>
         ShowContentList && !_isContentDownloadMode && (!IsDataPackTab || IsManagingDataPacks);
 
-    /// <summary>数据包页签的底部操作行（下载模式下让位给搜索面板）。</summary>
-    public bool ShowDataPackActions => IsDataPackTab && !_isContentDownloadMode;
-
     // ---- 随内容类型变化的文案 ----
 
     private string ContentKindName => SelectedTab.ContentKind?.DisplayName() ?? "内容";
@@ -127,7 +124,6 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(ShowContentRows));
         OnPropertyChanged(nameof(IsSearchPanelVisible));
         OnPropertyChanged(nameof(IsContentFilterVisible));
-        OnPropertyChanged(nameof(ShowDataPackActions));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         RaisePaneVisibilityChanged();
     }

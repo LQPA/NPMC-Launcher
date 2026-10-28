@@ -146,6 +146,11 @@
       `--exercise-search-install` → `Terralith_v2.6.5+26.3.zip`（2.98 MB）落到
       `saves/TestWorld/datapacks/`，行当场认领（Modrinth），点图标能回到该项目版本。
       离屏渲染（752 高）确认列表模式有「筛选当前数据包… + 下载数据包」，下载模式无重叠。
+    - 两处入口修正（用户反馈）：世界行的「打开目录」改为打开**世界文件夹**本身
+      （以前直接跳进 `datapacks/`，看不到 level.dat/region）；数据包管理页删掉了与底部
+      「打开当前文件夹」重复的「打开该世界的数据包目录」，`OpenDatapacksFolderCommand`、
+      `HasDatapacksEntry`、`ResolveDatapacksDirectory` 一并删除（`ShowDataPackActions`
+      也换成了 `ShowWorldPicker`）。
 
 ## 关键文件
 
