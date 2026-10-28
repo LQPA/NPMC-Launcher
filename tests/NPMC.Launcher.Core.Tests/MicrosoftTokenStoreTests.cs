@@ -32,6 +32,30 @@ public class MicrosoftTokenStoreTests
     }
 
     [Fact]
+    public void Protect_keeps_existing_token_files_readable()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var directory = Path.Combine(Path.GetTempPath(), "npmc-tokens-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var tokenPath = Path.Combine(directory, "a.bin");
+        File.WriteAllText(tokenPath, "token");
+
+        try
+        {
+            _ = new MicrosoftTokenStore(directory);
+
+            // 回归：icacls /T + (OI)(CI) 曾把文件 ACE 标成 inherit-only，
+            // 结果当前用户自己都读不了 token。
+            Assert.Equal("token", File.ReadAllText(tokenPath));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void Constructor_marks_token_directory_hidden_on_windows()
     {
         if (!OperatingSystem.IsWindows()) return;

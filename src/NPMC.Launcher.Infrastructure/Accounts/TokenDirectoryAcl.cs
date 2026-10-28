@@ -44,39 +44,14 @@ public static class TokenDirectoryAcl
             var userSid = WindowsIdentity.GetCurrent().User?.Value;
             if (string.IsNullOrWhiteSpace(userSid)) return false;
 
-            var start = new ProcessStartInfo("icacls")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
+            // 目录：允许继承给以后新建的 .bin
+            var directoryOk = Apply(directory, userSid, inheritToChildren: true);
 
-            start.ArgumentList.Add(directory);
-            start.ArgumentList.Add("/inheritance:r");   // 去掉从 data 继承来的宽 ACL
-
-            // /inheritance:r 只处理“继承来的”ACE；如果目录此前已经被转成显式 ACE
-            // （例如用 /inheritance:d 复制过），还得把 Everyone/Users 这些显式项删掉。
-            start.ArgumentList.Add("/remove:g");
-            foreach (var sid in BroadSids)
-                start.ArgumentList.Add(sid);
-
-            start.ArgumentList.Add("/grant:r");         // 只保留显式授权
-            start.ArgumentList.Add($"*{userSid}:(OI)(CI)F");
-
-            foreach (var sid in WellKnownSids)
-                start.ArgumentList.Add($"{sid}:(OI)(CI)F");
-
-            start.ArgumentList.Add("/T");               // 已有的 .bin 也一起收紧
-            start.ArgumentList.Add("/C");               // 单个文件失败时继续
-            start.ArgumentList.Add("/Q");
-
-            using var process = Process.Start(start);
-            if (process is null) return false;
-
-            if (!process.WaitForExit(8000))
-            {
-                try { process.Kill(true); } catch { }
-                return false;
-            }
+            // 已有文件必须单独处理：
+            // icacls /T + (OI)(CI) 授权会把 ACE 标成 "仅继承"，对文件本身不生效，
+            // 结果文件没有任何 Allow 规则（连当前用户都读不了）——这次真踩到了。
+            foreach (var file in Directory.EnumerateFiles(directory))
+                Apply(file, userSid, inheritToChildren: false);
 
             // 资源管理器里默认不显示（隐藏不是安全边界，只是少一点“误点/误拷”）
             try
@@ -90,11 +65,49 @@ public static class TokenDirectoryAcl
                 // 隐藏失败不影响 ACL
             }
 
-            return process.ExitCode == 0;
+            return directoryOk;
         }
         catch
         {
             return false;
         }
+    }
+
+    private static bool Apply(string path, string userSid, bool inheritToChildren)
+    {
+        var suffix = inheritToChildren ? ":(OI)(CI)F" : ":F";
+
+        var start = new ProcessStartInfo("icacls")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        start.ArgumentList.Add(path);
+        start.ArgumentList.Add("/inheritance:r");
+        start.ArgumentList.Add("/remove:g");
+
+        foreach (var sid in BroadSids)
+            start.ArgumentList.Add(sid);
+
+        start.ArgumentList.Add("/grant:r");
+        start.ArgumentList.Add($"*{userSid}{suffix}");
+
+        foreach (var sid in WellKnownSids)
+            start.ArgumentList.Add($"{sid}{suffix}");
+
+        start.ArgumentList.Add("/C");
+        start.ArgumentList.Add("/Q");
+
+        using var process = Process.Start(start);
+        if (process is null) return false;
+
+        if (!process.WaitForExit(8000))
+        {
+            try { process.Kill(true); } catch { }
+            return false;
+        }
+
+        return process.ExitCode == 0;
     }
 }

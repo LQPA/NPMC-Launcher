@@ -441,7 +441,7 @@ BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
 把导出的 zip 再喂给本地 CF 安装：识别为 BMC4 / 1.20.1 / forge 47.4.20，
 384 个可下载文件（352 个模组）+ 29 个需手动下载，可安装。
 
-测试：Core 389、App 7，合计 **399 通过、0 失败**。
+测试：Core 389、App 7，合计 **400 通过、0 失败**。
 
 ### 27. authlib 11+/12 预研（2026-10-29）
 
@@ -473,7 +473,7 @@ bridge get: id=963a... ours=true
 
 截图确认自定义皮肤（不是默认 Steve/Alex），26.4 快照 + authlib 12 的皮肤链路通过。
 
-测试：Core 389 + App 7 = **399 通过、0 失败**。
+测试：Core 389 + App 7 = **400 通过、0 失败**。
 
 ### 28. 发布签名 + SHA256 清单（2026-10-29 凌晨）
 
@@ -518,7 +518,27 @@ bridge get: id=963a... ours=true
 `microsoft-tokens\*.bin`；账号条目保留，下次使用会要求重新登录。
 
 **限制**：同一 Windows 用户下的恶意进程仍然可以调用 DPAPI 解密；隐藏/改路径都防不了这个。
-测试：Core 392 + App 7 = **399 通过、0 失败**。
+测试：Core 393 + App 7 = **400 通过、0 失败**。
+
+### 29.1 令牌 ACL 加固踩坑与修复（2026-10-29 凌晨）
+
+上线 §29 后用户反馈启动器一直要求重新登录。根因：
+
+- `TokenDirectoryAcl` 一开始用 `icacls <dir> /T /grant:r "user:(OI)(CI)F"`；
+- `/T` 把同一个带 `(OI)(CI)`（仅继承）的 ACE 也应用到 **文件** 上，文件自身
+  没有任何 Allow 规则 → `File.ReadAllBytes` 直接 **拒绝访问**；
+- `MicrosoftTokenStore.Load` 的 catch 把异常静默当成“没有 token” → 界面要求重新登录。
+
+修复：
+- 目录单独用 `(OI)(CI)F` 授权（以后新建的 .bin 继承）；
+- 已有文件逐个用 `:F`（不带继承标志）重新授权，不再对文件用 `/T`；
+- 新增回归测试 `Protect_keeps_existing_token_files_readable`；
+- 已手工修复现有 token 文件的 ACL；`ReadAllBytes` + DPAPI 解密验证通过
+  （373 字节 refresh token）。
+
+教训：静默 catch + ACL 批量操作会把手误伪装成“token 丢了”，以后这类失败至少要写日志。
+当前 exe 已重新发布（01:01），重启启动器即可读回原 token；若仍提示登录，说明 refresh token
+本身已失效，需要重新授权一次。
 
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–12 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
@@ -533,7 +553,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（00:52，44.2 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（01:01，44.2 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
@@ -921,7 +941,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 
 本轮已完成：一键全部升级、内容列表多选批量操作、整合包推荐内存接入、CF 整合包导出、
 authlib 12 实机验证、自签名发布 + SHA256 清单、token 目录 ACL/隐藏/清除按钮，
-以及 App 层 7 个 VM 测试。测试总数 **399 通过、0 失败**。
+以及 App 层 7 个 VM 测试。测试总数 **400 通过、0 失败**。
 
 ## 本次会话新增的诊断入口（收尾时整理）
 
