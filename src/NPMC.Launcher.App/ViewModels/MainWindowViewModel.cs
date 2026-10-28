@@ -144,6 +144,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         EnableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: true), () => CanBulk);
 
         CheckUpdatesCommand = new AsyncRelayCommand(CheckModUpdatesAsync, () => CanCheckUpdates);
+        UpgradeAllCommand = new AsyncRelayCommand(UpgradeAllAsync, () => CanUpgradeAll);
 
         SearchCommand = new AsyncRelayCommand(() => SearchModsAsync(resetPage: true), () => CanSearch);
         PreviousSearchPageCommand = new AsyncRelayCommand(
@@ -2537,6 +2538,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!SetProperty(ref _updateCount, value)) return;
             OnPropertyChanged(nameof(HasUpdates));
             OnPropertyChanged(nameof(UpdateSummaryText));
+            OnPropertyChanged(nameof(UpgradeAllText));
+            UpgradeAllCommand.RaiseCanExecuteChanged();
         }
     }
 
@@ -2548,11 +2551,31 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public ICommand CheckUpdatesCommand { get; }
 
+    public AsyncRelayCommand UpgradeAllCommand { get; }
+
+    private bool _isUpgradingAll;
+
+    public bool IsUpgradingAll
+    {
+        get => _isUpgradingAll;
+        private set
+        {
+            if (!SetProperty(ref _isUpgradingAll, value)) return;
+            OnPropertyChanged(nameof(UpgradeAllText));
+            RaiseCommandStates();
+        }
+    }
+
+    public string UpgradeAllText => IsUpgradingAll ? "升级中…" : $"全部升级（{UpdateCount}）";
+
+    private bool CanUpgradeAll => UpdateCount > 0 && !IsUpgradingAll && !IsCheckingUpdates && IsModsTab;
+
     private bool CanCheckUpdates =>
         SelectedTab.ContentKind == ContentKind.Mod
         && SelectedInstance is not null
         && Content.Count > 0
-        && !IsCheckingUpdates;
+        && !IsCheckingUpdates
+        && !IsUpgradingAll;
 
     /// <summary>
     /// 检查 mods 目录里的模组是否有新版本。
@@ -2635,6 +2658,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
 
             UpdateCount = report.Updates.Count;
+            OnPropertyChanged(nameof(UpgradeAllText));
             Status = DescribeReport(checkItems.Count, report, _settingsIncludePrereleaseUpdates);
 
             // 图标后补：不影响列表出现
@@ -2725,6 +2749,77 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             // 文件集合变了（新增一个新版本、移走一个旧版本），整表刷新
             await RefreshContentAsync();
+        }
+    }
+
+    /// <summary>
+    /// 一键升级所有标记为可升级的模组：逐个下载新版本 → 删旧版 → 最后统一刷新列表。
+    /// 失败不会中断后续项，结束时汇总多少个成功、多少个失败。
+    /// </summary>
+    private async Task UpgradeAllAsync()
+    {
+        if (SelectedInstance is not { } instance || IsUpgradingAll) return;
+
+        var pending = Content
+            .Where(item => item.PendingUpdate?.Latest.DownloadUrl is { Length: > 0 })
+            .ToList();
+
+        if (pending.Count == 0)
+        {
+            Status = "没有可升级的模组";
+            return;
+        }
+
+        IsUpgradingAll = true;
+        var succeeded = 0;
+        var failures = new List<string>();
+
+        try
+        {
+            for (var index = 0; index < pending.Count; index++)
+            {
+                var item = pending[index];
+                var update = item.PendingUpdate!;
+
+                Status = $"全部升级 {index + 1}/{pending.Count}：{item.Name} → {update.Latest.VersionLabel}";
+
+                try
+                {
+                    var destination = Path.Combine(instance.ModsDirectory, update.Latest.FileName);
+                    var sha1 = string.IsNullOrWhiteSpace(update.Latest.Sha1) ? null : update.Latest.Sha1;
+
+                    await _downloader.EnsureFromAsync(
+                        new[] { update.Latest.DownloadUrl }, destination, sha1);
+
+                    // 下载成功后才删旧文件
+                    _contentManager.Delete(item.Entry, instance.ModsDirectory);
+                    item.SetUpdate(null);
+                    succeeded++;
+
+                    LauncherLog.Write(_launcher.Root,
+                        $"批量升级 {item.Entry.FileName} → {update.Latest.FileName}"
+                        + $"（{update.Current.VersionLabel} → {update.Latest.VersionLabel}，来源 {update.Source}）");
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{item.Name}：{ex.GetBaseException().Message}");
+                    LauncherLog.Write(_launcher.Root,
+                        $"批量升级失败 {item.Entry.FileName} → {ex.GetBaseException().Message}");
+                }
+            }
+        }
+        finally
+        {
+            await RefreshContentAsync();
+
+            IsUpgradingAll = false;
+            UpdateCount = 0;
+
+            Status = failures.Count == 0
+                ? $"全部升级完成：{succeeded} 个模组"
+                : $"升级完成 {succeeded} 个，失败 {failures.Count} 个："
+                  + string.Join("；", failures.Take(3))
+                  + (failures.Count > 3 ? " …" : "");
         }
     }
 
@@ -6480,6 +6575,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         (LaunchGameCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (CheckUpdatesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        UpgradeAllCommand.RaiseCanExecuteChanged();
 
         // 搜索的可用性取决于"有没有选中实例" —— 选中前按钮会一直是灰的，
         // 所以实例变化时也必须通知它（否则空查询时「热门」永远点不动）。

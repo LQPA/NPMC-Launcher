@@ -282,7 +282,18 @@ internal static class InstanceDump
         if (args.Any(arg => string.Equals(arg, "--exercise-updates", StringComparison.OrdinalIgnoreCase)))
         {
             // 原版实例的模组页签是禁用的，诊断必须挑加载器实例才走得通
-            var updateTarget = viewModel.Instances.FirstOrDefault(item =>
+            var upgradeNameIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-upgrade-instance", StringComparison.OrdinalIgnoreCase));
+            var upgradeName = upgradeNameIndex >= 0 && upgradeNameIndex + 1 < args.Length
+                ? args[upgradeNameIndex + 1]
+                : null;
+
+            var updateTarget = (upgradeName is null
+                                   ? null
+                                   : viewModel.Instances.FirstOrDefault(item =>
+                                       string.Equals(item.Name, upgradeName, StringComparison.OrdinalIgnoreCase)
+                                       || string.Equals(item.Id, upgradeName, StringComparison.OrdinalIgnoreCase)))
+                               ?? viewModel.Instances.FirstOrDefault(item =>
                                    item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
                                ?? viewModel.Instances.FirstOrDefault();
 
@@ -293,6 +304,10 @@ internal static class InstanceDump
             }
 
             viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
+
+            // 页签内容是异步加载的；等列表就绪再检查，否则会得到“mods 目录里没有文件”
+            for (var i = 0; i < 100 && viewModel.Content.Count == 0; i++) Thread.Sleep(100);
+
             viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
 
             // 图标由页签刷新时后台补，给它时间落盘
@@ -312,6 +327,21 @@ internal static class InstanceDump
                 var channel = item.HasChannel ? $"[{item.ChannelBadge}]" : "[ ]";
 
                 lines.Add($"    {badge}{channel} {(item.HasUpdate ? "可升级" : "  -  ")}  {item.Name,-30} {item.UpdateText}");
+            }
+
+            if (args.Any(arg => string.Equals(arg, "--exercise-upgrade-all", StringComparison.OrdinalIgnoreCase)))
+            {
+                lines.Add($"[全部升级] 命令可用={viewModel.UpgradeAllCommand.CanExecute(null)}");
+
+                if (viewModel.UpgradeAllCommand.CanExecute(null))
+                {
+                    viewModel.UpgradeAllCommand.Execute(null);
+                    for (var i = 0; i < 600 && viewModel.IsUpgradingAll; i++) Thread.Sleep(1000);
+                }
+
+                lines.Add($"    结束 status={viewModel.Status} 可升级={viewModel.UpdateCount}");
+                foreach (var item in viewModel.Content)
+                    lines.Add($"    {item.Name}  {item.MetaText}");
             }
 
             // 默认只看正式版；打开"含测试版"再查一次，验证 beta 能被认出来

@@ -383,6 +383,18 @@ BMC4 最新版也一样（发布时它们还存在）。
 （mods → `mc-mods`，resourcepacks → `texture-packs`，shaderpacks → `shader-packs`），
 BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
 
+### 23. 一键全部升级（2026-10-28 晚）
+
+模组页「检查更新」旁新增 `全部升级（N）`（`UpgradeAllCommand`），只有存在可升级项时显示：
+
+- 按列表顺序逐个下载新版本 → 删旧版（进 `.trash`）→ 全部结束后统一刷新列表；
+- 单项失败不中断后面，结束时状态栏汇总成功数 + 前几条失败原因；
+- 升级期间按钮显示「升级中…」，检查更新暂时禁用；完成后 UpdateCount 归零。
+
+实测（1.20.1-fabric 实例放入 Sodium 0.5.9）：检查到 1 个可升级
+（0.5.9 → 0.5.13-fabric），全部升级后 mods 只剩 0.5.13、旧版进 `.trash`、
+状态「全部升级完成：1 个模组」、再次检查 0 个可升级。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -396,7 +408,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:37，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:46，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

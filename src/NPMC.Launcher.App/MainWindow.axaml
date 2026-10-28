@@ -1271,6 +1271,9 @@
 
           <Button Content="{Binding CheckUpdatesText}" Command="{Binding CheckUpdatesCommand}"
                   IsVisible="{Binding IsModsTab}" />
+          <Button Content="{Binding UpgradeAllText}" Command="{Binding UpgradeAllCommand}"
+                  IsVisible="{Binding HasUpdates}"
+                  ToolTip.Tip="按顺序升级所有可升级模组；失败会汇总，不会中断后面的项" />
 
           <CheckBox Content="隐藏整合包自带模组" IsChecked="{Binding HidePackMods, Mode=TwoWay}"
                     IsVisible="{Binding CanHidePackMods}" FontSize="11" VerticalAlignment="Center"
