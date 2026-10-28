@@ -90,6 +90,47 @@ public class SkinAgentTests : IDisposable
             new LauncherPaths(_root), version, OfflineAccount, clientJarPath: null);
 
         Assert.NotNull(launch);
+
+        // Fabric 的 LoaderUtil.verifyClasspath 会数系统类加载器里的 ASM：
+        // -javaagent 的 jar 本身就在系统类路径上，所以它不能带 ASM，实现必须走 impl 子加载器。
+        Assert.Contains("impl=", launch!.Argument);
+    }
+
+    [Fact]
+    public void Javaagent_entry_jar_carries_no_asm()
+    {
+        var version = Version("6.0.54", "net.fabricmc:fabric-loader:0.15.11");
+
+        var launch = SkinAgentProvider.TryCreateLaunch(
+            new LauncherPaths(_root), version, OfflineAccount, clientJarPath: null);
+
+        Assert.NotNull(launch);
+
+        // 形如 -javaagent:<entry>=impl=<impl>;port=...
+        var argument = launch!.Argument["-javaagent:".Length..];
+        var entry = argument[..argument.IndexOf('=')];
+
+        Assert.True(File.Exists(entry), entry);
+
+        using var archive = System.IO.Compression.ZipFile.OpenRead(entry);
+
+        Assert.DoesNotContain(
+            archive.Entries,
+            item => item.FullName.StartsWith("org/objectweb/asm/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Legacy_agent_is_self_contained()
+    {
+        // 1.7.10 的 Forge 不做重复 ASM 检查，legacy jar 保持自包含（含桥接与 ASM），不传 impl
+        var version = Version("1.5.3", "net.minecraftforge:forge:1.7.10-10.13.4.1614");
+
+        var launch = SkinAgentProvider.TryCreateLaunch(
+            new LauncherPaths(_root), version, OfflineAccount, clientJarPath: null);
+
+        Assert.NotNull(launch);
+        Assert.DoesNotContain("impl=", launch!.Argument);
+        Assert.Contains("nmpc-skin-agent-legacy.jar", launch.Argument);
     }
 
     [Fact]

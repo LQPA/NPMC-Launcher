@@ -11,9 +11,14 @@ namespace NPMC.Launcher.Infrastructure.Skins;
 /// <summary>
 /// 离线皮肤 javaagent 的启动参数与部署。
 ///
-/// 两个 jar：
-///   - modern（Java 17+）：authlib 4~7，1.16~1.20.1 / 1.21.6 / 26.1.2；
-///   - legacy（Java 8）：authlib 1~3，1.7.10~1.15.x，只替换老的 getTextures。
+/// 三个 agent jar（加载器位置各不相同，见 tools\skin-agent\build.ps1）：
+///   - nmpc-skin-agent.jar：<c>-javaagent</c> 的薄入口（AgentStub），**不含 ASM**。
+///     JVM 会把这个 jar 放进系统类加载器，Fabric 的 <c>verifyClasspath</c> 能看到里面
+///     的 <c>org/objectweb/asm</c>；一旦带 ASM 就与 Fabric 自带的 asm 重复，直接拒绝启动。
+///     所以它只负责用子加载器加载 impl jar。
+///   - nmpc-skin-agent-impl.jar（Java 17+，含 ASM）：authlib 4~7，1.16~1.20.1 / 1.21.6 / 26.1.2；
+///   - nmpc-skin-agent-legacy.jar（Java 8，自包含）：authlib 1~3，1.7.10~1.15.x，只替换老的 getTextures。
+///   - nmpc-skin-bridge.jar：被改写的游戏代码调用的桥接类，追加到 bootstrap。
 ///
 /// agent 会：起本地皮肤 API、只把 session host 指到本地（4~7）、
 /// 替换取皮肤入口返回本地 PNG，绕开 Mojang 签名校验。
@@ -21,11 +26,13 @@ namespace NPMC.Launcher.Infrastructure.Skins;
 /// </summary>
 public static class SkinAgentProvider
 {
-    private const string ModernResource = "NPMC.Launcher.Infrastructure.SkinAgent.jar";
+    private const string StubResource = "NPMC.Launcher.Infrastructure.SkinAgent.jar";
+    private const string ImplResource = "NPMC.Launcher.Infrastructure.SkinAgent.Impl.jar";
     private const string LegacyResource = "NPMC.Launcher.Infrastructure.SkinAgent.Legacy.jar";
     private const string BridgeResource = "NPMC.Launcher.Infrastructure.SkinAgentBridge.jar";
 
-    private static readonly Lazy<byte[]> ModernBytes = new(() => ReadResource(ModernResource));
+    private static readonly Lazy<byte[]> StubBytes = new(() => ReadResource(StubResource));
+    private static readonly Lazy<byte[]> ImplBytes = new(() => ReadResource(ImplResource));
     private static readonly Lazy<byte[]> LegacyBytes = new(() => ReadResource(LegacyResource));
     private static readonly Lazy<byte[]> BridgeBytes = new(() => ReadResource(BridgeResource));
 
@@ -61,8 +68,8 @@ public static class SkinAgentProvider
 
         if (resolved is not { } skin) return null;
 
-        var jar = EnsureAgentJar(launcher, modern);
-        if (jar is null) return null;
+        var agent = EnsureAgentJars(launcher, modern);
+        if (agent is not { } jars) return null;
 
         var bridge = EnsureBridgeJar(launcher);
         if (bridge is null) return null;
@@ -75,11 +82,19 @@ public static class SkinAgentProvider
 
         var log = Path.Combine(logDirectory, "skin-agent.log");
 
-        var argument = $"-javaagent:{jar}=port={port};name={account.Username};uuid={account.Uuid}"
-                       + $";skin={skin.Item1};model={skin.Item2};log={log}"
-                       + $";bridge={bridge}";
+        // modern 的 impl jar 由 AgentStub 用子加载器加载，路径必须显式传进去；
+        // legacy jar 自包含（老 Forge 不做重复 ASM 检查），不需要 impl。
+        var settings = new List<string>();
+        if (jars.Impl is { Length: > 0 } impl) settings.Add($"impl={impl}");
+        settings.Add($"port={port}");
+        settings.Add($"name={account.Username}");
+        settings.Add($"uuid={account.Uuid}");
+        settings.Add($"skin={skin.Item1}");
+        settings.Add($"model={skin.Item2}");
+        settings.Add($"log={log}");
+        settings.Add($"bridge={bridge}");
 
-        return new SkinAgentLaunch(argument, port.Value);
+        return new SkinAgentLaunch($"-javaagent:{jars.Entry}=" + string.Join(";", settings), port.Value);
     }
 
     /// <summary>agent 支持的 authlib 主版本：1~7。</summary>
@@ -157,46 +172,66 @@ public static class SkinAgentProvider
         }
     }
 
-    private static string? EnsureAgentJar(LauncherPaths launcher, bool modern)
+    /// <summary>
+    /// 把 agent 需要的 jar 落到 <c>cache\agent</c>。
+    /// modern 返回 (stub 入口, impl)；legacy 的 jar 自包含，Impl 为 null。
+    /// </summary>
+    private static (string Entry, string? Impl)? EnsureAgentJars(LauncherPaths launcher, bool modern)
     {
-        var bytes = modern ? ModernBytes.Value : LegacyBytes.Value;
-        if (bytes.Length == 0) return null;
-
         var directory = Path.Combine(launcher.Root, "cache", "agent");
-        Directory.CreateDirectory(directory);
-
-        var path = Path.Combine(directory, modern ? "nmpc-skin-agent.jar" : "nmpc-skin-agent-legacy.jar");
 
         try
         {
-            // 直接覆盖：只比较长度时，改了实现但大小相同的 jar 会被留下来，
-            // 表现就是"皮肤还是上一次缓存的那张"。
-            File.WriteAllBytes(path, bytes);
+            Directory.CreateDirectory(directory);
         }
         catch
         {
             return null;
         }
 
-        return path;
+        if (!modern)
+        {
+            var legacy = WriteAgentFile(directory, "nmpc-skin-agent-legacy.jar", LegacyBytes.Value);
+            return legacy is null ? null : (legacy, null);
+        }
+
+        var stub = WriteAgentFile(directory, "nmpc-skin-agent.jar", StubBytes.Value);
+        if (stub is null) return null;
+
+        var impl = WriteAgentFile(directory, "nmpc-skin-agent-impl.jar", ImplBytes.Value);
+        return impl is null ? null : (stub, impl);
     }
 
     /// <summary>
     /// 桥接 jar：只有它会被追加到 bootstrap，供模块化加载器解析。
-    /// agent 的 ASM 必须留在系统类路径一侧，否则同一个 ASM 类会被两个加载器各定义一次。
+    /// 它的类由被改写的游戏代码直接调用，必须落在 bootstrap；ASM 则留在 impl 的子加载器里。
     /// </summary>
     private static string? EnsureBridgeJar(LauncherPaths launcher)
     {
-        var bytes = BridgeBytes.Value;
-        if (bytes.Length == 0) return null;
-
         var directory = Path.Combine(launcher.Root, "cache", "agent");
-        Directory.CreateDirectory(directory);
-
-        var path = Path.Combine(directory, "nmpc-skin-bridge.jar");
 
         try
         {
+            Directory.CreateDirectory(directory);
+        }
+        catch
+        {
+            return null;
+        }
+
+        return WriteAgentFile(directory, "nmpc-skin-bridge.jar", BridgeBytes.Value);
+    }
+
+    private static string? WriteAgentFile(string directory, string name, byte[] bytes)
+    {
+        if (bytes.Length == 0) return null;
+
+        var path = Path.Combine(directory, name);
+
+        try
+        {
+            // 直接覆盖：只比较长度时，改了实现但大小相同的 jar 会被留下来，
+            // 表现就是"皮肤还是上一次缓存的那张"。
             File.WriteAllBytes(path, bytes);
         }
         catch

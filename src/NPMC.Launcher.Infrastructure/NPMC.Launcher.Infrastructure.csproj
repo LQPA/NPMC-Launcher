@@ -12,9 +12,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 离线皮肤 javaagent（tools\skin-agent 的构建产物，打进程序以便单文件发布） -->
+    <!-- 离线皮肤 javaagent（tools\skin-agent 的构建产物，打进程序以便单文件发布）。
+         nmpc-skin-agent.jar 是 -javaagent 的薄入口（AgentStub，**不含 ASM**）。
+         JVM 会把 -javaagent 的 jar 放进系统类加载器，Fabric 的 verifyClasspath 数得到
+         里面的 org/objectweb/asm —— 所以带 ASM 的实现必须拆成独立的 impl jar。 -->
     <EmbeddedResource Include="Skins\Agent\nmpc-skin-agent.jar"
                       LogicalName="NPMC.Launcher.Infrastructure.SkinAgent.jar" />
+    <EmbeddedResource Include="Skins\Agent\nmpc-skin-agent-impl.jar"
+                      LogicalName="NPMC.Launcher.Infrastructure.SkinAgent.Impl.jar" />
     <EmbeddedResource Include="Skins\Agent\nmpc-skin-agent-legacy.jar"
                       LogicalName="NPMC.Launcher.Infrastructure.SkinAgent.Legacy.jar" />
     <!-- 桥接类单独一个 jar：只有它需要挂到 bootstrap（见 SkinAgent.prepareBootstrap） -->

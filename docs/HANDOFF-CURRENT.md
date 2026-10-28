@@ -1,48 +1,86 @@
-# NPMC Launcher 交接（2026-10-28 19:25）
+# NPMC Launcher 交接（2026-10-28 19:45）
 
-## ⚠ 下一会话先读这一段（2026-10-28 晚）
+## ⚠ 下一会话先读这一段（2026-10-28 晚，已实测通过）
 
-**正在做的事：离线皮肤 agent 的加载器兼容。** 今天踩了三个坑并修掉两个半：
+**离线皮肤 agent 的加载器兼容已经做完并验证**：NeoForge 1.21.1 与 Fabric 1.21.11
+（0.20.1 loader）都能正常启动、皮肤生效。这两处结论都是今晚实机跑出来的，日志在
+`E:\aaaa\data\logs\skin-agent.log`。
 
-1. **Fabric 拒绝启动**：agent jar 内嵌 ASM，Fabric 的 `LoaderUtil.verifyClasspath`
-   发现两份 `org.objectweb.asm` 直接 abort。→ 现在 agent 的 ASM 只在 `-javaagent`
-   侧加载，**不追加到 bootstrap**，Fabric 看不到；桥接类拆成独立小 jar
-   （`nmpc-skin-bridge.jar`）才进 bootstrap。
-2. **ASM 类被两个加载器混用**：之前把整个 agent jar 追加到 bootstrap，导致
-   `ClassWriter` 由 App 加载器定义、`MethodVisitor` 却从 bootstrap 解析 →
-   `VerifyError: Bad type in putfield/putstatic`，所有转换失败、皮肤静默回退。
-   → 改成「bootstrap 只放桥接 jar」。
-3. **进程不退出**：`com.sun.net.httpserver` 的 dispatcher 线程不是 daemon，游戏启动失败后
-   JVM 被吊住，启动器一直显示「运行中」。→ 已换成 `ServerSocket` + daemon 线程。
+### 1. Fabric 拒绝启动 = -javaagent 的 jar 自带 ASM
 
-**当前状态（19:25 构建，已同步 `E:\aaaa`）**：NeoForge 1.21.1 在 18:53 那版实测**皮肤正常**
-（当时验证过 `texturesFor: ours=true`），但 19:10 之后接连引入上面两个回归；
-最新一版（19:24，桥接 jar 方案）**还没有游戏内验证**。
+实测（19:32 的探针）：`-javaagent:foo.jar` 的 jar **本身就在系统类加载器的搜索路径里**，
+`ClassLoader.getSystemClassLoader().getResources("org/objectweb/asm/ClassReader.class")`
+能直接返回它。Fabric 的 `LoaderUtil.verifyClasspath()` 数的正是这个，于是
+「Fabric 自带 asm-9.10.1 + agent jar 里的 ASM」= 两份 → abort：
 
-**下一会话第一件事**：让用户用 19:24 之后的 exe 跑一次
-`All-the-Mods-10`（NeoForge 1.21.1）和 `1.21.11-fabric-0.20.1`，进世界看皮肤，然后看
-`E:\aaaa\data\logs\skin-agent.log`：
+```
+IllegalStateException: duplicate ASM classes found on classpath:
+  jar:file:/.../asm-9.10.1.jar!/org/objectweb/asm/ClassReader.class,
+  jar:file:/.../nmpc-skin-agent.jar!/org/objectweb/asm/ClassReader.class
+```
 
-- 正常应有 `bootstrap search: ...\nmpc-skin-bridge.jar`、`module support installed`、
-  `transforming ...YggdrasilMinecraftSessionService`、`replacing ...unpackTextures`，
-  以及桥接日志 `texturesFor: ours=true` 和 `texture ... (bytes)`；
-- 若 `transform failed`，看是不是别的版本差异（1.21.11 的 authlib 7 方法签名）；
-- 若 `ours=false`，看 `property check` 那行打印的 port / decoded 前缀。
+所以「不追加到 bootstrap」还不够：**-javaagent 的 jar 里一个 ASM 类都不能有**。
+现在的结构（4 个 jar，见 `tools\skin-agent\build.ps1` 顶部注释）：
 
-**不要**再把整个 agent jar 追加到 bootstrap（会重现 VerifyError），也**不要**用字节替换
-重定位 ASM（会改坏字节码）。桥接类必须保持「纯反射、不 import authlib、配置读系统属性」。
+| jar | 谁加载 | 内容 |
+|---|---|---|
+| `nmpc-skin-agent.jar` | 系统类加载器（-javaagent） | 只有 `AgentStub`（3.8 KB，无 ASM）；用子加载器加载 impl |
+| `nmpc-skin-agent-impl.jar` | AgentStub 的 `URLClassLoader`（ASM child-first） | 全部实现 + ASM 9.11（modern，Java 17） |
+| `nmpc-skin-agent-legacy.jar` | 系统类加载器（Java 8） | 自包含（含 ASM、桥接类），1.7.10 用；老 Forge 不查重复 ASM |
+| `nmpc-skin-bridge.jar` | bootstrap（`appendToBootstrapClassLoaderSearch`） | 只有被改写的游戏代码调用的桥接类，纯反射 |
+
+- 启动器把 impl 路径写进 agent 参数（`impl=...`），AgentStub 找不到就取自己旁边的
+  `nmpc-skin-agent-impl.jar`；任何失败只写日志、不抛异常（最差没皮肤，不会崩）。
+- ASM 在子加载器里是 **child-first**：必须保证「带 ASM 的类」和「ASM」来自同一个 jar，
+  否则就是上次那个 `VerifyError: Bad type in putfield/putstatic`。
+
+### 2. 1.21.11 皮肤不生效 = authlib 7 要求三个 host 属性全有
+
+authlib 7（1.21.11）的 `EnvironmentParser.fromHostNames()` 要求
+`minecraft.api.session.host`、`minecraft.api.services.host`、`minecraft.api.profiles.host`
+**三个都存在**，缺一个就整体忽略：
+
+```
+Ignoring hosts properties. All need to be set: [minecraft.api.services.host,
+  minecraft.api.session.host, minecraft.api.profiles.host]
+Environment: Environment[sessionHost=https://sessionserver.mojang.com, ... name=PROD]
+```
+
+于是客户端去 `sessionserver.mojang.com` 查离线账号的 profile（超时/查不到）→ 没有
+textures 属性 → `unpackTextures` 根本不会被调用 → 皮肤静默回退。
+authlib 6（1.21.1）只读 session + services，所以 1.21.1 一直是好的。
+`SkinAgent.premain` 现在把三个（外加老的 auth/account）都设上：session 指本地，
+services / profiles 指官方；这样 `fetchProfile` 会打到本地皮肤 API 拿到带 textures
+的 profile，再由被替换的 `unpackTextures` 返回本地纹理。
+
+### 3. Fabric 下 `SkinManager` 钩子匹配不上，但不影响皮肤
+
+Fabric 运行时游戏类用 intermediary 名（`net/minecraft/class_xxxx` /
+`method_xxxx`），所以 transformer 里写死的
+`net/minecraft/client/resources/SkinManager` 不会命中（NeoForge 是 mojmap，能命中）。
+皮肤走的是 authlib 的 `unpackTextures` 替换 + 本地 profile 接口，两条路径都验证过
+`texturesFor: ours=true`。以后要是某个版本必须在 SkinManager 层接管，得按
+intermediary 名再匹配一次（先看 `skinmanager:` 那几行有没有打出来）。
+
+**不要**再把带 ASM 的 jar 直接当 `-javaagent`；也**不要**用字节替换重定位 ASM
+（会改坏字节码）。桥接类必须保持「纯反射、不 import authlib、配置读系统属性」。
+
+**逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
+Forge/NeoForge/Fabric 的类名与加载器差异、测试清单、26.2/26.3 的缺口）。
+用户已确认 **NeoForge 1.21.1 与 Fabric 1.21.11 皮肤都生效**；其它版本由用户后续自测。
 
 ## 当前状态
 
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（19:24，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（19:38，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
-  整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**皮肤 agent 的最终验证在下一会话**。
-- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 325 通过 + 2 个既有失败
+  整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已在 NeoForge 1.21.1 +
+  Fabric 1.21.11 实测通过**，其它版本待用户自测。
+- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 327 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
@@ -404,20 +442,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 
 ## 下次开工先做（2026-10-28 更新）
 
-1. **搜索质量**（小）：①「硬核科技」过滤（Modrinth technology 太宽）②末页探测
+1. **离线皮肤：authlib 8/9/10（26.2 / 26.3）**（中）：现在 `SupportsSkinAgent` 只认 1–7，
+   这两个版本没有皮肤（也不会崩）。做法见 `docs/skin-compatibility.md` §7：
+   类名换成 `com/mojang/authlib/services/MinecraftServicesSessionService`，
+   或拦 `fetchProfile` / 在 SkinManager 层接管。注意 authlib 10 的环境只认
+   `minecraft.api.discovery.host` / `env`，旧的 session host 写法失效。
+2. **用户自测其它版本**（小）：按 `docs/skin-compatibility.md` §6 的表跑
+   1.20.1 Forge、1.21.6、26.1.2、1.7.10、Quilt，确认各自的钩子/日志。
+3. **搜索质量**（小）：①「硬核科技」过滤（Modrinth technology 太宽）②末页探测
    `total_hits`/CF `pagination.totalCount`，避免整页时出现空页。
-2. **一键全部升级**（小~中）：目前检查更新后要逐行点「升级」；要做批量、进度与失败汇总。
-3. **Fabric/Quilt 的 Low 完整性**（中）：`java.exe` 是 Low 时 `SetFileSecurity` 失败（错误 5），
+4. **一键全部升级**（小~中）：目前检查更新后要逐行点「升级」；要做批量、进度与失败汇总。
+5. **Fabric/Quilt 的 Low 完整性**（中）：`java.exe` 是 Low 时 `SetFileSecurity` 失败（错误 5），
    重映射会挂；正解是让 JVM 的临时/remap 目录落到可写位置，而不是硬抬标签。
-4. **补 VM 层测试**（中）：这轮踩过的坑（Avalonia CanExecute 只求值一次、facet 分组、
+6. **补 VM 层测试**（中）：这轮踩过的坑（Avalonia CanExecute 只求值一次、facet 分组、
    识别缓存新增字段的反序列化、版本号重复时的 Display、数据包 loaders 过滤、mrpack 选项）
    都值得写成测试。
-5. **CurseForge 整合包导出**（中，可选）：CF 的 `manifest.json` 需要 projectID/fileID，
+7. **CurseForge 整合包导出**（中，可选）：CF 的 `manifest.json` 需要 projectID/fileID，
    只能靠 CF 的指纹接口（要 API key）反查；Modrinth 侧已经是 mrpack，CF 侧需要另做映射。
-6. 顺带可做：资源包/光影分类中译、CF 资源包分类映射、右侧详情/计划布局、发布签名与
+8. 顺带可做：资源包/光影分类中译、CF 资源包分类映射、右侧详情/计划布局、发布签名与
    SHA256 清单、用户手册。
 
-已完成：数据包下载界面、导出整合包表单（mrpack）。
+已完成：数据包下载界面、导出整合包表单（mrpack）、离线皮肤在 NeoForge 1.21.1 /
+Fabric 1.21.11 上生效（含 -javaagent 拆分、authlib 7 三个 host 属性）。
 
 ## 本次会话新增的诊断入口（收尾时整理）
 

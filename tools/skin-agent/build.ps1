@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Root = 'D:\Agents\NPMC-Launcher',
     [string]$JavaHome = 'D:\Agents\NPMC-Launcher\.data\runtime\java-runtime-gamma'
 )
@@ -8,17 +8,25 @@ $ErrorActionPreference = 'Stop'
 $src = Join-Path $Root 'tools\skin-agent\src'
 $out = Join-Path $Root 'tools\skin-agent\out'
 $asm = Join-Path $Root '.data\libraries\org\ow2\asm\asm\9.11\asm-9.11.jar'
+$resourceDir = Join-Path $Root 'src\NPMC.Launcher.Infrastructure\Skins\Agent'
 
 $javac = Join-Path $JavaHome 'bin\javac.exe'
 $jarTool = Join-Path $JavaHome 'bin\jar.exe'
 
-# The agent jar carries its own copy of ASM because a vanilla client has none. It
-# is only ever loaded through -javaagent, never from the game's class path, so
-# Fabric's duplicate-ASM check never sees it. The bridge classes that transformed
-# game code calls are the only thing that must sit on the bootstrap loader
-# (module loaders can only link to bootstrap), so they get their own tiny jar.
+# 四个 jar，各有各的加载器位置 —— 混在一起就会踩 Fabric / ModLauncher 的坑：
+#
+#   nmpc-skin-agent.jar        -javaagent 入口（AgentStub），**不含 ASM**。
+#                              JVM 会把这个 jar 放进系统类加载器，Fabric 的
+#                              verifyClasspath 数得到里面的 org/objectweb/asm，
+#                              所以它里面一个 ASM 类都不能有。
+#   nmpc-skin-agent-impl.jar   真正的实现 + ASM，由 AgentStub 用子加载器加载；
+#                              系统类路径与 bootstrap 都看不到它的 ASM。
+#   nmpc-skin-agent-legacy.jar Java 8（1.7.10/1.12.2）用，自包含（含 ASM、桥接类），
+#                              老 Forge 不做重复 ASM 检查，保持原样不动。
+#   nmpc-skin-bridge.jar       只有被改写的游戏代码会调用的桥接类；必须挂到 bootstrap，
+#                              因为模块化加载器（ModLauncher / Fabric）链接不到系统类路径。
 
-# unpack ASM once, it gets copied into both agent jars
+# unpack ASM once, it gets copied into the two impl jars
 $asmExtract = Join-Path $out 'asm-extract'
 Remove-Item $asmExtract -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $asmExtract -Force | Out-Null
@@ -36,19 +44,26 @@ function Add-Asm {
 function Write-Jar {
     param(
         [string]$Name,
-        [string]$Classes
+        [string]$Classes,
+        [string]$Premain
     )
 
     $manifest = Join-Path $out "$Name-MANIFEST.MF"
-    @(
-        'Manifest-Version: 1.0'
-        'Premain-Class: nmpc.skin.SkinAgent'
-        'Agent-Class: nmpc.skin.SkinAgent'
-        'Can-Retransform-Classes: true'
-    ) | Set-Content $manifest -Encoding ASCII
+    if ([string]::IsNullOrEmpty($Premain)) {
+        @('Manifest-Version: 1.0') | Set-Content $manifest -Encoding ASCII
+        $target = Join-Path $out "$Name.jar"
+        & $jarTool --create --file $target --manifest $manifest -C $Classes .
+    } else {
+        @(
+            'Manifest-Version: 1.0'
+            "Premain-Class: $Premain"
+            "Agent-Class: $Premain"
+            'Can-Retransform-Classes: true'
+        ) | Set-Content $manifest -Encoding ASCII
+        $target = Join-Path $out "$Name.jar"
+        & $jarTool --create --file $target --manifest $manifest -C $Classes .
+    }
 
-    $target = Join-Path $out "$Name.jar"
-    & $jarTool --create --file $target --manifest $manifest -C $Classes .
     if ($LASTEXITCODE -ne 0) { throw "jar failed: $Name" }
 
     Write-Host "jar: $target"
@@ -58,11 +73,23 @@ $nativePreference = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 
 $allSources = Get-ChildItem $src -Recurse -Filter '*.java' | Select-Object -ExpandProperty FullName
+$bridgeSources = @(
+    (Join-Path $src 'nmpc\skin\SkinBridgeModern.java')
+    (Join-Path $src 'nmpc\skin\SkinBridgeLegacy.java')
+)
 $legacySources = @($allSources | Where-Object {
-        $_ -notmatch 'SkinBridgeModern\.java$' -and $_ -notmatch 'SkinModuleSupport\.java$'
+        $_ -notmatch 'SkinBridgeModern\.java$' -and $_ -notmatch 'SkinModuleSupport\.java$' -and
+        $_ -notmatch 'AgentStub\.java$'
     })
+# modern impl 不带桥接类：桥接类只存在于 bootstrap 的 bridge jar 里，
+# 否则同一个类会被两个加载器各定义一次。
+$implSources = @($allSources | Where-Object {
+        $_ -notmatch 'SkinBridgeModern\.java$' -and $_ -notmatch 'SkinBridgeLegacy\.java$' -and
+        $_ -notmatch 'AgentStub\.java$'
+    })
+$stubSources = @((Join-Path $src 'nmpc\skin\AgentStub.java'))
 
-# 1) legacy agent: Java 8 runtime (1.7.10 / 1.12.2)
+# 1) legacy agent: Java 8 runtime (1.7.10 / 1.12.2)，自包含
 $legacyClasses = Join-Path $out 'agent-legacy-classes'
 Remove-Item $legacyClasses -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $legacyClasses -Force | Out-Null
@@ -75,39 +102,48 @@ $null = & $javac --release 8 -nowarn -encoding UTF-8 -cp $legacyCp -d $legacyCla
 if ($LASTEXITCODE -ne 0) { throw 'javac failed: legacy agent' }
 Add-Asm -Classes $legacyClasses
 
-# 2) modern agent: Java 17+
-$modernClasses = Join-Path $out 'agent-classes'
-Remove-Item $modernClasses -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $modernClasses -Force | Out-Null
+# 2) modern impl: Java 17+，含 ASM，靠 AgentStub 的子加载器加载
+$implClasses = Join-Path $out 'agent-classes'
+Remove-Item $implClasses -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $implClasses -Force | Out-Null
 $modernCp = @(
     (Join-Path $Root '.data\libraries\com\mojang\authlib\7.0.63\authlib-7.0.63.jar')
     (Join-Path $Root '.data\libraries\com\google\guava\guava\33.3.1-jre\guava-33.3.1-jre.jar')
     $asm
 ) -join ';'
-$null = & $javac --release 17 -nowarn -encoding UTF-8 -cp $modernCp -d $modernClasses @allSources 2>&1
+$null = & $javac --release 17 -nowarn -encoding UTF-8 -cp $modernCp -d $implClasses @implSources 2>&1
 if ($LASTEXITCODE -ne 0) { throw 'javac failed: modern agent' }
-Add-Asm -Classes $modernClasses
+Add-Asm -Classes $implClasses
 
-$ErrorActionPreference = $nativePreference
+# 3) stub: Java 8 字节码，只有 AgentStub 一个类，绝不带 ASM
+$stubClasses = Join-Path $out 'agent-stub-classes'
+Remove-Item $stubClasses -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $stubClasses -Force | Out-Null
+$null = & $javac --release 8 -nowarn -encoding UTF-8 -d $stubClasses @stubSources 2>&1
+if ($LASTEXITCODE -ne 0) { throw 'javac failed: agent stub' }
 
-# 3) bridge jar: only what the transformed game code calls, reflection-only
+# 4) bridge jar: only what the transformed game code calls, reflection-only
 $bridgeClasses = Join-Path $out 'bridge-classes'
 Remove-Item $bridgeClasses -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $bridgeClasses -Force | Out-Null
-$bridgeSources = @(
-    (Join-Path $src 'nmpc\skin\SkinBridgeModern.java')
-    (Join-Path $src 'nmpc\skin\SkinBridgeLegacy.java')
-)
-$ErrorActionPreference = 'Continue'
 $null = & $javac --release 8 -nowarn -encoding UTF-8 -d $bridgeClasses @bridgeSources 2>&1
-$ErrorActionPreference = $nativePreference
 if ($LASTEXITCODE -ne 0) { throw 'javac failed: bridge' }
 
-Write-Jar -Name 'nmpc-skin-agent-legacy' -Classes $legacyClasses
-Write-Jar -Name 'nmpc-skin-agent' -Classes $modernClasses
+$ErrorActionPreference = $nativePreference
+
+Write-Jar -Name 'nmpc-skin-agent-legacy' -Classes $legacyClasses -Premain 'nmpc.skin.SkinAgent'
+Write-Jar -Name 'nmpc-skin-agent-impl' -Classes $implClasses -Premain ''
+Write-Jar -Name 'nmpc-skin-agent' -Classes $stubClasses -Premain 'nmpc.skin.AgentStub'
 
 @('Manifest-Version: 1.0') | Set-Content (Join-Path $out 'nmpc-skin-bridge-MANIFEST.MF') -Encoding ASCII
 $bridgeTarget = Join-Path $out 'nmpc-skin-bridge.jar'
 & $jarTool --create --file $bridgeTarget --manifest (Join-Path $out 'nmpc-skin-bridge-MANIFEST.MF') -C $bridgeClasses .
 if ($LASTEXITCODE -ne 0) { throw 'jar failed: bridge' }
 Write-Host "jar: $bridgeTarget"
+
+# 资源目录是启动器编译时嵌进程序集的那一份，构建完直接覆盖，避免"忘了复制"。
+New-Item -ItemType Directory -Path $resourceDir -Force | Out-Null
+foreach ($name in @('nmpc-skin-agent.jar', 'nmpc-skin-agent-impl.jar', 'nmpc-skin-agent-legacy.jar', 'nmpc-skin-bridge.jar')) {
+    Copy-Item (Join-Path $out $name) (Join-Path $resourceDir $name) -Force
+    Write-Host "copy: $(Join-Path $resourceDir $name)"
+}

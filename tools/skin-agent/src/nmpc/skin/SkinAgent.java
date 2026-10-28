@@ -53,13 +53,18 @@ public final class SkinAgent {
             log("skin server failed: " + error);
         }
 
-        // 只劫持 session（皮肤），auth/account/services 保持官方；
-        // 四个属性必须同时存在，否则 authlib 会整体退回默认环境。
+        // 只劫持 session（皮肤），auth/account/services/profiles 保持官方。
         // 1.7.10 的 authlib 不读这些属性，设置了也无害。
         System.setProperty("minecraft.api.auth.host", "https://authserver.mojang.com");
         System.setProperty("minecraft.api.account.host", "https://api.mojang.com");
         System.setProperty("minecraft.api.session.host", base());
         System.setProperty("minecraft.api.services.host", "https://api.minecraftservices.com");
+        // authlib 6（1.21.1）只读 session + services；authlib 7（1.21.11+）的
+        // EnvironmentParser 要求 session / services / profiles **三个全有**，
+        // 缺一个就整体忽略（日志：Ignoring hosts properties），于是客户端仍然去
+        // sessionserver.mojang.com 查离线账号的 profile —— 拿不到 textures 属性，
+        // 皮肤也就永远不生效（1.21.11 Fabric 实测）。
+        System.setProperty("minecraft.api.profiles.host", "https://api.mojang.com");
 
         try {
             instrumentation.addTransformer(new SkinTransformer());
