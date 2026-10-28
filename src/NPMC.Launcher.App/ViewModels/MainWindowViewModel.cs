@@ -731,6 +731,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (SelectedInstance is not { } instance) return "";
 
+            if (!ExportBundleExtra)
+            {
+                // 只生成下载清单：配置/设置/存档那三个勾选没有意义，界面上也会被置灰
+                var downloads = new List<string>();
+
+                if (ExportIncludeMods)
+                    downloads.Add($"{CountFiles(instance.ModsDirectory, "*.jar", "*.jar.disabled")} 个 Mod");
+                if (ExportIncludeResourcePacks)
+                    downloads.Add($"{CountFiles(instance.ResourcePacksDirectory, "*.zip", "*.zip.disabled")} 个资源包");
+                if (ExportIncludeShaderPacks)
+                    downloads.Add($"{CountFiles(instance.ShaderPacksDirectory, "*.zip", "*.zip.disabled")} 个光影");
+
+                return (downloads.Count == 0
+                           ? "只生成下载清单，但什么都没勾选"
+                           : "只生成下载清单：" + string.Join("、", downloads))
+                       + "；配置、游戏设置、存档都不会打包（上面的三个勾选这次不生效），"
+                       + "无法识别的文件也会被丢掉。";
+            }
+
             var parts = new List<string>();
 
             if (ExportIncludeMods)
@@ -745,8 +764,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             if (parts.Count == 0) return "什么都没勾选：导出的整合包里不会有任何内容。";
 
-            return "将导出：" + string.Join("、", parts)
-                   + (ExportBundleExtra ? "；配置与认不出的文件会打包进 overrides" : "；只写下载清单，不打包任何文件");
+            return "将导出：" + string.Join("、", parts) + "；配置与认不出的文件会打包进 overrides";
         }
     }
 
@@ -831,7 +849,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             ExportStatus = $"已导出 .mrpack：{result.FileCount} 个下载项、"
                            + $"{result.OverrideCount} 个打包文件、{result.UnresolvedCount} 个无法识别"
-                           + $"（{result.Bytes / 1024.0 / 1024.0:F1} MB）";
+                           + $"（{result.Bytes / 1024.0 / 1024.0:F1} MB）"
+                           + (ExportBundleExtra ? "" : "；只生成了下载清单，没有打包任何文件");
             Status = ExportStatus;
             LauncherLog.Write(_launcher.Root, $"导出 mrpack {instance.Name} → {targetPath}");
         }

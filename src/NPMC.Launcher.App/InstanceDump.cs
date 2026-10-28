@@ -752,7 +752,11 @@ internal static class InstanceDump
             {
                 viewModel.SelectedInstance = instance;
                 lines.Add($"    {instance.Name}：名称={viewModel.ExportPackName}");
-                lines.Add($"      摘要={viewModel.ExportSelectionHint}");
+                lines.Add($"      摘要(打包)={viewModel.ExportSelectionHint}");
+
+                viewModel.ExportBundleExtra = false;
+                lines.Add($"      摘要(仅清单)={viewModel.ExportSelectionHint}");
+                viewModel.ExportBundleExtra = true;
             }
         }
 

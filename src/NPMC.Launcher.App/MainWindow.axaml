@@ -1054,15 +1054,15 @@
                   <CheckBox Content="Mod（含已禁用的）" IsChecked="{Binding ExportIncludeMods}"
                             FontSize="12" Width="190" />
                   <CheckBox Content="Mod 配置" IsChecked="{Binding ExportIncludeConfig}"
-                            FontSize="12" Width="150" />
+                            IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="150" />
                   <CheckBox Content="资源包" IsChecked="{Binding ExportIncludeResourcePacks}"
                             FontSize="12" Width="110" />
                   <CheckBox Content="光影包" IsChecked="{Binding ExportIncludeShaderPacks}"
                             FontSize="12" Width="110" />
                   <CheckBox Content="游戏设置" IsChecked="{Binding ExportIncludeSettings}"
-                            FontSize="12" Width="110" />
+                            IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="110" />
                   <CheckBox Content="单人存档（可能很大）" IsChecked="{Binding ExportIncludeSaves}"
-                            FontSize="12" Width="200" />
+                            IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="200" />
                 </WrapPanel>
 
                 <CheckBox Content="把配置、设置、存档与无法识别的文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
