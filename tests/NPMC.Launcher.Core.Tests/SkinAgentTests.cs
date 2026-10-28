@@ -70,6 +70,29 @@ public class SkinAgentTests : IDisposable
     }
 
     [Fact]
+    public void Skips_modern_agent_for_forge_as_well()
+    {
+        // Forge 1.17+ 和 NeoForge 一样走 ModLauncher 的模块化加载器，agent 的类同样不可见
+        var version = Version("4.0.43", "net.minecraftforge:forge:1.20.1-47.2.0");
+
+        var launch = SkinAgentProvider.TryCreateLaunch(
+            new LauncherPaths(_root), version, OfflineAccount, clientJarPath: null);
+
+        Assert.Null(launch);
+    }
+
+    [Fact]
+    public void Skips_modern_agent_for_fabric_as_well()
+    {
+        var version = Version("6.0.54", "net.fabricmc:fabric-loader:0.15.11");
+
+        var launch = SkinAgentProvider.TryCreateLaunch(
+            new LauncherPaths(_root), version, OfflineAccount, clientJarPath: null);
+
+        Assert.Null(launch);
+    }
+
+    [Fact]
     public void Keeps_modern_agent_for_vanilla_versions()
     {
         var version = Version("6.0.54");
