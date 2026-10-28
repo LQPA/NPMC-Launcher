@@ -72,6 +72,7 @@ public final class SkinAgent {
         try {
             System.setProperty("nmpc.skin.url", base() + "/textures/" + skinId() + ".png");
             System.setProperty("nmpc.skin.uuid", uuid);
+            System.setProperty("nmpc.skin.name", name);
             System.setProperty("nmpc.skin.model", model);
             System.setProperty("nmpc.skin.port", String.valueOf(port));
             if (logFile != null) System.setProperty("nmpc.skin.log", logFile.toString());

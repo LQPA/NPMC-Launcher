@@ -156,15 +156,22 @@
     所以拉伸/贴边吸附还能用。顶部原来的"root 路径 + 权限"那一条删了（正式版没必要），
     刷新按钮挪进标题栏。注意 `CanHidePackMods` 现在要求 `IsModsTab`：
     资源包/光影页不再出现「隐藏整合包自带模组」。
-  - **ATM10 创建世界后崩溃 = 离线皮肤 agent（2026-10-28 修复）**：崩溃报告是
+  - **ATM10 创建世界后崩溃 = 离线皮肤 agent（2026-10-28 修复，已实测通过）**：崩溃报告是
     `NoClassDefFoundError: nmpc/skin/SkinBridgeModern`，栈在
     `authlib@6.0.54 YggdrasilMinecraftSessionService.unpackTextures` ←
     `SkinManager`。原因是 1.16+ 的模组加载器（NeoForge/Forge/Fabric）用 ModLauncher
     的模块化类加载器加载 authlib，看不到 `-javaagent` 追加到系统类路径的类。
-    修复：`SkinAgentProvider.TryCreateLaunch` 在 authlib 主版本 ≥4 且
-    `LoaderDetector.Detect` 非空时直接返回 null（1.7.10/1.12 那代 URLClassLoader 仍保留 agent）。
-    新增 `SkinAgentTests` 4 个用例（modern+loader 跳过、vanilla modern 保留、
-    legacy forge 保留、微软账号永不使用）。
+    最终做法（不再跳过模组实例）：
+    - agent jar 追加到 **bootstrap** 类路径（所有加载器的父委派链都能看到）；
+    - `SkinModuleSupport`（只编进 modern jar）给被改写的模块加 **read edge**；
+    - 桥接类全部改纯反射、配置走系统属性：`SkinBridgeModern`（authlib ≥5，
+      `unpackTextures`）与 `SkinBridgeLegacy`（authlib ≤5，`getTextures`）；
+    - 任一准备步骤失败时 `modernReady=false`，不做替换 —— 最差是没皮肤，不会崩；
+    - 踩过的坑：authlib 6/7 的 `Property` 是 record（只有 `value()`，没有 `getValue()`，
+      用错会一直 `ours=false` 返回 EMPTY）；1.21.1 的 `SkinManager` 没有 `get`，只有
+      `getInsecureSkin` / `getOrLoad` / `registerTextures(UUID, …)`。
+    - 独立探针（authlib 7 与 1.5.21）验证：自己的属性返回带本地 URL 的纹理，别人的返回 EMPTY。
+    - `SkinAgentTests` 覆盖 NeoForge / Forge / Fabric 都挂 agent、原版保留、微软账号不用。
   - **权限状态（2026-10-28 重装后）**：用户完整删除 `data`/`minecraft`/`runtime` 重新下载后，
     `data`、`minecraft`、`runtime`、`java.exe`、`cache\tmp\game` 全部**没有 Low 标签**
     （继承 Medium）——之前那个"java.exe 是 Low、%TEMP% 写不进"的根源消失；

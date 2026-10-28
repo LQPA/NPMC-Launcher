@@ -150,13 +150,13 @@ final class SkinTransformer implements ClassFileTransformer {
 
                         method.visitCode();
                         method.visitVarInsn(Opcodes.ALOAD, 1);
-                        method.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridge", "isLocal",
-                                "(Lcom/mojang/authlib/GameProfile;)Z", false);
+                        method.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridgeLegacy", "isLocal",
+                                "(Ljava/lang/Object;)Z", false);
                         method.visitJumpInsn(Opcodes.IFEQ, notLocal);
 
                         method.visitVarInsn(Opcodes.ALOAD, 1);
-                        method.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridge", "textures",
-                                "(Lcom/mojang/authlib/GameProfile;)Ljava/util/Map;", false);
+                        method.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridgeLegacy", "textures",
+                                "(Ljava/lang/Object;)Ljava/util/Map;", false);
                         method.visitInsn(Opcodes.ARETURN);
 
                         method.visitLabel(notLocal);
@@ -192,22 +192,6 @@ final class SkinTransformer implements ClassFileTransformer {
             SkinAgent.log(builder.toString());
             return null;
         }
-    }
-
-    /** return SkinBridge.textures(profile) */
-    private static MethodVisitor replaceOld(MethodVisitor target) {
-        return new MethodVisitor(ASM_API) {
-            @Override
-            public void visitEnd() {
-                target.visitCode();
-                target.visitVarInsn(Opcodes.ALOAD, 1);
-                target.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridge", "textures",
-                        "(Lcom/mojang/authlib/GameProfile;)Ljava/util/Map;", false);
-                target.visitInsn(Opcodes.ARETURN);
-                target.visitMaxs(1, 2);
-                target.visitEnd();
-            }
-        };
     }
 
     /** return (MinecraftProfileTextures) SkinBridgeModern.texturesFor(property) */
