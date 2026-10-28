@@ -441,7 +441,7 @@ BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
 把导出的 zip 再喂给本地 CF 安装：识别为 BMC4 / 1.20.1 / forge 47.4.20，
 384 个可下载文件（352 个模组）+ 29 个需手动下载，可安装。
 
-测试：Core 388、App 7，合计 **396 通过、0 失败**。
+测试：Core 389、App 7，合计 **396 通过、0 失败**。
 
 ### 27. authlib 11+/12 预研（2026-10-29）
 
@@ -459,13 +459,23 @@ BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
 - 26.4 客户端 `SkinManager` 与 26.3 的方法签名逐个一致（`get` + `registerTextures`）。
 
 所以 `SupportsSkinAgent` 上限从 10 放宽到 **12**（13 先拒绝），测试更新为 12 → true、
-13 → false。**未实机**：26.4 快照需要 Java 25，本机未装；以后装快照时按日志确认
-`transforming ...MinecraftServicesSessionService`、`wrapping ...getPackedTextures`、
-`replacing ...unpackTextures` 即可。
+13 → false。**已实机验证**（2026-10-29 00:37）：本机已有 `java-runtime-epsilon`（Java 25.0.1），
+用启动器安装 `26.4-snapshot-6` 原版并创建实例 `26.4-snap` 启动，皮肤正常加载。
+`data/logs/skin-agent.log` 关键行：
+
+```
+transforming com/mojang/authlib/services/MinecraftServicesSessionService
+wrapping ...getPackedTextures(Lcom/mojang/authlib/GameProfile;)Lcom/mojang/authlib/properties/Property;
+replacing ...unpackTextures(Lcom/mojang/authlib/properties/Property;)Lcom/mojang/authlib/minecraft/MinecraftProfileTextures;
+module support installed
+bridge get: id=963a... ours=true
+```
+
+截图确认自定义皮肤（不是默认 Steve/Alex），26.4 快照 + authlib 12 的皮肤链路通过。
 
 测试：Core 389 + App 7 = **396 通过、0 失败**。
 
-**逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
+**逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–12 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
 1.21.1（含 ATM10）、1.21.11、26.1.2、26.2、26.3 的原版 + Fabric/Forge/NeoForge 组合全部皮肤生效**
