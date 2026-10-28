@@ -408,6 +408,19 @@ BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
 实测（测试实例放两个空 jar）：选中 test-a 后点「全部禁用」，
 文件系统里只有 `test-a.jar.disabled`，test-b 不变；行高亮与「已选 1 项」正常。
 
+### 25. 整合包推荐内存接入 + App 层测试（2026-10-29 凌晨）
+
+- `ModpackPlan.RecommendedRamMb`：CF manifest 的 `recommendedRam` 传进计划；
+  Modrinth 的 mrpack 没有该字段，保持 0。
+- 安装新建实例时 `ModpackInstallMemory.Apply`：有推荐值就用推荐值（`MemoryMb`，
+  限制 2048–32768）并**关闭自动内存**；没有推荐值沿用全局默认/自动。
+  已存在的同名实例不覆盖用户设置。
+- 整合包摘要显示「推荐内存 10112 MB」（BMC4 实测）。
+- 新增 `tests/NPMC.Launcher.App.Tests`（引用 App）：`ContentEntryItem`（升级标记、
+  启用/禁用文案）、`SearchCategoryChip` 选中事件、`ModCategoryInfo` 中英文映射、
+  `InstanceListItem` 的记忆/自动内存摘要；App 测试 7 个。
+- Core 测试 385 个（新增 `ModpackInstallMemoryTests`），全绿。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -421,7 +434,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:49，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:58，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

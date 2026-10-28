@@ -229,6 +229,7 @@ public sealed class CurseForgeModpackPreparer
             manifest.Name, manifest.Version, index, archivePath, extractRoot, problems)
         {
             Blocked = blockedFiles,
+            RecommendedRamMb = manifest.RecommendedRam,
         };
     }
 

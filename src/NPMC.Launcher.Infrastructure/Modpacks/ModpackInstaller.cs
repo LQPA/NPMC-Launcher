@@ -18,6 +18,9 @@ public sealed record ModpackPlan(
 {
     /// <summary>只能去 CurseForge 网页手动下载的文件（带文件名与 SHA1，用于校验导入）。</summary>
     public IReadOnlyList<BlockedModFile> Blocked { get; init; } = Array.Empty<BlockedModFile>();
+
+    /// <summary>整合包作者推荐的内存（MB）；0 表示未提供（例如 Modrinth 的 mrpack）。</summary>
+    public int RecommendedRamMb { get; init; }
 }
 
 /// <summary>安装进度：已完成 / 总数 / 当前文件（相对路径）。</summary>

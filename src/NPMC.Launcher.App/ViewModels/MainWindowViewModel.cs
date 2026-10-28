@@ -5483,6 +5483,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
           + (plan.Index.TotalBytes > 0
               ? $" · 约 {plan.Index.TotalBytes / 1024d / 1024d:N0} MB"
               : " · 大小未知")
+          + (plan.RecommendedRamMb > 0 ? $" · 推荐内存 {plan.RecommendedRamMb} MB" : "")
           + (plan.VersionLabel.Length > 0 ? $" · 版本 {plan.VersionLabel}" : "");
 
     private void SetDownloadMode(DownloadMode mode)
@@ -5765,7 +5766,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             else
             {
                 var name = UniqueName(catalog, plan.Name);
-                instance = catalog.Add(name, instanceVersion, settings: NewInstanceSettings());
+
+                // 作者在 CF manifest 里给了推荐内存就用它（关掉自动内存，装完即作者建议值）
+                var settings = ModpackInstallMemory.Apply(NewInstanceSettings(), plan.RecommendedRamMb);
+                instance = catalog.Add(name, instanceVersion, settings: settings);
                 await store.SaveAsync(catalog.Instances);
             }
 
