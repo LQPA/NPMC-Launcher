@@ -1059,18 +1059,27 @@
                             FontSize="12" Width="110" />
                 </WrapPanel>
 
-                <!-- 打包开关在前，受它控制的三项缩进排在后面：勾选关系一眼可见 -->
-                <CheckBox Content="把配置、设置、存档与无法识别的文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
+                <CheckBox Content="把配置等文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
                           IsChecked="{Binding ExportBundleExtra}" FontSize="11" />
 
-                <WrapPanel Margin="26,0,0,0">
-                  <CheckBox Content="Mod 配置" IsChecked="{Binding ExportIncludeConfig}"
-                            IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="150" />
-                  <CheckBox Content="游戏设置" IsChecked="{Binding ExportIncludeSettings}"
-                            IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="110" />
-                  <CheckBox Content="单人存档（可能很大）" IsChecked="{Binding ExportIncludeSaves}"
-                            IsEnabled="{Binding ExportBundleExtra}" FontSize="12" Width="200" />
-                </WrapPanel>
+                <!-- 哪些文件进 overrides 由规则文件决定：投影、地图这类加一行就够 -->
+                <StackPanel Spacing="6" IsEnabled="{Binding ExportBundleExtra}">
+                  <TextBlock Text="打包规则（export-rules.txt）" FontSize="12" Foreground="#C9CED6" Margin="0,4,0,0" />
+                  <TextBlock Text="每行一条相对实例目录的路径：config/ 表示目录，! 开头表示排除，支持 * ? 通配，靠后的行覆盖靠前的；===== 之后的行是绝对路径的额外文件（结尾 / 表示文件夹）。点「编辑规则文件」可以直接改。"
+                             FontSize="11" Foreground="#949CA9" TextWrapping="Wrap" MaxWidth="620" />
+                  <TextBlock Text="{Binding ExportRulesSummary}" FontSize="11" Foreground="#C9CED6" />
+
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="编辑规则文件" Command="{Binding OpenExportRulesCommand}"
+                            FontSize="12" Padding="12,2" />
+                    <Button Content="重新读取" Command="{Binding ReloadExportRulesCommand}"
+                            FontSize="12" Padding="12,2" />
+                    <TextBox Text="{Binding NewExportExtraPath}" Width="200"
+                             Watermark="schematics（加一行规则）" FontSize="12" />
+                    <Button Content="添加目录" Command="{Binding AddExportExtraPathCommand}"
+                            FontSize="12" Padding="12,2" />
+                  </StackPanel>
+                </StackPanel>
 
                 <TextBlock Text="{Binding ExportSelectionHint}" FontSize="11" Foreground="#949CA9"
                            TextWrapping="Wrap" MaxWidth="620" />

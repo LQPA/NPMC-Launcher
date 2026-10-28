@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -98,6 +99,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _contentMetadata = new ContentMetadataCache(Path.Combine(_launcher.Root, "cache"));
         _categoryCache = new SearchCategoryCache(Path.Combine(_launcher.Root, "cache"));
         _translation = new TranslationClient(_http, Path.Combine(_launcher.Root, "cache", "translations"));
+
+        // 导出规则文件：启动时读一次（不存在就写一份默认的），导出页直接显示规则条数
+        LoadExportRules();
 
         // 分类筛选的默认值（模组那 14 项）；切到资源包/光影时再换成对应的标签
         ApplyCategories(ContentKind.Mod, null);
@@ -674,23 +678,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     private bool _exportIncludeMods = true;
-    private bool _exportIncludeConfig = true;
     private bool _exportIncludeResourcePacks = true;
     private bool _exportIncludeShaderPacks = true;
-    private bool _exportIncludeSaves;
-    private bool _exportIncludeSettings = true;
     private bool _exportBundleExtra = true;
 
     public bool ExportIncludeMods
     {
         get => _exportIncludeMods;
         set { if (SetProperty(ref _exportIncludeMods, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
-    }
-
-    public bool ExportIncludeConfig
-    {
-        get => _exportIncludeConfig;
-        set { if (SetProperty(ref _exportIncludeConfig, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
     }
 
     public bool ExportIncludeResourcePacks
@@ -705,26 +700,140 @@ public sealed partial class MainWindowViewModel : ObservableObject
         set { if (SetProperty(ref _exportIncludeShaderPacks, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
     }
 
-    public bool ExportIncludeSaves
-    {
-        get => _exportIncludeSaves;
-        set { if (SetProperty(ref _exportIncludeSaves, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
-    }
-
-    public bool ExportIncludeSettings
-    {
-        get => _exportIncludeSettings;
-        set { if (SetProperty(ref _exportIncludeSettings, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
-    }
-
-    /// <summary>把配置/设置/存档/认不出的文件打进 overrides；关掉只生成下载清单。</summary>
+    /// <summary>把 overrides（按规则文件）打进整合包；关掉只生成下载清单。</summary>
     public bool ExportBundleExtra
     {
         get => _exportBundleExtra;
         set { if (SetProperty(ref _exportBundleExtra, value)) OnPropertyChanged(nameof(ExportSelectionHint)); }
     }
 
-    /// <summary>一行摘要，说明这次会导出什么（勾选变化时刷新）。</summary>
+    // ---- 导出规则（export-rules.txt，参照 PCL 的导出配置格式）----
+
+    /// <summary>规则文件：与设置同目录，用户可编辑；不存在时进入导出页会自动写一份默认规则。</summary>
+    public string ExportRulesPath => Path.Combine(_launcher.Root, "export-rules.txt");
+
+    private IReadOnlyList<string> _exportRuleLines = Array.Empty<string>();
+
+    public int ExportRuleCount => ExportRules.Split(_exportRuleLines).Rules.Count;
+
+    public int ExportExternalCount => ExportRules.Split(_exportRuleLines).External.Count;
+
+    public string ExportRulesSummary =>
+        $"规则 {ExportRuleCount} 条、额外文件 {ExportExternalCount} 个（{Path.GetFileName(ExportRulesPath)}）";
+
+    private string _newExportExtraPath = "";
+
+    public string NewExportExtraPath
+    {
+        get => _newExportExtraPath;
+        set => SetProperty(ref _newExportExtraPath, value);
+    }
+
+    public ICommand AddExportExtraPathCommand { get; private set; } = null!;
+    public ICommand OpenExportRulesCommand { get; private set; } = null!;
+    public ICommand ReloadExportRulesCommand { get; private set; } = null!;
+
+    /// <summary>读规则文件（不存在就写一份默认的），刷新界面上的规则数。</summary>
+    private void LoadExportRules()
+    {
+        var path = ExportRulesPath;
+
+        try
+        {
+            if (!File.Exists(path))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllLines(path, ExportRules.DefaultLines);
+            }
+
+            _exportRuleLines = ExportRules.Load(path);
+        }
+        catch
+        {
+            _exportRuleLines = ExportRules.DefaultLines;
+        }
+
+        OnPropertyChanged(nameof(ExportRuleCount));
+        OnPropertyChanged(nameof(ExportExternalCount));
+        OnPropertyChanged(nameof(ExportRulesSummary));
+        OnPropertyChanged(nameof(ExportSelectionHint));
+    }
+
+    /// <summary>
+    /// 把「投影/地图」这类目录快速加进规则文件（等价于手写一行 `schematics/`）。
+    /// 路径必须是实例目录内的相对路径；直接写文件而不是存内存，用户之后可以自己改。
+    /// </summary>
+    private void AddExportExtraPath()
+    {
+        if (SelectedInstance is not { } instance)
+        {
+            ExportStatus = "先选一个实例";
+            return;
+        }
+
+        var input = NewExportExtraPath.Trim().Replace('\\', '/').Trim('/');
+        if (input.Length == 0) return;
+
+        var full = MrpackExporter.ResolveInside(instance.GameDirectory, input);
+        if (full is null)
+        {
+            ExportStatus = "只能填实例目录内的相对路径，例如 schematics 或 config/iris";
+            return;
+        }
+
+        if (!Directory.Exists(full) && !File.Exists(full))
+        {
+            ExportStatus = $"找不到这个路径：{input}";
+            return;
+        }
+
+        var rule = Directory.Exists(full) ? input + "/" : input;
+
+        try
+        {
+            var lines = File.Exists(ExportRulesPath)
+                ? File.ReadAllLines(ExportRulesPath).ToList()
+                : ExportRules.DefaultLines.ToList();
+
+            if (lines.Any(line => string.Equals(line.Trim(), rule, StringComparison.OrdinalIgnoreCase)))
+            {
+                ExportStatus = $"规则里已经有 {rule} 了";
+                return;
+            }
+
+            lines.Add(rule);
+            File.WriteAllLines(ExportRulesPath, lines);
+
+            LoadExportRules();
+            NewExportExtraPath = "";
+            ExportStatus = $"已加入规则：{rule}";
+        }
+        catch (Exception ex)
+        {
+            ExportStatus = $"写入规则失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    private void ReloadExportRules()
+    {
+        LoadExportRules();
+        ExportStatus = $"已重新读取规则：{ExportRulesSummary}";
+    }
+
+    private void OpenExportRules()
+    {
+        try
+        {
+            LoadExportRules();
+            Process.Start(new ProcessStartInfo(ExportRulesPath) { UseShellExecute = true });
+            ExportStatus = $"已打开 {Path.GetFileName(ExportRulesPath)}";
+        }
+        catch (Exception ex)
+        {
+            ExportStatus = $"打不开规则文件：{ex.GetBaseException().Message}";
+        }
+    }
+    /// <summary>一行摘要，说明这次会导出什么（勾选/规则变化时刷新）。</summary>
     public string ExportSelectionHint
     {
         get
@@ -733,7 +842,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             if (!ExportBundleExtra)
             {
-                // 只生成下载清单：配置/设置/存档那三个勾选没有意义，界面上也会被置灰
+                // 只生成下载清单：规则里那些文件一个都不会打包
                 var downloads = new List<string>();
 
                 if (ExportIncludeMods)
@@ -746,25 +855,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 return (downloads.Count == 0
                            ? "只生成下载清单，但什么都没勾选"
                            : "只生成下载清单：" + string.Join("、", downloads))
-                       + "；配置、游戏设置、存档都不会打包（上面的三个勾选这次不生效），"
-                       + "无法识别的文件也会被丢掉。";
+                       + "；规则里的文件与无法识别的文件都不会打包（导入后没有配置）。";
             }
 
             var parts = new List<string>();
 
             if (ExportIncludeMods)
                 parts.Add($"{CountFiles(instance.ModsDirectory, "*.jar", "*.jar.disabled")} 个 Mod");
-            if (ExportIncludeConfig) parts.Add("配置");
             if (ExportIncludeResourcePacks)
                 parts.Add($"{CountFiles(instance.ResourcePacksDirectory, "*.zip", "*.zip.disabled")} 个资源包");
             if (ExportIncludeShaderPacks)
                 parts.Add($"{CountFiles(instance.ShaderPacksDirectory, "*.zip", "*.zip.disabled")} 个光影");
-            if (ExportIncludeSettings) parts.Add("游戏设置");
-            if (ExportIncludeSaves) parts.Add("存档");
 
             if (parts.Count == 0) return "什么都没勾选：导出的整合包里不会有任何内容。";
 
-            return "将导出：" + string.Join("、", parts) + "；配置与认不出的文件会打包进 overrides";
+            return "将导出：" + string.Join("、", parts)
+                   + $"；另按 {ExportRuleCount} 条规则打包配置，认不出的文件也放进 overrides";
         }
     }
 
@@ -812,6 +918,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (SelectedInstance is not { } instance) return;
 
+        // 规则文件可能刚被用户改过（甚至没进过导出页就直接导出）：每次导出前重读一遍
+        LoadExportRules();
+
         ExportStatus = $"正在导出「{instance.Name}」…";
 
         try
@@ -827,12 +936,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var options = new MrpackExportOptions
             {
                 IncludeMods = ExportIncludeMods,
-                IncludeConfig = ExportIncludeConfig,
                 IncludeResourcePacks = ExportIncludeResourcePacks,
                 IncludeShaderPacks = ExportIncludeShaderPacks,
-                IncludeSaves = ExportIncludeSaves,
-                IncludeSettings = ExportIncludeSettings,
                 BundleExtra = ExportBundleExtra,
+                Rules = ExportRules.Split(_exportRuleLines).Rules,
+                ExternalPaths = ExportRules.Split(_exportRuleLines).External,
             };
 
             var result = await exporter.ExportAsync(

@@ -29,19 +29,28 @@ public sealed record MrpackExportResult(
 /// 导出时勾选的内容（对应 PCL 的「导出内容列表」）。
 ///
 /// 注意 <see cref="BundleExtra"/> 的语义：关掉它只生成下载清单（体积最小），
-/// 但 config、设置、存档与"认不出来的文件"都会丢，导入方拿到的是"干净但没配置"的包。
+/// 但 overrides 里的东西都会丢，导入方拿到的是"干净但没配置"的包。
 /// </summary>
 public sealed record MrpackExportOptions
 {
     public bool IncludeMods { get; init; } = true;
-    public bool IncludeConfig { get; init; } = true;
     public bool IncludeResourcePacks { get; init; } = true;
     public bool IncludeShaderPacks { get; init; } = true;
-    public bool IncludeSaves { get; init; }
-    public bool IncludeSettings { get; init; } = true;
 
-    /// <summary>把配置/设置/存档/认不出的文件打包进 overrides；关掉就只写下载清单。</summary>
+    /// <summary>把 overrides 打包进去；关掉就只写下载清单。</summary>
     public bool BundleExtra { get; init; } = true;
+
+    /// <summary>
+    /// overrides 的规则（`export-rules.txt` 的前半段）：相对实例目录的包含/排除规则，
+    /// 语法见 <see cref="ExportRules"/>。
+    /// </summary>
+    public IReadOnlyList<string> Rules { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// 规则文件 `=====` 之后的绝对路径：原样放到压缩包根目录（PCL 的"额外文件"）。
+    /// 结尾带分隔符表示文件夹。
+    /// </summary>
+    public IReadOnlyList<string> ExternalPaths { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>
@@ -72,20 +81,6 @@ public sealed class MrpackExporter
     /// 但把"删掉的东西"打进整合包显然不是用户想要的。
     /// </summary>
     private static readonly string[] IgnoredSegments = { ".trash" };
-
-    /// <summary>整目录进 overrides 的配置目录。</summary>
-    private static readonly string[] OverrideDirectories = { "config", "defaultconfigs" };
-
-    /// <summary>单独的文件进 overrides。</summary>
-    private static readonly string[] OverrideFiles =
-    {
-        "options.txt", "optionsshaders.txt", "servers.dat",
-    };
-
-    private static readonly HashSet<string> NeverExportDirectories = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "logs", "crash-reports", "backups",
-    };
 
     private readonly ModrinthClient _modrinth;
 
@@ -130,7 +125,11 @@ public sealed class MrpackExporter
         // 只写下载清单时，认不出来的文件不打包也不记录（结果里会报数量，界面提示会说明）
         var bundled = options.BundleExtra ? unresolved : new List<string>();
 
-        progress?.Report($"正在写入整合包（{entries.Count} 个下载项 + {overrides.Count + bundled.Count} 个覆盖文件）…");
+        // 规则文件 `=====` 之后的绝对路径：直接放到压缩包根目录（PCL 的"额外文件"）
+        var external = options.BundleExtra ? CollectExternalFiles(options.ExternalPaths) : new List<(string Entry, string FullPath)>();
+
+        progress?.Report(
+            $"正在写入整合包（{entries.Count} 个下载项 + {overrides.Count + bundled.Count + external.Count} 个打包文件）…");
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetPath))!);
         if (File.Exists(targetPath)) File.Delete(targetPath);
@@ -167,9 +166,63 @@ public sealed class MrpackExporter
 
                 bytes += new FileInfo(source).Length;
             }
+
+            foreach (var (entryName, fullPath) in external)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                archive.CreateEntryFromFile(fullPath, entryName, CompressionLevel.Optimal);
+                bytes += new FileInfo(fullPath).Length;
+            }
         }
 
-        return new MrpackExportResult(targetPath, entries.Count, overrides.Count, unresolved.Count, bytes);
+        return new MrpackExportResult(targetPath, entries.Count, overrides.Count + external.Count, unresolved.Count, bytes);
+    }
+
+    /// <summary>
+    /// 绝对路径的额外文件：文件按文件名放到包根，目录则保留目录名层级。
+    /// 不存在的路径直接跳过（用户可能手写过期路径）。
+    /// </summary>
+    private static List<(string Entry, string FullPath)> CollectExternalFiles(IReadOnlyList<string> paths)
+    {
+        var result = new List<(string, string)>();
+
+        foreach (var raw in paths)
+        {
+            var path = raw.Trim();
+            if (path.Length == 0) continue;
+
+            var isDirectory = path.EndsWith('\\') || path.EndsWith('/');
+            var trimmed = path.TrimEnd('\\', '/');
+
+            try
+            {
+                if (File.Exists(trimmed))
+                {
+                    result.Add((Path.GetFileName(trimmed), trimmed));
+                }
+                else if (Directory.Exists(trimmed))
+                {
+                    var name = Path.GetFileName(trimmed);
+
+                    foreach (var file in Directory.EnumerateFiles(trimmed, "*", SearchOption.AllDirectories))
+                    {
+                        var relative = Path.GetRelativePath(trimmed, file).Replace('\\', '/');
+                        result.Add((name + "/" + relative, file));
+                    }
+                }
+                else if (isDirectory)
+                {
+                    // 目录不存在：忽略
+                }
+            }
+            catch
+            {
+                // 读不到的路径跳过，别让一个坏路径毁掉整次导出
+            }
+        }
+
+        return result;
     }
 
     private static List<(string RelativePath, string FullPath)> CollectContentFiles(
@@ -215,6 +268,34 @@ public sealed class MrpackExporter
             .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries)
             .Any(part => IgnoredSegments.Contains(part, StringComparer.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// 把"用户输入的相对路径"解析成实例内的绝对路径；越界（绝对路径、`..`、别的盘）
+    /// 一律返回 null —— 导出不该能把任意系统目录塞进整合包。
+    /// </summary>
+    public static string? ResolveInside(string gameDirectory, string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return null;
+
+        var trimmed = relativePath.Trim().Replace('/', Path.DirectorySeparatorChar);
+
+        if (Path.IsPathRooted(trimmed)) return null;
+        if (trimmed.Split(Path.DirectorySeparatorChar).Contains("..")) return null;
+
+        try
+        {
+            var root = Path.GetFullPath(gameDirectory);
+            var full = Path.GetFullPath(Path.Combine(root, trimmed));
+
+            return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                ? full
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>简单的通配符匹配（`*.jar` / `*.jar.disabled`），够用且不引第三方包。</summary>
     private static bool MatchesPattern(string fileName, string pattern)
     {
@@ -226,42 +307,32 @@ public sealed class MrpackExporter
     {
         var overrides = new List<string>();
 
-        if (options.IncludeConfig)
+        // 整个实例目录按规则走：content 目录（mods/资源包/光影）属于下载清单，
+        // 认不出的那些另有处理，所以这里跳过，避免同一文件进两处。
+        foreach (var file in Directory.EnumerateFiles(gameDirectory, "*", SearchOption.AllDirectories))
         {
-            foreach (var directory in OverrideDirectories)
-            {
-                var root = Path.Combine(gameDirectory, directory);
-                if (!Directory.Exists(root)) continue;
+            var relative = Path.GetRelativePath(gameDirectory, file);
 
-                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
-                    overrides.Add(Path.GetRelativePath(gameDirectory, file));
-            }
+            if (IsIgnored(relative)) continue;
+            if (IsContentPath(relative)) continue;
+
+            var normalized = relative.Replace('\\', '/');
+            if (!ExportRules.IsIncluded(normalized, options.Rules)) continue;
+
+            overrides.Add(relative);
         }
-
-        if (options.IncludeSettings)
-        {
-            foreach (var file in OverrideFiles)
-            {
-                var path = Path.Combine(gameDirectory, file);
-                if (File.Exists(path)) overrides.Add(file);
-            }
-        }
-
-        if (options.IncludeSaves)
-        {
-            var saves = Path.Combine(gameDirectory, "saves");
-            if (Directory.Exists(saves))
-            {
-                foreach (var file in Directory.EnumerateFiles(saves, "*", SearchOption.AllDirectories))
-                    overrides.Add(Path.GetRelativePath(gameDirectory, file));
-            }
-        }
-
-        overrides.RemoveAll(relative =>
-            relative.Split(Path.DirectorySeparatorChar).Any(part => NeverExportDirectories.Contains(part)));
 
         overrides.Sort(StringComparer.Ordinal);
         return overrides;
+    }
+
+    /// <summary>模组/资源包/光影目录由下载清单负责。</summary>
+    private static bool IsContentPath(string relativePath)
+    {
+        var first = relativePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+
+        return first is not null
+               && ContentDirectories.Any(item => string.Equals(item.Directory, first, StringComparison.OrdinalIgnoreCase));
     }
 
     private static async Task<Dictionary<string, (string Sha1, string Sha512)>> HashFilesAsync(

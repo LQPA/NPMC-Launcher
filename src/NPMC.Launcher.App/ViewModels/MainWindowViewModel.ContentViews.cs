@@ -83,6 +83,11 @@ public sealed partial class MainWindowViewModel
         // （IsContentFilterVisible 已经排除了数据包和下载模式）和下面的入口判断。
         OpenContentDownloadCommand = new RelayCommand(OpenContentDownload);
         CloseContentDownloadCommand = new RelayCommand(CloseContentDownload);
+
+        // 导出页的自定义目录/规则用命令而不是 CodeBehind，方便绑定与诊断
+        AddExportExtraPathCommand = new RelayCommand(AddExportExtraPath);
+        OpenExportRulesCommand = new RelayCommand(OpenExportRules);
+        ReloadExportRulesCommand = new RelayCommand(ReloadExportRules);
     }
 
     /// <summary>

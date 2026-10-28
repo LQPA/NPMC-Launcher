@@ -187,6 +187,20 @@
       移到打包开关**下面并缩进**（勾选关系一眼可见），同时 `IsEnabled={Binding ExportBundleExtra}`
       置灰；摘要改成「只生成下载清单：…；配置、游戏设置、存档都不会打包（上面的三个勾选这次不生效），
       无法识别的文件也会被丢掉。」——否则勾了也不生效，容易让人误解。
+    - **导出内容改成 PCL 风格的规则文件（2026-10-28）**：`<数据根>\export-rules.txt`，启动时读一次
+      （不存在就写入默认规则）。语法：
+      - `config/` 目录、`options.txt` 单文件、`!logs/` 排除、`*` `?` 通配、靠后的行覆盖靠前的；
+      - `=====` 之后的行是**绝对路径**的额外文件（结尾 `/` 表示文件夹），与 PCL 一样直接放到包根；
+      - 默认规则包含 options*/config/defaultconfigs，排除 saves/logs/crash-reports/*.log/*.dat_old。
+      导出页有「规则 N 条」摘要 + 编辑规则文件 + 重新读取 + 「添加目录」（自动追加一行如 `schematics/`）。
+      实测：默认规则 → `overrides/config/mod.toml` + `overrides/options.txt`；加 `schematics/` 后
+      `overrides/schematics/castle.litematic` 进包；`=====` 里的绝对文件 → `extra.txt`、`folder/a.txt` 在包根。
+      - 两个坑：目录规则的匹配写成 `pattern[1..]`（去掉了首字符而不是结尾的 `/`），导致 `config/`
+        一条都不命中；以及规则只在进过导出页时才加载，直接导出会拿到空规则 —— 现在构造时就加载，
+        且 `ExportMrpackAsync` 开头再读一次（用户可能刚改过文件）。
+      - PCL 的 `IncludeJava` / `IncludeLauncher` / 启动器个性化不实现（我们只导出模组包）；
+        `DontCheckHostedAssets` 大致对应「打包 overrides + 认不出的文件」；`ModrinthUploadMode`
+        （只打包非 Modrinth 托管文件）暂未做，需要逐文件判断托管状态。
 
 ## 关键文件
 

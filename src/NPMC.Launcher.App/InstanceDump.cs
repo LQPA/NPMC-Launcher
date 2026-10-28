@@ -729,6 +729,19 @@ internal static class InstanceDump
             }
             else
             {
+                // 自定义导出目录（投影/地图等）：等价于往规则文件追加一行
+                var extraIndex = Array.FindIndex(args, arg =>
+                    string.Equals(arg, "--exercise-mrpack-extra", StringComparison.OrdinalIgnoreCase));
+
+                if (extraIndex >= 0 && extraIndex + 1 < args.Length)
+                {
+                    viewModel.NewExportExtraPath = args[extraIndex + 1];
+                    viewModel.AddExportExtraPathCommand.Execute(null);
+
+                    lines.Add($"    [自定义目录] {viewModel.ExportStatus}");
+                    lines.Add($"      {viewModel.ExportRulesSummary}");
+                }
+
                 viewModel.ExportMrpackAsync(target).GetAwaiter().GetResult();
 
                 lines.Add("");
