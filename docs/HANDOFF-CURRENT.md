@@ -371,6 +371,16 @@ BMC4 最新版也一样（发布时它们还存在）。
 （12 → resourcepacks，6552 → shaderpacks），已安装的 BMC4 标记也改正了。
 这些是纯视觉资源包，缺省不影响进入游戏。
 
+### 22. blocked 面板两处入口 + 资源包栏目的 URL（2026-10-28 晚）
+
+概览页与整合包安装页各有一份 blocked 面板，之前只改了安装页那份，所以概览页仍显示旧按钮。
+现在两处都有「打开下载页 / 打开项目页 / 忽略缺失 / 选择下载目录 / 重新检查」，行内还会显示
+`→ mods/resourcepacks/shaderpacks`。
+
+链接栏目也修了：`BlockedModFile` 按 `TargetFolder` 选 CurseForge 栏目
+（mods → `mc-mods`，resourcepacks → `texture-packs`，shaderpacks → `shader-packs`），
+BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -384,7 +394,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:35，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:37，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

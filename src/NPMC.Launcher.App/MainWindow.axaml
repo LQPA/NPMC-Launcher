@@ -475,7 +475,11 @@
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:BlockedModItem">
                         <Grid ColumnDefinitions="*,90" Margin="0,1">
-                          <TextBlock Text="{Binding FileName}" FontSize="10" Foreground="#E8EAED" />
+                          <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding Name}" FontSize="10" Foreground="#E8EAED" />
+                            <TextBlock Text="{Binding FileName}" FontSize="9" Foreground="#6E7684" />
+                            <TextBlock Text="{Binding TargetText}" FontSize="9" Foreground="#E0A94A" />
+                          </StackPanel>
                           <TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="10"
                                      Foreground="#B4BCC8" VerticalAlignment="Center" />
                         </Grid>
@@ -486,6 +490,15 @@
                              TextWrapping="Wrap" />
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button Content="打开下载页" Command="{Binding OpenBlockedModsCommand}"
+                            ToolTip.Tip="直达具体文件页"
+                            FontSize="11" Height="26" Padding="10,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                    <Button Content="打开项目页" Command="{Binding OpenBlockedProjectPagesCommand}"
+                            ToolTip.Tip="文件页 404 时用；项目主页的 Files 里找兼容版本"
+                            FontSize="11" Height="26" Padding="10,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                    <Button Content="忽略缺失" Command="{Binding IgnoreBlockedModsCommand}"
+                            ToolTip.Tip="文件已被作者删除、拿不到时，清空缺失提示"
                             FontSize="11" Height="26" Padding="10,0"
                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
                     <Button Content="选择下载目录…" Click="OnPickBlockedFolderClick"
