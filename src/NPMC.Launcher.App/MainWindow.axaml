@@ -401,8 +401,14 @@
             </StackPanel>
           </Grid>
           <TextBlock Text="{Binding SelectedInstance.SummaryText}" FontSize="12" Foreground="#B4BCC8" />
-          <TextBlock Text="{Binding SelectedInstance.ModpackSummaryText}" FontSize="11"
-                     Foreground="#E0A94A" IsVisible="{Binding SelectedInstance.HasModpackInfo}" />
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding SelectedInstance.HasModpackInfo}">
+            <TextBlock Text="{Binding SelectedInstance.ModpackSummaryText}" FontSize="11"
+                       Foreground="#E0A94A" VerticalAlignment="Center" />
+            <Button Content="查看缺失" Command="{Binding ShowOverviewTabCommand}"
+                    IsVisible="{Binding SelectedInstance.HasMissingMods}"
+                    FontSize="10" Padding="8,1" Height="22"
+                    VerticalContentAlignment="Center" />
+          </StackPanel>
         </StackPanel>
 
         <!-- 页签（用横向 ListBox，选中样式由主题提供，不需要写转换器） -->
@@ -1641,6 +1647,7 @@
                         <StackPanel Spacing="1">
                           <TextBlock Text="{Binding Name}" FontSize="11" Foreground="#E8EAED" />
                           <TextBlock Text="{Binding FileName}" FontSize="9" Foreground="#6E7684" />
+                          <TextBlock Text="{Binding TargetText}" FontSize="9" Foreground="#E0A94A" />
                         </StackPanel>
                         <TextBlock Grid.Column="1" Text="{Binding Status}" FontSize="10"
                                    Foreground="#B4BCC8" VerticalAlignment="Center" />

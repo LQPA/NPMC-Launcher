@@ -29,6 +29,7 @@ public sealed class BlockedModItem : ObservableObject
     public string ProjectUrl => File.ProjectUrl;
 
     public string Sha1 => File.Sha1;
+    public string TargetText => "→ " + File.TargetFolder;
 
     public string Status
     {

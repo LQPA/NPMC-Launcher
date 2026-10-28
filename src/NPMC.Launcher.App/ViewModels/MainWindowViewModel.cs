@@ -168,6 +168,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             () => SelectedInstance is not null && !IsSelectedInstanceRunning);
 
         ClearSearchCategoriesCommand = new RelayCommand(ClearSearchCategories);
+        ShowOverviewTabCommand = new RelayCommand(ShowOverviewTab);
 
 
         BeginRenameCommand = new RelayCommand(
@@ -5457,6 +5458,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         throw new InvalidDataException(
             "无法识别的整合包：Modrinth 的 .mrpack 应包含 modrinth.index.json；" +
             "CurseForge 整合包应包含 manifest.json（通常导出为 .zip）。");
+    }
+
+    /// <summary>概览页显示缺失文件面板；从别的页签点「查看缺失」时切回去。</summary>
+    public RelayCommand ShowOverviewTabCommand { get; }
+
+    private void ShowOverviewTab()
+    {
+        if (ContentTabs.Count > 0) SelectedTab = ContentTabs[0];
     }
 
     private ModpackInstaller CreateModpackInstaller()

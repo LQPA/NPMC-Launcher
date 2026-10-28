@@ -43,8 +43,24 @@ public sealed record InstanceModpackInfo(
     public bool HasMissing => Missing.Count > 0;
 
     public string SummaryText => HasMissing
-        ? $"{SourceText} 整合包 · 缺少 {Missing.Count} 个模组"
-        : $"{SourceText} 整合包 · 模组完整";
+        ? $"{SourceText} 整合包 · 缺少 {DescribeMissing()}"
+        : $"{SourceText} 整合包 · 文件完整";
+
+    /// <summary>按目标目录分类型统计缺失文件（模组 / 资源包 / 光影），只列非零项。</summary>
+    private string DescribeMissing()
+    {
+        var parts = new List<string>();
+
+        var mods = Missing.Count(file => string.Equals(file.TargetFolder, "mods", StringComparison.OrdinalIgnoreCase));
+        var resourcePacks = Missing.Count(file => string.Equals(file.TargetFolder, "resourcepacks", StringComparison.OrdinalIgnoreCase));
+        var shaderPacks = Missing.Count(file => string.Equals(file.TargetFolder, "shaderpacks", StringComparison.OrdinalIgnoreCase));
+
+        if (mods > 0) parts.Add($"{mods} 个模组");
+        if (resourcePacks > 0) parts.Add($"{resourcePacks} 个资源包");
+        if (shaderPacks > 0) parts.Add($"{shaderPacks} 个光影");
+
+        return parts.Count == 0 ? $"{Missing.Count} 个文件" : string.Join("、", parts);
+    }
 }
 
 public static class InstanceModpackStore
