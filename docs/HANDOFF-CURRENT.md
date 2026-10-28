@@ -159,6 +159,22 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
   （`bridge packedTextures: ours=true` → `texturesFor: ours=true`，用户确认）。
 - 注意：该诊断不指定 loader 版本时取**最新**（可能是 beta）；界面默认选最新正式版。
 
+### 10. 1.13 之前的分辨率设置失效（2026-10-28 晚，已修复）
+
+用户报的现象：1.7.10 等早期版本，实例里设的 1280×720 不生效，窗口永远是客户端默认的 854×480。
+
+原因：1.13 之前的版本 JSON 用的是 `minecraftArguments`（一整串空格分隔的参数），
+里面**只有** username / gameDir / assetsDir / accessToken 这些，**没有** `--width` / `--height`
+（1.13+ 才有 `arguments.game` 里带 `has_custom_resolution` 规则的那两条）。
+官方启动器是自己把分辨率加进去的；我们的 `ExpandLegacyArguments` 只做了占位符替换，
+所以旧版一直拿默认值。
+
+修复：`LaunchPlanFactory.Create` 在 legacy 分支展开完参数后补
+`--width <w> --height <h>`（`hasCustomResolution` 为 false 时补 `--fullscreen`）。
+实测 1.7.10 / 1.12.2 的 `net.minecraft.client.main.Main` 都解析 width/height/fullscreen
+（joptsimple 选项名；`javap` 确认过），窗口客户区从 854×480 变成设置里的 1280×720
+（用户确认）。太老、不认识的版本会忽略未知参数，不会崩。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -172,13 +188,13 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（21:19，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（21:27，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
   整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已覆盖 1.7.10 ~ 26.3 的
   原版 / Fabric / Forge / NeoForge 组合（用户实机确认）**，只剩 1.21.6 / 快照 / Quilt 未测。
-- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 336 通过 + 2 个既有失败
+- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 338 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）

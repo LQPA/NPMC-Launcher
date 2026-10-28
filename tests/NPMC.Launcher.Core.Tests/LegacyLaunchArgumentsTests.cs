@@ -112,6 +112,38 @@ public class LegacyLaunchArgumentsTests
     }
 
     [Fact]
+    public void Legacy_arguments_get_width_and_height()
+    {
+        // 1.13 之前的 minecraftArguments 里没有 --width/--height，
+        // 不补就只能用客户端默认的 854×480（设置里的分辨率完全不生效）。
+        var plan = LaunchPlanFactory.Create(
+            Paths, "1.7.10-Forge10.13.4.1614-1.7.10", LegacyVersion(), LaunchContext.OfflineProbe(),
+            OsInfo.Windows64());
+
+        var arguments = plan.GameArguments.ToList();
+        var width = arguments.IndexOf("--width");
+        var height = arguments.IndexOf("--height");
+
+        Assert.True(width >= 0, "旧版参数里应当补上 --width");
+        Assert.Equal("1280", arguments[width + 1]);
+
+        Assert.True(height >= 0, "旧版参数里应当补上 --height");
+        Assert.Equal("720", arguments[height + 1]);
+    }
+
+    [Fact]
+    public void Fullscreen_legacy_gets_fullscreen_flag_instead_of_size()
+    {
+        var plan = LaunchPlanFactory.Create(
+            Paths, "1.7.10-Forge10.13.4.1614-1.7.10", LegacyVersion(), LaunchContext.OfflineProbe(),
+            OsInfo.Windows64(), hasCustomResolution: false);
+
+        Assert.Contains("--fullscreen", plan.GameArguments);
+        Assert.DoesNotContain("--width", plan.GameArguments);
+        Assert.DoesNotContain("--height", plan.GameArguments);
+    }
+
+    [Fact]
     public void Version_without_any_arguments_is_rejected_with_a_clear_message()
     {
         var broken = new VersionJson { Id = "broken", MainClass = "x", Libraries = new List<Library>() };

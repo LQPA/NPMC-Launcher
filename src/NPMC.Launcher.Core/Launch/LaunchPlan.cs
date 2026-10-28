@@ -285,6 +285,18 @@ public static class LaunchPlanFactory
             jvm.Add(string.Join(';', classpath));
 
             game = ExpandLegacyArguments(builder, version.MinecraftArguments!);
+
+            // 1.13 之前的 minecraftArguments 里**没有** --width/--height：官方启动器是自己补的，
+            // 不补就只能用客户端默认的 854×480（用户设的分辨率完全不生效）。
+            // 实测 1.7.10 / 1.9 / 1.12.2 的 net.minecraft.client.main.Main 都解析 width/height/fullscreen
+            // （joptsimple 的选项名），旧到不认识的版本会忽略未知参数，不会崩。
+            game = hasCustomResolution
+                ? game.Concat(new[]
+                {
+                    "--width", context.Width.ToString(CultureInfo.InvariantCulture),
+                    "--height", context.Height.ToString(CultureInfo.InvariantCulture),
+                }).ToList()
+                : game.Append("--fullscreen").ToList();
         }
         else
         {
