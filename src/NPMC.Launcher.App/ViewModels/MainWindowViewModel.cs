@@ -2397,12 +2397,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 只检查用户后来手动加进来的文件。
             var modpack = InstanceModpackStore.Load(instance.GameDirectory);
             var packNames = modpack?.PackFiles
-                .Select(file => file.FileName)
+                .Select(file => PackFileCollector.LogicalName(file.FileName))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)
                 ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             var checkItems = items
-                .Where(item => !packNames.Contains(Path.GetFileName(item.Entry.Path)))
+                .Where(item => !packNames.Contains(PackFileCollector.LogicalName(Path.GetFileName(item.Entry.Path))))
                 .ToList();
 
             if (items.Count == 0)
@@ -3128,7 +3128,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             : null;
 
         var packNames = packInfo?.PackFiles
-            .Select(file => file.FileName)
+            .Select(file => PackFileCollector.LogicalName(file.FileName))
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -3143,7 +3143,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!Content.Contains(item)) continue;
             var name = Path.GetFileName(item.Entry.Path);
-            var isPack = packNames.Contains(name);
+            var isPack = packNames.Contains(PackFileCollector.LogicalName(name));
 
             // 整合包自带：来源直接按整合包归属，不再联网猜
             if (isPack) item.SetIdentification(packSource);
@@ -5286,12 +5286,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 .Where(file => !BlockedFileMatches(layout.GameDirectory, file))
                 .ToList();
 
+            // 整合包自带文件：清单里的 + overrides/ 带进来的（否则那些模组会被当成用户模组）
+            var packFiles = PackFileCollector.Collect(
+                plan.Index.Files.Select(file => new PackFileEntry(Path.GetFileName(file.Path), file.Sha1)),
+                Path.Combine(layout.GameDirectory, "mods"));
+
             InstanceModpackStore.Save(layout.GameDirectory, new InstanceModpackInfo(
                 _modpackSource, _modpackProjectId, plan.Name, plan.VersionLabel, missing)
             {
-                PackFiles = plan.Index.Files
-                    .Select(file => new PackFileEntry(Path.GetFileName(file.Path), file.Sha1))
-                    .ToList(),
+                PackFiles = packFiles,
             });
 
             // 回到实例页并选中它

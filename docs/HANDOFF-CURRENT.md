@@ -160,6 +160,19 @@
     - 总数=0 → 原来的空文件夹文案。
     实测：数据包世界输入 `ad` → 「没有匹配「ad」的数据包；这里还没有任何文件…」；
     模组页输入 `zzz` → 「没有匹配「zzz」的模组（共 2 个）…」。
+  - **整合包自带模组识别（2026-10-28 修复）**：安装整合包时 `PackFiles` 原先只记
+    `modrinth.index.json` 的 `files[]`，而 `overrides/` 里带进来的模组（作者直接打包、
+    不需要联网下载的那些）没被记录 → 导入后它们被当成用户自己加的模组，不折叠、也没有
+    整合包来源标记（用户实测：MFQM 的 4 个模组，其中 3 个还是 `.disabled`）。
+    - 新增 `Core.Instances.PackFileCollector`：合并清单与 mods 目录里实际存在的 jar，
+      按**逻辑名**（去掉 `.disabled`）去重；安装流程改用它。
+    - 所有比较改写为逻辑名（`ApplyPackModFilter`、`RebuildModContent`、检查更新过滤、
+      识别打标），否则被禁用的整合包模组仍然折叠不到。
+    - 已有实例补一个入口：模组页「标记为整合包自带」按钮（`MarkModsAsPackFilesCommand`），
+      把当前 mods 里的文件一次性写进 `PackFiles`，不用重装整合包。
+    - 实测：3 个 jar（含一个 `.jar.disabled`）→ 标记后 `PackFiles` 3→6、折叠 3 个；
+      `PackFileCollectorTests` 5 个用例覆盖 overrides 补录、sha1 保留、`.disabled` 归一、
+      去重与目录缺失。
   - **导出整合包（.mrpack）表单（2026-10-28）**：导出页从"一个按钮"改成"格式 + 整合包名称/版本 +
     导出内容清单 + 高级选项"，参照 PCL 的整合包制作界面，但**只做模组包导出，不打包启动器自身**。
     - 内容清单：Mod（含已禁用）/ Mod 配置 / 资源包 / 光影包 / 游戏设置 / 单人存档（默认不勾）；

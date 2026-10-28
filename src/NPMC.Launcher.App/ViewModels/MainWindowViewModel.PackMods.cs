@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Mods;
 
@@ -26,6 +27,9 @@ public sealed partial class MainWindowViewModel
     /// <summary>当前实例是整合包，且确实有可以折叠的模组。</summary>
     public bool CanHidePackMods => SelectedInstance is { HasModpackInfo: true } && _packFileNames.Count > 0;
 
+    /// <summary>把当前 mods 里的文件都记成整合包自带（补齐旧版本导入没记录的 overrides）。</summary>
+    public ICommand MarkModsAsPackFilesCommand { get; private set; } = null!;
+
     public string PackModsHint => _packModsHidden > 0
         ? $"已折叠 {_packModsHidden} 个整合包自带模组，只显示手动添加的"
         : "";
@@ -42,7 +46,7 @@ public sealed partial class MainWindowViewModel
         if (info is null || info.PackFiles.Count == 0) return;
 
         _packFileNames = info.PackFiles
-            .Select(file => file.FileName)
+            .Select(file => PackFileCollector.LogicalName(file.FileName))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         if (!_hidePackMods && string.IsNullOrWhiteSpace(_contentFilterQuery)) return;
@@ -51,7 +55,8 @@ public sealed partial class MainWindowViewModel
 
         if (_hidePackMods)
         {
-            entries.RemoveAll(entry => _packFileNames.Contains(Path.GetFileName(entry.Path)));
+            entries.RemoveAll(entry =>
+                _packFileNames.Contains(PackFileCollector.LogicalName(Path.GetFileName(entry.Path))));
             _packModsHidden = before - entries.Count;
         }
 
@@ -172,7 +177,7 @@ public sealed partial class MainWindowViewModel
 
         var info = InstanceModpackStore.Load(_modSnapshotInstance.GameDirectory);
         var packNames = info?.PackFiles
-            .Select(file => file.FileName)
+            .Select(file => PackFileCollector.LogicalName(file.FileName))
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -186,7 +191,9 @@ public sealed partial class MainWindowViewModel
         foreach (var entry in _modSnapshot)
         {
             var name = Path.GetFileName(entry.Path);
-            var isPack = packNames.Contains(name);
+
+            // 逻辑名比较：整合包里的 mod 被禁用后会变成 x.jar.disabled，仍应算整合包自带
+            var isPack = packNames.Contains(PackFileCollector.LogicalName(name));
 
             if (isPack && _hidePackMods)
             {
@@ -223,5 +230,51 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(CanHidePackMods));
         OnPropertyChanged(nameof(PackModsHint));
         OnPropertyChanged(nameof(ContentEmptyHint));
+    }
+
+    /// <summary>
+    /// 把当前 mods 里的文件都标记为"整合包自带"。
+    ///
+    /// 用途：旧版本导入整合包时只把 files[] 记进了 PackFiles，overrides/ 带进来的模组
+    /// 没记录（用户实测：MFQM 的 4 个模组没按整合包折叠）。重新导入当然也行，
+    /// 但这个按钮能让已有实例一次性补齐，不需要重装。
+    /// </summary>
+    private void MarkModsAsPackFiles()
+    {
+        if (_modSnapshotInstance is not { } instance) return;
+
+        var info = InstanceModpackStore.Load(instance.GameDirectory);
+        if (info is null)
+        {
+            Status = "这个实例不是整合包，没有「整合包自带」的概念";
+            return;
+        }
+
+        var merged = info.PackFiles.ToList();
+        var known = merged
+            .Select(entry => PackFileCollector.LogicalName(entry.FileName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var added = 0;
+
+        foreach (var entry in _modSnapshot)
+        {
+            var name = PackFileCollector.LogicalName(Path.GetFileName(entry.Path));
+
+            if (string.IsNullOrWhiteSpace(name) || !known.Add(name)) continue;
+
+            merged.Add(new PackFileEntry(name));
+            added++;
+        }
+
+        InstanceModpackStore.Save(instance.GameDirectory, info with { PackFiles = merged });
+
+        // 列表要按新清单重建：已折叠的会变多，剩下的行都带整合包来源
+        RebuildModContent();
+        RaiseCommandStates();
+
+        Status = added > 0
+            ? $"已把 {added} 个模组标记为整合包自带（共 {merged.Count} 个）"
+            : "当前列表里的模组都已经算整合包自带了";
     }
 }

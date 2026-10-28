@@ -88,6 +88,8 @@ public sealed partial class MainWindowViewModel
         AddExportExtraPathCommand = new RelayCommand(AddExportExtraPath);
         OpenExportRulesCommand = new RelayCommand(OpenExportRules);
         ReloadExportRulesCommand = new RelayCommand(ReloadExportRules);
+
+        MarkModsAsPackFilesCommand = new RelayCommand(MarkModsAsPackFiles);
     }
 
     /// <summary>
