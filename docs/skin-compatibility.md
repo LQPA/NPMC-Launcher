@@ -17,7 +17,7 @@
 | 1.15 | 1.5.25 | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（Fabric 0.20.1）** |
 | 1.20.1 | 4.0.43 | `getTextures(...)` 仍在；开始有 `getSecurePropertyValue`（签名校验） | `modern`（Java 17） | 未验证 |
 | 1.20.5 – 1.20.6 | 5.x（推断，未本地验证） | 切到 `unpackTextures(Property) → MinecraftProfileTextures` | `modern` | 未验证 |
-| 1.21.1 | 6.0.54 | `unpackTextures`；`getPackedTextures`；`fetchProfile(UUID, boolean)` | `modern` | **已实测（NeoForge 21.1.265）** |
+| 1.21.1 | 6.0.54 | `unpackTextures`；`getPackedTextures`；`fetchProfile(UUID, boolean)` | `modern` | **已实测（NeoForge 21.1.265 / Forge 52.1.20）** |
 | 1.21.6 | 6.0.58 | 同上（与 6.0.54 同一套） | `modern` | 未验证 |
 | 1.21.11 | 7.0.61 | 同上；**环境属性必须三个全有**（见 §3） | `modern` | **已实测（Fabric 0.20.1）** |
 | 26.1.2 | 7.0.63 | 同上；客户端 `SkinManager.get` 在没有 textures 时直接返回空 | `modern` | 上一轮验证过（见交接文档） |

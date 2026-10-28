@@ -12,7 +12,7 @@ public static class VersionInheritance
 {
     /// <summary>
     /// 合并规则（与官方启动器一致）：
-    ///   - 库：父版本在前，子版本里**同一个 group:artifact** 的条目替换父版本的同名项
+    ///   - 库：父版本在前，子版本里**同一个 group:artifact[:classifier]** 的条目替换父版本的同名项
     ///   - 参数：父在前、子在后
     ///   - 其余字段：子有值用子的，否则用父的
     /// </summary>
@@ -51,13 +51,25 @@ public static class VersionInheritance
         };
     }
 
-    /// <summary>"group:artifact:version[:classifier]" → "group:artifact"（版本不参与比较）。</summary>
+    /// <summary>
+    /// "group:artifact:version[:classifier]" → "group:artifact[:classifier]"。
+    ///
+    /// 版本不参与比较（子版本要能用新版本覆盖父版本的同名库），但 **classifier 必须保留**：
+    /// Forge 1.21.1 的 profile 同时列了
+    /// <c>net.minecraftforge:forge:1.21.1-52.1.20:universal</c> 与 <c>:client</c>，
+    /// 按 group:artifact 合并会把 universal 顶掉，classpath 里只剩 client；
+    /// Forge 的 Bootstrap 是从 classpath 里挑模块的，于是报
+    /// <c>Failed to find system mod: forge</c>（实测）。natives 变体同理。
+    /// </summary>
     public static string ArtifactKey(string mavenCoordinate)
     {
         if (string.IsNullOrWhiteSpace(mavenCoordinate)) return "";
 
         var parts = mavenCoordinate.Split(':');
-        return parts.Length >= 2 ? $"{parts[0]}:{parts[1]}" : mavenCoordinate;
+        if (parts.Length < 2) return mavenCoordinate;
+
+        var key = $"{parts[0]}:{parts[1]}";
+        return parts.Length >= 4 && parts[3].Length > 0 ? $"{key}:{parts[3]}" : key;
     }
 
     private static VersionArguments? MergeArguments(VersionArguments? parent, VersionArguments? child)

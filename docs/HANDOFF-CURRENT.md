@@ -89,9 +89,24 @@ KnotClassLoader 不把「系统类加载器搜索路径里多出来的 jar」当
 （会改坏字节码）。桥接类必须保持「纯反射、不 import authlib、配置读系统属性」，
 而且**不能再引用 SkinAgent 的字段**（SkinPortBridge 已改成读 `nmpc.skin.*` 系统属性）。
 
+### 6. Forge 1.21.1 启动失败：合并 profile 时把 `forge:universal` 顶掉了
+
+Forge 1.21.1（52.1.20）的 profile 在 `libraries` 里同时列了
+`net.minecraftforge:forge:<ver>:universal` 与 `:client`。`VersionInheritance.Merge`
+原来按 `group:artifact` 去重（**忽略 classifier**），于是 universal 先被加进来、
+紧接着被 client 顶掉；classpath 里只剩 client。Forge 的
+`net.minecraftforge.bootstrap.Bootstrap` 是从 **classpath** 挑模块的
+（`findAllClassPathEntries`），找不到 `forge` 模块就报
+`IllegalStateException: Failed to find system mod: forge`。
+
+现在 `ArtifactKey` 保留 classifier（`group:artifact[:classifier]`，版本仍不参与比较），
+两条都留在库里。实测：补上 universal 后 Forge 1.21.1 正常启动，皮肤也生效
+（`texturesFor: ours=true loader=SecureModuleClassLoader[SECURE-BOOTSTRAP]`）。
+注意：**不要**为了"去重"把 classifier 再吃掉，natives 变体同样会因此覆盖主 jar。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单、26.2/26.3 的缺口）。
-用户已确认 **NeoForge 1.21.1、Fabric 1.21.11、Fabric 1.15 皮肤都生效**；
+用户已确认 **NeoForge 1.21.1、Forge 1.21.1、Fabric 1.21.11、Fabric 1.15 皮肤都生效**；
 其它版本由用户后续自测。
 
 ## 当前状态
@@ -99,13 +114,13 @@ Forge/NeoForge/Fabric 的类名与加载器差异、测试清单、26.2/26.3 的
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（19:54，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（20:06，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
   整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已在 NeoForge 1.21.1、
-  Fabric 1.21.11、Fabric 1.15 实测通过**，其它版本待用户自测。
-- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 327 通过 + 2 个既有失败
+  Forge 1.21.1、Fabric 1.21.11、Fabric 1.15 实测通过**，其它版本待用户自测。
+- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 330 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）

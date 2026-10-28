@@ -93,11 +93,63 @@ public class VersionInheritanceTests
 
     [Theory]
     [InlineData("org.ow2.asm:asm:9.6", "org.ow2.asm:asm")]
-    [InlineData("org.ow2.asm:asm:9.6:natives", "org.ow2.asm:asm")]
+    [InlineData("org.ow2.asm:asm:9.6:natives", "org.ow2.asm:asm:natives")]
+    [InlineData("net.minecraftforge:forge:1.21.1-52.1.20:universal", "net.minecraftforge:forge:universal")]
     [InlineData("plain", "plain")]
     [InlineData("", "")]
-    public void Artifact_key_ignores_version_and_classifier(string coordinate, string expected)
+    public void Artifact_key_ignores_version_but_keeps_classifier(string coordinate, string expected)
     {
         Assert.Equal(expected, VersionInheritance.ArtifactKey(coordinate));
+    }
+
+    [Fact]
+    public void Merge_keeps_same_artifact_with_different_classifiers()
+    {
+        // Forge 1.21.1：universal 与 client 是同一个 group:artifact、不同 classifier，
+        // 两条都必须留在库列表里，否则 classpath 只有 client，Forge 报
+        // "Failed to find system mod: forge"（它的 Bootstrap 从 classpath 挑模块）。
+        var parent = new VersionJson { Id = "1.21.1", Libraries = new List<Library>() };
+        var child = new VersionJson
+        {
+            Id = "1.21.1-forge-52.1.20",
+            InheritsFrom = "1.21.1",
+            Libraries = new List<Library>
+            {
+                Lib("net.minecraftforge:forge:1.21.1-52.1.20:universal"),
+                Lib("net.minecraftforge:forge:1.21.1-52.1.20:client"),
+            },
+        };
+
+        var merged = VersionInheritance.Merge(child, parent);
+
+        Assert.Contains(merged.Libraries, library => library.Name.EndsWith(":universal"));
+        Assert.Contains(merged.Libraries, library => library.Name.EndsWith(":client"));
+    }
+
+    [Fact]
+    public void Child_natives_variant_does_not_replace_the_main_jar()
+    {
+        var parent = new VersionJson
+        {
+            Id = "1.21.1",
+            Libraries = new List<Library>
+            {
+                Lib("org.lwjgl:lwjgl:3.3.3"),
+                Lib("org.lwjgl:lwjgl:3.3.3:natives-windows"),
+            },
+        };
+        var child = new VersionJson
+        {
+            Id = "loader",
+            InheritsFrom = "1.21.1",
+            Libraries = new List<Library> { Lib("org.lwjgl:lwjgl:3.3.3:natives-windows") },
+        };
+
+        var merged = VersionInheritance.Merge(child, parent);
+
+        // 主 jar 与 natives 变体是两条不同的库
+        Assert.Contains(merged.Libraries, library => library.Name == "org.lwjgl:lwjgl:3.3.3");
+        Assert.Contains(merged.Libraries, library => library.Name == "org.lwjgl:lwjgl:3.3.3:natives-windows");
+        Assert.Equal(2, merged.Libraries.Count);
     }
 }
