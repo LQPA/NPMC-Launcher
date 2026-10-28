@@ -27,8 +27,9 @@ public class SkinAgentProviderTests
     [InlineData("7.0.63", true)]
     [InlineData("9.0.75", true)]
     [InlineData("10.0.77", true)]
-    [InlineData("12.0.0", false)]
-    public void Agent_attachment_covers_authlib_1_to_10(string authlibVersion, bool expected)
+    [InlineData("12.0.0", true)]
+    [InlineData("13.0.0", false)]
+    public void Agent_attachment_covers_authlib_1_to_12(string authlibVersion, bool expected)
     {
         var version = VersionJsonSerializer.Parse(
             $"{{\"id\":\"test\",\"libraries\":[{{\"name\":\"com.mojang:authlib:{authlibVersion}\"}}]}}");

@@ -441,7 +441,29 @@ BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
 把导出的 zip 再喂给本地 CF 安装：识别为 BMC4 / 1.20.1 / forge 47.4.20，
 384 个可下载文件（352 个模组）+ 29 个需手动下载，可安装。
 
-测试：Core 388、App 7，合计 **395 通过、0 失败**。
+测试：Core 388、App 7，合计 **396 通过、0 失败**。
+
+### 27. authlib 11+/12 预研（2026-10-29）
+
+查 Mojang 版本清单：最新快照 **26.4-snapshot-6** 使用 **authlib 12.0.81**（Java 25，
+`java-runtime-epsilon`）；26.3 是 10.0.77，最新快照里没有出现 11.x（直接跳到 12）。
+
+对比 10.0.77 与 12.0.81（javap）：
+- 类清单只多了若干 `package-info`（JPMS），没有删除/改包；
+- `SessionService`：`joinServer` / `hasJoinedServer` / `getPackedTextures(GameProfile)` /
+  `unpackTextures(Property)` / 默认 `getTextures(GameProfile)` / `fetchProfile` /
+  `getSecurePropertyValue` 全部一致；
+- `MinecraftServicesSessionService` 仍在，方法签名不变；
+- `MinecraftProfileTextures` / `MinecraftProfileTexture` 构造器与 accessor 一致；
+- `GameProfile` / `Property` 仍是 record，桥接本来就同时兼容 `id()` / `getId()`；
+- 26.4 客户端 `SkinManager` 与 26.3 的方法签名逐个一致（`get` + `registerTextures`）。
+
+所以 `SupportsSkinAgent` 上限从 10 放宽到 **12**（13 先拒绝），测试更新为 12 → true、
+13 → false。**未实机**：26.4 快照需要 Java 25，本机未装；以后装快照时按日志确认
+`transforming ...MinecraftServicesSessionService`、`wrapping ...getPackedTextures`、
+`replacing ...unpackTextures` 即可。
+
+测试：Core 389 + App 7 = **396 通过、0 失败**。
 
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
@@ -456,7 +478,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（00:06，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（00:29，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

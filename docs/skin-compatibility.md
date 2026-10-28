@@ -25,8 +25,9 @@
 | 26.1.2 | 7.0.63 | 同上；客户端 `SkinManager.get` 在没有 textures 时直接返回空 | `modern` | **已实测（原版 + Forge 64.1.5 + NeoForge 26.1.2.124）** |
 | 26.2 | 9.0.75 | 仍是 `YggdrasilMinecraftSessionService`，但多了 `getPackedTextures` | `modern` | **已实测（原版 + Forge 65.1.5 + NeoForge 26.2.0.93）** |
 | 26.3 | 10.0.77 | `MinecraftServicesSessionService implements SessionService`（`unpackTextures` 仍在），环境只认 discovery | `modern` | **已实测（原版 + Forge 66.1.0 + NeoForge 26.3.0.99）** |
+| 26.4-snapshot-6 | 12.0.81 | 与 10.0.77 的 `SessionService` / `MinecraftProfileTextures` / `SkinManager` 签名逐项对比一致 | `modern` | **API 预研通过（javap 对比），未实机** |
 
-`SkinAgentProvider.SupportsSkinAgent` 现在认 authlib **主版本 1–10**。26.x 的两个关键变化：
+`SkinAgentProvider.SupportsSkinAgent` 现在认 authlib **主版本 1–12**。26.x 的两个关键变化：
 
 - **26.2（authlib 9）**：仍是 `YggdrasilMinecraftSessionService`，host 属性和 7 一样
   （session / services / profiles），原有钩子直接可用；
@@ -41,7 +42,7 @@
 | 1.x – 4.x | `YggdrasilMinecraftSessionService.getTextures(GameProfile, boolean)` | `Map<Type, MinecraftProfileTexture>` | 我们的做法：把原方法改名 `nmpc$getTextures$impl`，另生成同名方法按 UUID 分流（本地账号返回本地纹理，其他人走原实现） |
 | 5.x – 7.x | `YggdrasilMinecraftSessionService.unpackTextures(Property)` | `MinecraftProfileTextures` | 整段替换；`textures` 属性的 base64 JSON 里带 `127.0.0.1:<端口>` 才算"我们自己的" |
 | 9.x | `YggdrasilMinecraftSessionService.unpackTextures(Property)` | `MinecraftProfileTextures` | 和 7 同一套；SkinManager 会先 `getPackedTextures` 再解码 |
-| 10.x | `SessionService.unpackTextures(Property)`（实现类 `MinecraftServicesSessionService`） | 同上 | 类名变了，方法签名没变；**环境变量机制也变了**（§3），必须靠 `getPackedTextures` 钩子 |
+| 10.x – 12.x | `SessionService.unpackTextures(Property)`（实现类 `MinecraftServicesSessionService`） | 同上 | 类名变了，方法签名没变；**环境变量机制也变了**（§3），必须靠 `getPackedTextures` 钩子。12.0.81 与 10.0.77 逐项对比一致 |
 
 另外两个随版本变化的点：
 
