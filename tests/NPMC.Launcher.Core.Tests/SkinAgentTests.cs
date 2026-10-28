@@ -120,17 +120,22 @@ public class SkinAgentTests : IDisposable
     }
 
     [Fact]
-    public void Legacy_agent_is_self_contained()
+    public void Legacy_agent_uses_the_stub_and_the_legacy_impl()
     {
-        // 1.7.10 的 Forge 不做重复 ASM 检查，legacy jar 保持自包含（含桥接与 ASM），不传 impl
+        // Java 8（1.7.10~1.15）也用「无 ASM 的 stub + 子加载器加载 impl」：
+        // 1.15 的 Fabric 一样会执行 LoaderUtil.verifyClasspath（实测 duplicate ASM 崩启动）。
         var version = Version("1.5.3", "net.minecraftforge:forge:1.7.10-10.13.4.1614");
 
         var launch = SkinAgentProvider.TryCreateLaunch(
             new LauncherPaths(_root), version, OfflineAccount, clientJarPath: null);
 
         Assert.NotNull(launch);
-        Assert.DoesNotContain("impl=", launch!.Argument);
-        Assert.Contains("nmpc-skin-agent-legacy.jar", launch.Argument);
+
+        var argument = launch!.Argument;
+        Assert.Contains("nmpc-skin-agent.jar=", argument);
+        Assert.Contains("impl=", argument);
+        Assert.Contains("nmpc-skin-agent-impl-legacy.jar", argument);
+        Assert.DoesNotContain("nmpc-skin-agent-legacy.jar", argument);
     }
 
     [Fact]

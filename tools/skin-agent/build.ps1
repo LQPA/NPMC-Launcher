@@ -15,16 +15,17 @@ $jarTool = Join-Path $JavaHome 'bin\jar.exe'
 
 # 四个 jar，各有各的加载器位置 —— 混在一起就会踩 Fabric / ModLauncher 的坑：
 #
-#   nmpc-skin-agent.jar        -javaagent 入口（AgentStub），**不含 ASM**。
+#   nmpc-skin-agent.jar        -javaagent 入口（AgentStub），**不含 ASM**，两套实现共用。
 #                              JVM 会把这个 jar 放进系统类加载器，Fabric 的
 #                              verifyClasspath 数得到里面的 org/objectweb/asm，
-#                              所以它里面一个 ASM 类都不能有。
-#   nmpc-skin-agent-impl.jar   真正的实现 + ASM，由 AgentStub 用子加载器加载；
+#                              所以它里面一个 ASM 类都不能有（1.15/1.21.11 Fabric 都踩过）。
+#   nmpc-skin-agent-impl.jar   modern 实现 + ASM（Java 17），由 AgentStub 用子加载器加载；
 #                              系统类路径与 bootstrap 都看不到它的 ASM。
-#   nmpc-skin-agent-legacy.jar Java 8（1.7.10/1.12.2）用，自包含（含 ASM、桥接类），
-#                              老 Forge 不做重复 ASM 检查，保持原样不动。
-#   nmpc-skin-bridge.jar       只有被改写的游戏代码会调用的桥接类；必须挂到 bootstrap，
-#                              因为模块化加载器（ModLauncher / Fabric）链接不到系统类路径。
+#   nmpc-skin-agent-impl-legacy.jar
+#                              Java 8 实现 + ASM（1.15 及更早、forge 1.7.10/1.12.2），同样由子加载器加载。
+#   nmpc-skin-bridge.jar       只有被改写的游戏代码会调用的桥接类：
+#                              Java 17+ 挂 bootstrap（模块化加载器只能链接 bootstrap），
+#                              Java 8 挂系统类加载器（LaunchWrapper / Knot 的父加载器）。
 
 # unpack ASM once, it gets copied into the two impl jars
 $asmExtract = Join-Path $out 'asm-extract'
@@ -76,20 +77,21 @@ $allSources = Get-ChildItem $src -Recurse -Filter '*.java' | Select-Object -Expa
 $bridgeSources = @(
     (Join-Path $src 'nmpc\skin\SkinBridgeModern.java')
     (Join-Path $src 'nmpc\skin\SkinBridgeLegacy.java')
+    (Join-Path $src 'nmpc\skin\SkinPortBridge.java')
 )
+# 两套 impl 都不带桥接类：桥接类只存在于 bridge jar 里，否则同一个类会被两个加载器各定义一次。
 $legacySources = @($allSources | Where-Object {
-        $_ -notmatch 'SkinBridgeModern\.java$' -and $_ -notmatch 'SkinModuleSupport\.java$' -and
+        $_ -notmatch 'SkinBridgeModern\.java$' -and $_ -notmatch 'SkinBridgeLegacy\.java$' -and
+        $_ -notmatch 'SkinPortBridge\.java$' -and $_ -notmatch 'SkinModuleSupport\.java$' -and
         $_ -notmatch 'AgentStub\.java$'
     })
-# modern impl 不带桥接类：桥接类只存在于 bootstrap 的 bridge jar 里，
-# 否则同一个类会被两个加载器各定义一次。
 $implSources = @($allSources | Where-Object {
         $_ -notmatch 'SkinBridgeModern\.java$' -and $_ -notmatch 'SkinBridgeLegacy\.java$' -and
-        $_ -notmatch 'AgentStub\.java$'
+        $_ -notmatch 'SkinPortBridge\.java$' -and $_ -notmatch 'AgentStub\.java$'
     })
 $stubSources = @((Join-Path $src 'nmpc\skin\AgentStub.java'))
 
-# 1) legacy agent: Java 8 runtime (1.7.10 / 1.12.2)，自包含
+# 1) legacy impl: Java 8 runtime (1.7.10~1.15)，含 ASM
 $legacyClasses = Join-Path $out 'agent-legacy-classes'
 Remove-Item $legacyClasses -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $legacyClasses -Force | Out-Null
@@ -131,7 +133,7 @@ if ($LASTEXITCODE -ne 0) { throw 'javac failed: bridge' }
 
 $ErrorActionPreference = $nativePreference
 
-Write-Jar -Name 'nmpc-skin-agent-legacy' -Classes $legacyClasses -Premain 'nmpc.skin.SkinAgent'
+Write-Jar -Name 'nmpc-skin-agent-impl-legacy' -Classes $legacyClasses -Premain ''
 Write-Jar -Name 'nmpc-skin-agent-impl' -Classes $implClasses -Premain ''
 Write-Jar -Name 'nmpc-skin-agent' -Classes $stubClasses -Premain 'nmpc.skin.AgentStub'
 
@@ -143,7 +145,7 @@ Write-Host "jar: $bridgeTarget"
 
 # 资源目录是启动器编译时嵌进程序集的那一份，构建完直接覆盖，避免"忘了复制"。
 New-Item -ItemType Directory -Path $resourceDir -Force | Out-Null
-foreach ($name in @('nmpc-skin-agent.jar', 'nmpc-skin-agent-impl.jar', 'nmpc-skin-agent-legacy.jar', 'nmpc-skin-bridge.jar')) {
+foreach ($name in @('nmpc-skin-agent.jar', 'nmpc-skin-agent-impl.jar', 'nmpc-skin-agent-impl-legacy.jar', 'nmpc-skin-bridge.jar')) {
     Copy-Item (Join-Path $out $name) (Join-Path $resourceDir $name) -Force
     Write-Host "copy: $(Join-Path $resourceDir $name)"
 }

@@ -16,11 +16,13 @@ import java.nio.file.StandardOpenOption;
  *
  * 启动时：
  *   1. 在 127.0.0.1 上起一个只服务"当前账号"的皮肤 API；
- *   2. 把 minecraft.api.* 四个 host 里只把 session 指到本地（authlib 4~7 会读）；
+ *   2. 设置 minecraft.api.* 的 host（session 指本地；authlib 7 要求 session/services/profiles 全有）；
  *   3. 用 ASM 替换 authlib / SkinManager 的取皮肤入口（见 SkinTransformer）。
  *
+ * 本类在 impl jar 里（带 ASM），由 AgentStub 用子加载器加载；桥接类单独在 bridge jar。
+ *
  * 参数格式（分号分隔）：
- *   port=8765;name=Steve;uuid=5627...;skin=C:\path\skin.png;model=classic;log=C:\path\agent.log
+ *   impl=...;port=8765;name=Steve;uuid=5627...;skin=C:\path\skin.png;model=classic;log=...;bridge=...
  *
  * 注意：本类要保持 Java 8 兼容（1.7.10 用 Java 8 运行），不要用 var / switch 箭头等新语法。
  */
@@ -36,7 +38,7 @@ public final class SkinAgent {
     static String bridgePath;
 
     /**
-     * 现代类加载环境（模块化加载器）是否已经准备好：bootstrap 追加 + 模块 read edge 都成功。
+     * 桥接类是否已经能被被改写的游戏类解析到（Java 8：系统类加载器；Java 17+：bootstrap + read edge）。
      * 没准备好时**不做**现代替换 —— 否则注入的调用找不到类，游戏会直接崩；
      * 不替换最多只是没有离线皮肤（authlib 会把未签名纹理当无效，退回默认皮肤）。
      */
@@ -73,9 +75,10 @@ public final class SkinAgent {
             log("transformer failed: " + error);
         }
 
-        // 现代加载器（Forge/NeoForge/Fabric 1.16+）把 authlib 放在模块层里，看不到系统类路径。
-        // 把自己追加到 bootstrap，并给改写到的模块加 read edge（SkinModuleSupport 只在 Java 17+ 的 jar 里）。
-        prepareBootstrap(instrumentation);
+        // 现代加载器（Forge/NeoForge/Fabric 1.16+）把 authlib 放在模块层里，看不到系统类路径；
+        // Java 8 没有模块系统，被改写的游戏类由 LaunchWrapper / Fabric 的加载器加载，
+        // 它们的父加载器是系统类加载器。两种情况都只需要桥接 jar，见 prepareBridge。
+        prepareBridge(instrumentation);
 
         try {
             System.setProperty("nmpc.skin.url", base() + "/textures/" + skinId() + ".png");
@@ -83,6 +86,7 @@ public final class SkinAgent {
             System.setProperty("nmpc.skin.name", name);
             System.setProperty("nmpc.skin.model", model);
             System.setProperty("nmpc.skin.port", String.valueOf(port));
+            System.setProperty("nmpc.skin.skin", skin == null ? "" : skin.toString());
             if (logFile != null) System.setProperty("nmpc.skin.log", logFile.toString());
             log("bridge properties: url=" + System.getProperty("nmpc.skin.url"));
         } catch (Throwable error) {
@@ -92,31 +96,37 @@ public final class SkinAgent {
         log("ready name=" + name + " uuid=" + uuid + " skin=" + skin + " model=" + model);
     }
 
-    /** 把**桥接 jar** 追加到 bootstrap，让模块化加载器也能解析桥接类。 */
-    private static void prepareBootstrap(Instrumentation instrumentation) {
-        // Java 8（1.7.10/1.12）没有模块系统，老加载器本来就能看到系统类路径，不必动 bootstrap
-        String specification = System.getProperty("java.specification.version", "");
-        if (specification.startsWith("1.")) {
-            log("bootstrap: java " + specification + ", skipped");
+    /**
+     * 把**桥接 jar** 挂到被改写的游戏类看得见的地方：一律挂 **bootstrap**。
+     *
+     * 不能只挂系统类加载器：Fabric 的 KnotClassLoader 不接受"只出现在系统类路径搜索里"的类，
+     * 会报 `ClassNotFoundException: ... hasn't been exposed to the game`（1.15 Fabric 实测）。
+     * bootstrap 里的类对所有加载器（含 Knot / LaunchWrapper / 模块层）都可见，
+     * 而桥接类只依赖 JDK + 反射，放 bootstrap 没有副作用。
+     *
+     * Java 17+ 的模块化加载器还需要一条 read edge（SkinModuleSupport）；Java 8 没有模块系统。
+     * agent 自己的 ASM 必须留在 impl 子加载器里：bootstrap 上出现第二份 ASM 会触发
+     * VerifyError 或 Fabric 的 duplicate-ASM 检查。
+     */
+    private static void prepareBridge(Instrumentation instrumentation) {
+        java.io.File jar = BridgeJar();
+        if (jar == null || !jar.isFile()) {
+            log("bridge: jar missing");
             return;
         }
 
-        // 只追加桥接类所在的 jar：agent 自己的 ASM 必须留在系统类路径一侧，
-        // 否则同一个 ASM 类会被 bootstrap 和 App 加载器各定义一次，
-        // 验证器会以 "Bad type in putfield/putstatic" 拒绝（实测）。
-        java.io.File jar = BridgeJar();
-        if (jar == null || !jar.isFile()) {
-            log("bootstrap: bridge jar missing");
-            return;
-        }
+        String specification = System.getProperty("java.specification.version", "");
+        boolean legacy = specification.startsWith("1.");
 
         try {
             instrumentation.appendToBootstrapClassLoaderSearch(new java.util.jar.JarFile(jar));
             log("bootstrap search: " + jar);
         } catch (Throwable error) {
-            log("bootstrap append failed: " + error);
+            log("bridge append failed: " + error);
             return;
         }
+
+        if (legacy) return;
 
         try {
             Class<?> support = Class.forName("nmpc.skin.SkinModuleSupport", true, SkinAgent.class.getClassLoader());
@@ -124,7 +134,7 @@ public final class SkinAgent {
             modernReady = true;
             log("module support installed");
         } catch (Throwable error) {
-            // legacy jar 里没有这个类（Java 8 没有模块系统），忽略即可
+            // legacy impl 里没有这个类（Java 8 没有模块系统），忽略即可
             log("module support unavailable: " + error);
         }
     }

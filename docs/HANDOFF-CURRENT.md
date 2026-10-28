@@ -62,24 +62,49 @@ Fabric 运行时游戏类用 intermediary 名（`net/minecraft/class_xxxx` /
 `texturesFor: ours=true`。以后要是某个版本必须在 SkinManager 层接管，得按
 intermediary 名再匹配一次（先看 `skinmanager:` 那几行有没有打出来）。
 
+### 4. Java 8 的 Fabric（1.15）也查重复 ASM → legacy 也必须拆分
+
+原来的 legacy jar 是自包含的（含 ASM + 桥接类），1.15 Fabric 一启动就
+`duplicate ASM classes found on classpath: ...asm-9.10.1.jar..., ...nmpc-skin-agent-legacy.jar!...`。
+现在 **两套实现共用同一个无 ASM 的 stub**：
+`nmpc-skin-agent-impl.jar`（Java 17）与 `nmpc-skin-agent-impl-legacy.jar`（Java 8）。
+启动器按 authlib 主版本选：1–3 用 legacy，4–7 用 modern。
+
+### 5. Fabric Java 8 不认 `appendToSystemClassLoaderSearch` → 桥接必须挂 bootstrap
+
+1.15 Fabric 第二次启动没崩，但 `getTextures` 注入后抛：
+
+```
+NoClassDefFoundError: nmpc/skin/SkinBridgeLegacy
+Caused by: ClassNotFoundException: can't load class nmpc.skin.SkinBridgeLegacy
+  at ...nmpc-skin-bridge.jar as it hasn't been exposed to the game
+```
+
+KnotClassLoader 不把「系统类加载器搜索路径里多出来的 jar」当自己的类路径。
+所以 `prepareBridge` 现在**所有 Java 版本都挂 bootstrap**（Java 8 也支持
+`appendToBootstrapClassLoaderSearch`），只有 Java 17+ 才继续加模块 read edge。
+桥接类只依赖 JDK + 反射，放 bootstrap 没有副作用。
+
 **不要**再把带 ASM 的 jar 直接当 `-javaagent`；也**不要**用字节替换重定位 ASM
-（会改坏字节码）。桥接类必须保持「纯反射、不 import authlib、配置读系统属性」。
+（会改坏字节码）。桥接类必须保持「纯反射、不 import authlib、配置读系统属性」，
+而且**不能再引用 SkinAgent 的字段**（SkinPortBridge 已改成读 `nmpc.skin.*` 系统属性）。
 
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单、26.2/26.3 的缺口）。
-用户已确认 **NeoForge 1.21.1 与 Fabric 1.21.11 皮肤都生效**；其它版本由用户后续自测。
+用户已确认 **NeoForge 1.21.1、Fabric 1.21.11、Fabric 1.15 皮肤都生效**；
+其它版本由用户后续自测。
 
 ## 当前状态
 
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（19:38，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（19:54，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
-  整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已在 NeoForge 1.21.1 +
-  Fabric 1.21.11 实测通过**，其它版本待用户自测。
+  整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已在 NeoForge 1.21.1、
+  Fabric 1.21.11、Fabric 1.15 实测通过**，其它版本待用户自测。
 - 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 327 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。

@@ -4,6 +4,8 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.UUID;
 
 /**
@@ -16,6 +18,10 @@ import java.util.UUID;
  * 这里不依赖编译期 SkinPort，全部反射：
  *   - 本账号：构造 lain.mods.skins.impl.SkinData 并塞入启动器的 PNG；
  *   - 其它玩家：按 SkinPort 自己的规则返回 DefaultAlex / DefaultSteve。
+ *
+ * 这个类在**桥接 jar** 里：Java 8 时桥接 jar 进系统类加载器，Java 17+ 时进 bootstrap。
+ * 所以不能引用 SkinAgent 的字段（那是 impl 子加载器里的另一份），配置一律读系统属性：
+ *   nmpc.skin.uuid / nmpc.skin.name / nmpc.skin.skin / nmpc.skin.model / nmpc.skin.log
  */
 public final class SkinPortBridge {
     private static final String SKIN_DATA = "lain.mods.skins.impl.SkinData";
@@ -25,10 +31,10 @@ public final class SkinPortBridge {
             String id = playerId(profile);
             String playerName = playerName(profile);
 
-            SkinAgent.log("skinport get id=" + id + " name=" + playerName);
+            log("get id=" + id + " name=" + playerName);
 
-            boolean local = (id != null && id.replace("-", "").equalsIgnoreCase(SkinAgent.uuid))
-                    || (playerName != null && playerName.equalsIgnoreCase(SkinAgent.name));
+            boolean local = (id != null && id.replace("-", "").equalsIgnoreCase(property("nmpc.skin.uuid", "")))
+                    || (playerName != null && playerName.equalsIgnoreCase(property("nmpc.skin.name", "")));
 
             if (local) {
                 Object skin = createSkin();
@@ -37,16 +43,20 @@ public final class SkinPortBridge {
 
             return fallback(provider, id);
         } catch (Throwable error) {
-            SkinAgent.log("skinport get failed: " + error);
+            log("get failed: " + error);
             return null;
         }
     }
 
     private static Object createSkin() {
         try {
-            if (SkinAgent.skin == null || !Files.isReadable(SkinAgent.skin)) return null;
+            String configured = property("nmpc.skin.skin", "");
+            if (configured.isEmpty()) return null;
 
-            byte[] bytes = Files.readAllBytes(SkinAgent.skin);
+            Path skin = Paths.get(configured);
+            if (!Files.isReadable(skin)) return null;
+
+            byte[] bytes = Files.readAllBytes(skin);
 
             Class<?> type = Class.forName(SKIN_DATA);
 
@@ -62,10 +72,10 @@ public final class SkinPortBridge {
             put.setAccessible(true);
             put.invoke(data, bytes, skinType);
 
-            SkinAgent.log("skinport skin served type=" + skinType + " model=" + SkinAgent.model);
+            log("skin served type=" + skinType + " model=" + property("nmpc.skin.model", "classic"));
             return data;
         } catch (Throwable error) {
-            SkinAgent.log("skinport create failed: " + error);
+            log("create failed: " + error);
             return null;
         }
     }
@@ -86,7 +96,7 @@ public final class SkinPortBridge {
             field.setAccessible(true);
             return field.get(provider);
         } catch (Throwable error) {
-            SkinAgent.log("skinport fallback failed: " + error);
+            log("fallback failed: " + error);
             return null;
         }
     }
@@ -108,6 +118,31 @@ public final class SkinPortBridge {
             return value == null ? null : value.toString();
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    private static String property(String key, String fallback) {
+        try {
+            String value = System.getProperty(key);
+            return value == null || value.isEmpty() ? fallback : value;
+        } catch (Throwable error) {
+            return fallback;
+        }
+    }
+
+    private static void log(String message) {
+        try {
+            String path = System.getProperty("nmpc.skin.log", "");
+            if (path.isEmpty()) return;
+
+            Files.write(
+                    Paths.get(path),
+                    ("[" + new java.util.Date() + "] bridge skinport " + message + System.lineSeparator())
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.APPEND);
+        } catch (Throwable ignored) {
+            // 日志写不了不影响游戏
         }
     }
 

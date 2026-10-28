@@ -12,8 +12,9 @@
 
 | 游戏版本 | authlib | 皮肤入口（authlib 侧） | 我们用的 jar | 本轮验证 |
 |---|---|---|---|---|
-| 1.7.10 | 1.5.21 | `getTextures(GameProfile, boolean) → Map`；另需对付 SkinPort 模组 | `legacy`（Java 8，自包含） | 以前验证过，本轮未回归 |
-| 1.8 – 1.15.x | 1.x – 3.x | 同上（`getTextures`） | `legacy` | 未验证 |
+| 1.7.10 | 1.5.21 | `getTextures(GameProfile, boolean) → Map`；另需对付 SkinPort 模组 | stub + `impl-legacy`（Java 8） | 以前验证过，本轮未回归 |
+| 1.8 – 1.14.x | 1.x – 3.x | 同上（`getTextures`） | stub + `impl-legacy` | 未验证 |
+| 1.15 | 1.5.25 | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（Fabric 0.20.1）** |
 | 1.20.1 | 4.0.43 | `getTextures(...)` 仍在；开始有 `getSecurePropertyValue`（签名校验） | `modern`（Java 17） | 未验证 |
 | 1.20.5 – 1.20.6 | 5.x（推断，未本地验证） | 切到 `unpackTextures(Property) → MinecraftProfileTextures` | `modern` | 未验证 |
 | 1.21.1 | 6.0.54 | `unpackTextures`；`getPackedTextures`；`fetchProfile(UUID, boolean)` | `modern` | **已实测（NeoForge 21.1.265）** |
@@ -69,7 +70,7 @@ session 指本地，其余指官方。**多设没用，少设是致命的**。
 | Forge 1.12.2 | LaunchWrapper | 官方类名 + SRG 方法名 | 用 `legacy` jar；`SkinManager` 方法名是 `m_xxx_`，按名字的钩子不会命中（也不需要） |
 | Forge 1.16 – 1.20.1 | ModLauncher + **JPMS 模块** | 官方类名 + SRG 方法名 | authlib 在 module layer：桥接类必须进 **bootstrap**，且给模块加 **read edge**，否则 `NoClassDefFoundError` / `IllegalAccessError` |
 | NeoForge 1.21+ | ModLauncher + JPMS 模块 | **mojmap**（方法名也是 mojmap） | 同上；`SkinManager` 钩子能命中（1.21.1 日志里打出 `getInsecureSkin` / `getOrLoad` / `registerTextures`） |
-| Fabric 1.14+ | KnotClassLoader（无 JPMS 模块） | **intermediary**（`net/minecraft/class_xxxx` / `method_xxxx`） | ① `-javaagent` 的 jar 在系统类路径上，**里面不能有 ASM**（`LoaderUtil.verifyClasspath` 会拒绝重复 ASM）；② authlib 类名不变（authlib 不参与 remap），`unpackTextures` 钩子照常命中；③ 写死 mojmap 的 `SkinManager` 钩子**匹配不上** |
+| Fabric 1.14+ | KnotClassLoader（无 JPMS 模块） | **intermediary**（`net/minecraft/class_xxxx` / `method_xxxx`） | ① `-javaagent` 的 jar 在系统类路径上，**里面不能有 ASM**（`LoaderUtil.verifyClasspath` 会拒绝重复 ASM）；② 桥接类**只能挂 bootstrap**：`appendToSystemClassLoaderSearch` 对 Knot 不算数，会报 `ClassNotFoundException: ... hasn't been exposed to the game`（1.15 Fabric 实测）；③ authlib 类名不变（authlib 不参与 remap），`getTextures` / `unpackTextures` 钩子照常命中；④ 写死 mojmap 的 `SkinManager` 钩子**匹配不上** |
 | Quilt | 与 Fabric 同一套（Knot 派生） | intermediary | 理论上同 Fabric；未验证 |
 
 ### Fabric 的 SkinManager 具体名字（1.21.11）
@@ -108,6 +109,7 @@ session 指本地，其余指官方。**多设没用，少设是致命的**。
 | 场景 | 期望日志（关键行） |
 |---|---|
 | NeoForge 1.21.1（authlib 6） | `bootstrap search: ...nmpc-skin-bridge.jar`、`module support installed`、`transforming ...YggdrasilMinecraftSessionService`、`replacing ...unpackTextures`、`profile <uuid> -> ...png`、`texturesFor: ours=true` |
+| Fabric 1.15（authlib 1.5.25，Java 8） | `bootstrap search: ...`（**不再是** `system search`）、`wrapping ...getTextures(...)`、`legacy textures served url=http://127.0.0.1:<port>/...`；**不应**出现 `NoClassDefFoundError: nmpc/skin/SkinBridgeLegacy` |
 | Fabric 1.21.11（authlib 7） | 同上，且 `read edge added: null -> null`（Fabric 没有模块）；`latest.log` 里 `sessionHost=http://127.0.0.1:<port>`；**不应**出现 `Ignoring hosts properties` |
 | Forge 1.20.1（authlib 4） | `wrapping ...getTextures(...)`、`legacy textures served url=...`（桥接日志前缀是 `legacy`） |
 | 1.7.10（authlib 1 + SkinPort） | `bootstrap: java 1.8..., skipped`、`wrapping ...getTextures`、`skinport get id=... name=...` |
