@@ -334,6 +334,20 @@ Modrinth 上没有同名项目。也就是说启动器**无法自动下载**这 
 因为具体 `files/<id>` 页可能 404，但项目主页的 Files 里通常还能找到兼容版本；
 下载到浏览器下载目录后，`BlockedModImporter` 会按 SHA1 自动导入，SHA1 不一致则手动放进 `mods/`。
 
+### 20. blocked 列表：下载页 / 项目页 / 忽略（2026-10-28 晚）
+
+用户偏好直达具体文件页，所以恢复「打开全部下载页」，另加「打开全部项目页」与「忽略缺失」：
+
+- 下载页：`files/<id>` 直达（用户习惯；若 404 再试项目页）；
+- 项目页：项目主页的 Files 里找最新兼容版本；
+- 忽略缺失：文件被作者彻底删除（项目页也 404）时清空 `.nmpc-modpack.json` 的 Missing，
+  不再反复提示；重新安装整合包可恢复。
+
+BMC4 的 6 个缺失文件（Climate Rivers language Fix、Mandala's GUI Vanilla Crosshair、Stay Clear、
+Unofficial Mandala's GUI Dark Mode、The Rename Compat Project、Created Simple Storage Network）
+经 CF API 与 Modrinth 核对：项目/文件元数据在 CF 侧已删除、Modrinth 无同名项目，**无法自动补齐**。
+这些多为装饰/兼容/QoL 文件，缺省不影响启动，建议先启动再按崩溃日志决定是否找替代。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -347,7 +361,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:22，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:26，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

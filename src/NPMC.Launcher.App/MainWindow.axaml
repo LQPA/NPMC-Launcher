@@ -1651,8 +1651,16 @@
                 <TextBlock Text="{Binding BlockedModsHint}" FontSize="10" Foreground="#949CA9"
                            TextWrapping="Wrap" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                  <Button Content="打开全部项目页" Command="{Binding OpenBlockedModsCommand}"
-                          ToolTip.Tip="文件页可能 404；项目主页的 Files 里找最新兼容版本"
+                  <Button Content="打开全部下载页" Command="{Binding OpenBlockedModsCommand}"
+                          ToolTip.Tip="直达具体文件页；如果 404，再试项目页"
+                          FontSize="11" Height="28" Padding="10,0"
+                          HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                  <Button Content="打开全部项目页" Command="{Binding OpenBlockedProjectPagesCommand}"
+                          ToolTip.Tip="项目主页的 Files 里找最新兼容版本（文件页 404 时用）"
+                          FontSize="11" Height="28" Padding="10,0"
+                          HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                  <Button Content="忽略缺失" Command="{Binding IgnoreBlockedModsCommand}"
+                          ToolTip.Tip="文件已被作者删除、确实拿不到时，清空缺失提示"
                           FontSize="11" Height="28" Padding="10,0"
                           HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
                   <Button Content="选择下载目录…" Click="OnPickBlockedFolderClick"

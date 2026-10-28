@@ -56,23 +56,29 @@ public sealed partial class MainWindowViewModel
     } = "";
 
     public ICommand OpenBlockedModsCommand { get; private set; }
+    public ICommand OpenBlockedProjectPagesCommand { get; private set; }
     public ICommand RecheckBlockedModsCommand { get; private set; }
+    public ICommand IgnoreBlockedModsCommand { get; private set; }
 
     private void InitializeBlockedModCommands()
     {
-        OpenBlockedModsCommand = new RelayCommand(OpenBlockedModPages);
+        OpenBlockedModsCommand = new RelayCommand(() => OpenBlockedPages(useProjectPage: false));
+        OpenBlockedProjectPagesCommand = new RelayCommand(() => OpenBlockedPages(useProjectPage: true));
         RecheckBlockedModsCommand = new RelayCommand(() => _blockedImporter?.ScanNow());
+        IgnoreBlockedModsCommand = new RelayCommand(IgnoreBlockedMods);
     }
 
-    private void OpenBlockedModPages()
+    private void OpenBlockedPages(bool useProjectPage)
     {
         foreach (var item in BlockedMods)
         {
             try
             {
-                Process.Start(new ProcessStartInfo(
-                    string.IsNullOrWhiteSpace(item.ProjectUrl) ? item.PageUrl : item.ProjectUrl)
-                { UseShellExecute = true });
+                var url = useProjectPage && !string.IsNullOrWhiteSpace(item.ProjectUrl)
+                    ? item.ProjectUrl
+                    : item.PageUrl;
+
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
             catch (Exception ex)
             {
@@ -82,8 +88,35 @@ public sealed partial class MainWindowViewModel
             }
         }
 
-        BlockedModsHint = "已打开项目主页：在 Files 里找最新兼容版本（具体文件页可能 404）；下载后自动校验 SHA1 并放进实例。";
+        BlockedModsHint = useProjectPage
+            ? "已打开项目主页：在 Files 里找最新兼容版本；下载后自动校验 SHA1。"
+            : "已打开具体文件页；如果 404，可改用「打开全部项目页」。";
+
         OnPropertyChanged(nameof(BlockedModsHint));
+    }
+
+    /// <summary>文件确实已被作者删除、拿不到时：清空缺失列表，不再反复提示。</summary>
+    private void IgnoreBlockedMods()
+    {
+        if (_blockedGameDirectory is not { } directory) return;
+        if (InstanceModpackStore.Load(directory) is not { } info) return;
+
+        _blockedImporter?.Dispose();
+        _blockedImporter = null;
+
+        InstanceModpackStore.Save(directory, info with { Missing = Array.Empty<BlockedModFile>() });
+
+        BlockedMods.Clear();
+        OnPropertyChanged(nameof(HasBlockedMods));
+
+        BlockedModsHint = "已忽略缺失文件（不再提示）；重新安装整合包可以恢复列表。";
+        OnPropertyChanged(nameof(BlockedModsHint));
+
+        foreach (var instance in Instances)
+        {
+            if (string.Equals(instance.GameDirectory, directory, StringComparison.OrdinalIgnoreCase))
+                instance.RefreshModpackInfo();
+        }
     }
 
     /// <summary>用户选择自定义下载目录时调用（默认监听系统“下载”目录）。</summary>
