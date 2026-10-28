@@ -14,6 +14,7 @@
 |---|---|---|---|---|
 | 1.7.10 | 1.5.21 | `getTextures(GameProfile, boolean) → Map`；另需对付 SkinPort 模组 | stub + `impl-legacy`（Java 8） | **已实测（原版 + Forge，含 SkinPort 整合包）** |
 | 1.9 | 1.x | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（原版 + Forge）** |
+| 22w13oneblockatatime（1.19 快照） | 3.3.39 | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（原版）** |
 | 1.12.2 | 1.5.x | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（原版 + Forge）** |
 | 1.15 | 1.5.25 | 同上（`getTextures`） | stub + `impl-legacy` | **已实测（原版 + Fabric 0.20.1 + Forge）** |
 | 1.20.1 | 4.0.43 | `getTextures(...)` 仍在；开始有 `getSecurePropertyValue`（签名校验） | `modern`（Java 17）+ `getTextures` 包装 | **已实测（原版 + Fabric + Forge + NeoForge）** |
@@ -140,8 +141,8 @@ port / decoded 前缀）。
 2. **Fabric/Quilt 的 `SkinManager` 钩子**：目前没接。1.21.11 / 26.x 不需要（authlib 层
    已经够用），但如果以后某个版本必须靠它，得按 §4 的 intermediary 名字匹配，
    并且每个版本都要重新查。
-3. **尚未实测**：1.21.6（含 fabric 1.21.6，authlib 6.0.58，机制同 1.21.1）、
-   快照 22w13oneblockatatime（authlib 3.3.39，本机 aaaa 有实例）、**Quilt**。
+3. **尚未实测：只剩 Quilt**。1.21.6（authlib 6.0.58，机制与 1.21.1 完全一致）按用户决定
+   跳过，不再专门测；22w13oneblockatatime（authlib 3.3.39）已实测通过。
    其余 1.7.10 ~ 26.3 的原版 / Fabric / Forge / NeoForge 组合都已实机确认（见 §1 表）。
 
    **Quilt 是什么**：Quilt Loader 是 Fabric 的社区分支（QuiltMC），兼容大部分 Fabric
