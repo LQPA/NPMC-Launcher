@@ -2415,11 +2415,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             if (modpack is not null && checkItems.Count == 0)
             {
-                foreach (var item in items)
-                {
-                    item.SetUpdate(null);
-                    item.SetIdentification(null, null);
-                }
+                // 只清"可升级"标记：识别徽标是哈希算出来的，跟更不更新没关系（清了会变 `?`）
+                foreach (var item in items) item.SetUpdate(null);
 
                 UpdateCount = 0;
                 Status = "整合包实例：整合包内模组不做单独更新检查（只检查手动添加的模组）";
@@ -2446,12 +2443,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 loaders,
                 includePrerelease: _settingsIncludePrereleaseUpdates);
 
-            // 整合包自带的文件明确清掉"可升级"标记，避免旧检查结果残留
-            foreach (var item in items.Except(checkItems))
-            {
-                item.SetUpdate(null);
-                item.SetIdentification(null, null);
-            }
+            // 整合包自带的文件明确清掉"可升级"标记，避免旧检查结果残留；
+            // 但**不能**清识别徽标 —— 那是哈希识别的结果，会变成 `?`
+            foreach (var item in items.Except(checkItems)) item.SetUpdate(null);
 
             // 就地贴到行上，不重建列表（升级提示 + 识别来源）
             var byPath = report.LocalMods.ToDictionary(local => local.Path, StringComparer.OrdinalIgnoreCase);

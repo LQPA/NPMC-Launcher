@@ -173,14 +173,15 @@
     - 实测：3 个 jar（含一个 `.jar.disabled`）→ `PackFiles` 记成 3 个逻辑名、折叠 3 个；
       `PackFileCollectorTests` 5 个用例覆盖 overrides 补录、sha1 保留、`.disabled` 归一、
       去重与目录缺失。
-    - **资源包/光影同样处理（2026-10-28）**：`PackFileCollector` 现在扫
-      `mods` / `resourcepacks` / `shaderpacks` 三个目录，因此 overrides 带进来的资源包与光影
-      也会进 `PackFiles`；`PackFileEntry.FromIndex` 标出"是否真的来自清单"。
-    - **只有清单文件才打来源徽标**：`overrides/` 里的自制或三方内容平台根本不认识，
-      必须保持 `?`（用户要求）。`RebuildModContent` 与元数据回填都改成
-      `packIndexNames.Contains(logical)` 才 `SetIdentification(packSource)`；
-      这类文件仍可由哈希识别正常认领（真在 Modrinth/CF 上就认）。
-      旧 JSON 没有 `FromIndex` 字段 → 默认 true，行为与以前一致。
+    - **检查更新会把徽标清成 `?`（2026-10-28 修复）**：`CheckModUpdatesAsync` 为了清掉
+      "可升级"标记，对整合包自带文件调了 `item.SetIdentification(null, null)` ——
+      把哈希识别出来的来源也一起抹了。现在只 `SetUpdate(null)`，识别徽标保持不动。
+      实测（MFQM 副本）：检查更新前后，清单里的 CrashAssistant / journeymap 始终 M=True，
+      overrides 里的 4 个自制模组始终 `?`。
+    - 资源包/光影同样处理（2026-10-28）：`PackFileCollector` 扫 `mods` / `resourcepacks` /
+      `shaderpacks` 三个目录；`PackFileEntry.FromIndex` 标出"是否真的来自清单"，
+      只有清单文件才强制打来源徽标，`overrides/` 里的内容保持 `?`（真能被哈希认出才认领）。
+      旧 JSON 没有 `FromIndex` → 默认 true。
   - **导出整合包（.mrpack）表单（2026-10-28）**：导出页从"一个按钮"改成"格式 + 整合包名称/版本 +
     导出内容清单 + 高级选项"，参照 PCL 的整合包制作界面，但**只做模组包导出，不打包启动器自身**。
     - 内容清单：Mod（含已禁用）/ Mod 配置 / 资源包 / 光影包 / 游戏设置 / 单人存档（默认不勾）；

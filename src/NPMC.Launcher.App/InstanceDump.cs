@@ -1568,6 +1568,28 @@ internal static class InstanceDump
                 viewModel.ContentFilterQuery = "";
                 viewModel.HidePackMods = true;
                 viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+
+                // 折叠开着时列表为空（所有文件都算整合包自带），关掉再看每一行的识别状态
+                viewModel.HidePackMods = false;
+                viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+
+                foreach (var row in viewModel.Content.Take(8))
+                {
+                    lines.Add($"      {Path.GetFileName(row.Entry.Path),-58} 识别={row.IsIdentified}"
+                              + $" M={row.IsFromModrinth} C={row.IsFromCurseForge} ?={row.IsUnidentified}");
+                }
+
+                // 检查更新不能把整合包模组的识别徽标清成 `?`
+                lines.Add("    [检查更新后]");
+                viewModel.CheckUpdatesCommand.Execute(null);
+                Thread.Sleep(5000);
+                viewModel.RefreshContentAsync().GetAwaiter().GetResult();
+
+                foreach (var row in viewModel.Content.Take(8))
+                {
+                    lines.Add($"      {Path.GetFileName(row.Entry.Path),-58} 识别={row.IsIdentified}"
+                              + $" M={row.IsFromModrinth} C={row.IsFromCurseForge} ?={row.IsUnidentified}");
+                }
             }
         }
 
