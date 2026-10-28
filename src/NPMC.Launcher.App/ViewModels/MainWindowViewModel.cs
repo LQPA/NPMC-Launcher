@@ -2031,6 +2031,30 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<ContentEntryItem> Content { get; } = new();
 
     /// <summary>
+    /// 列表里高亮选中的项（ListBox 多选）。批量启用/禁用/升级：
+    /// 有选中时只作用于选中项，没有选中时作用于全部。
+    /// </summary>
+    private readonly List<ContentEntryItem> _selectedContent = new();
+
+    public int ContentSelectionCount => _selectedContent.Count;
+
+    public bool HasContentSelection => ContentSelectionCount > 0;
+
+    public string ContentSelectionText => HasContentSelection ? $"已选 {ContentSelectionCount} 项" : "";
+
+    /// <summary>由窗口的 SelectionChanged 同步（避免在 VM 里依赖 Avalonia 控件）。</summary>
+    public void SetSelectedContent(IEnumerable<ContentEntryItem> items)
+    {
+        _selectedContent.Clear();
+        _selectedContent.AddRange(items);
+
+        OnPropertyChanged(nameof(ContentSelectionCount));
+        OnPropertyChanged(nameof(HasContentSelection));
+        OnPropertyChanged(nameof(ContentSelectionText));
+        RaiseCommandStates();
+    }
+
+    /// <summary>
     /// 内容页签的后台图标/识别任务。正常界面不等它；诊断（--exercise-memory）
     /// 需要等它跑完才能拿到"图标全加载完"的那一刻。
     /// 用列表是因为折叠/筛选会连续触发多次刷新，不能只等最后一次。
@@ -2277,6 +2301,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         else
         {
             Content.Clear();
+            SetSelectedContent(Array.Empty<ContentEntryItem>());
             UpdateCount = 0;   // 列表重建后旧的升级标记已失效
 
             // 资源包 / 光影同样支持本地筛选：和模组页一致的"筛当前 X"手感，
@@ -2405,7 +2430,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var instance = SelectedInstance;
         var directory = ResolveContentDirectory(kind);
             if (directory is null) return;   // 数据包：还没选世界
-        var targets = Content.Where(item => item.IsEnabled != enable).ToList();
+        var scope = _selectedContent.Count > 0 ? _selectedContent.ToList() : Content.ToList();
+        var targets = scope.Where(item => item.IsEnabled != enable).ToList();
         var changed = 0;
 
         try
@@ -2419,7 +2445,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             Status = changed == 0
                 ? "没有需要变更的条目"
-                : $"{(enable ? "已启用" : "已禁用")} {changed} 个条目";
+                : $"{(enable ? "已启用" : "已禁用")} {changed} 个条目"
+                  + (_selectedContent.Count > 0 ? $"（选中 {_selectedContent.Count} 项）" : "");
         }
         catch (Exception ex)
         {
@@ -2760,7 +2787,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (SelectedInstance is not { } instance || IsUpgradingAll) return;
 
-        var pending = Content
+        var scope = _selectedContent.Count > 0 ? _selectedContent.ToList() : Content.ToList();
+        var pending = scope
             .Where(item => item.PendingUpdate?.Latest.DownloadUrl is { Length: > 0 })
             .ToList();
 

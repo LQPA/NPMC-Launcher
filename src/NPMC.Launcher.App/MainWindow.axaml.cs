@@ -413,6 +413,21 @@ public partial class MainWindow : Window
 
     // ---- 模组 / 资源包 / 光影 / 数据包：把文件拖进来即导入 ----
 
+    /// <summary>多选高亮：把 ListBox 的 SelectedItems 同步给 ViewModel，批量操作据此决定范围。</summary>
+    private void OnContentSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+        if (sender is not ListBox list) return;
+
+        viewModel.SetSelectedContent(
+            list.SelectedItems?.OfType<ContentEntryItem>() ?? Enumerable.Empty<ContentEntryItem>());
+    }
+
+    private void OnSelectAllContentClick(object? sender, RoutedEventArgs e) => ContentList.SelectAll();
+
+    private void OnClearContentSelectionClick(object? sender, RoutedEventArgs e)
+        => ContentList.SelectedItems?.Clear();
+
     private void OnContentDragOver(object? sender, DragEventArgs e)
     {
         e.DragEffects = e.Data.Contains(DataFormats.Files)

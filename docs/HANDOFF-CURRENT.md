@@ -395,6 +395,19 @@ BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
 （0.5.9 → 0.5.13-fabric），全部升级后 mods 只剩 0.5.13、旧版进 `.trash`、
 状态「全部升级完成：1 个模组」、再次检查 0 个可升级。
 
+### 24. 内容列表多选 + 批量操作（2026-10-28 晚）
+
+模组/资源包/光影列表改成 `ListBox SelectionMode="Multiple"`，选中行有高亮（不再用复选框列）：
+
+- 点一行选中；Ctrl/Shift 多选；「全选」「取消选择」按钮；
+- 选中后状态栏旁显示「已选 N 项」；
+- **全部禁用 / 全部启用 / 全部升级**：有选中时只作用于选中项，没有选中时仍是全部；
+  状态文案会注明「（选中 N 项）」；
+- 列表重建（切换页签、刷新、升级后）会清空选中，避免指向已移除的行。
+
+实测（测试实例放两个空 jar）：选中 test-a 后点「全部禁用」，
+文件系统里只有 `test-a.jar.disabled`，test-b 不变；行高亮与「已选 1 项」正常。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -408,7 +421,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:46，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:49，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

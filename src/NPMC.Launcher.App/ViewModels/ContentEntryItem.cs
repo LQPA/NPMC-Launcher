@@ -64,6 +64,8 @@ public sealed class ContentEntryItem : ObservableObject
 
     public bool IsEnabled => _entry.IsEnabled;
 
+
+
     public string ToggleText => _entry.IsEnabled ? "禁用" : "启用";
 
     public string StatusText => _entry.IsEnabled ? "已启用" : "已禁用";
