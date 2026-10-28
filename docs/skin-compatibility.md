@@ -22,8 +22,8 @@
 | 1.21.6 | 6.0.58 | 同上（与 6.0.54 同一套） | `modern` | 未验证 |
 | 1.21.11 | 7.0.61 | 同上；**环境属性必须三个全有**（见 §3） | `modern` | **已实测（原版 + Fabric / Forge / NeoForge）** |
 | 26.1.2 | 7.0.63 | 同上；客户端 `SkinManager.get` 在没有 textures 时直接返回空 | `modern` | **已实测（原版 + Forge 64.1.5 + NeoForge 26.1.2.124）** |
-| 26.2 | 9.0.75 | 仍是 `YggdrasilMinecraftSessionService`，但多了 `getPackedTextures` | `modern` | **已实测（原版）** |
-| 26.3 | 10.0.77 | `MinecraftServicesSessionService implements SessionService`（`unpackTextures` 仍在），环境只认 discovery | `modern` | **已实测（原版 + NeoForge 26.3.0.99）** |
+| 26.2 | 9.0.75 | 仍是 `YggdrasilMinecraftSessionService`，但多了 `getPackedTextures` | `modern` | **已实测（原版 + Forge 65.1.5 + NeoForge 26.2.0.93）** |
+| 26.3 | 10.0.77 | `MinecraftServicesSessionService implements SessionService`（`unpackTextures` 仍在），环境只认 discovery | `modern` | **已实测（原版 + Forge 66.1.0 + NeoForge 26.3.0.99）** |
 
 `SkinAgentProvider.SupportsSkinAgent` 现在认 authlib **主版本 1–10**。26.x 的两个关键变化：
 
@@ -78,7 +78,7 @@ session 指本地，其余指官方。**多设没用，少设是致命的**。
 | Forge 1.16 – 1.20.1 | ModLauncher + **JPMS 模块** | 官方类名 + SRG 方法名 | authlib 在 module layer：桥接类必须进 **bootstrap**，且给模块加 **read edge**，否则 `NoClassDefFoundError` / `IllegalAccessError` |
 | NeoForge 1.21+ | ModLauncher + JPMS 模块 | **mojmap**（方法名也是 mojmap） | 同上；`SkinManager` 钩子能命中（1.21.1 日志里打出 `getInsecureSkin` / `getOrLoad` / `registerTextures`） |
 | Fabric 1.14+ | KnotClassLoader（无 JPMS 模块） | **intermediary**（`net/minecraft/class_xxxx` / `method_xxxx`） | ① `-javaagent` 的 jar 在系统类路径上，**里面不能有 ASM**（`LoaderUtil.verifyClasspath` 会拒绝重复 ASM）；② 桥接类**只能挂 bootstrap**：`appendToSystemClassLoaderSearch` 对 Knot 不算数，会报 `ClassNotFoundException: ... hasn't been exposed to the game`（1.15 Fabric 实测）；③ authlib 类名不变（authlib 不参与 remap），`getTextures` / `unpackTextures` 钩子照常命中；④ 写死 mojmap 的 `SkinManager` 钩子**匹配不上** |
-| Quilt | 与 Fabric 同一套（Knot 派生） | intermediary | 理论上同 Fabric；未验证 |
+| Quilt | 与 Fabric 同一套（Knot 派生） | intermediary | 与 Fabric 完全同类：`-javaagent` 不能带 ASM、桥接只能进 bootstrap、SkinManager 钩子不命中（authlib 钩子够用）。启动器没有 Quilt 安装器，只能启动已有实例；未实测 |
 
 ### Fabric 的 SkinManager 具体名字（1.21.11）
 
@@ -133,17 +133,22 @@ port / decoded 前缀）。
 
 ## 7. 已知缺口 / 下一步
 
-1. **26.2 / 26.3 已支持**（2026-10-28 晚）：扩展为 `isSession`（Yggdrasil 或
+1. **26.2 / 26.3 已支持并全部实测**（2026-10-28 晚）：扩展为 `isSession`（Yggdrasil 或
    `MinecraftServicesSessionService`），新增 `getPackedTextures` 钩子给本地账号合成
-   textures 属性，`SupportsSkinAgent` 放宽到 authlib 1–10。实测：26.2 原版、26.3 原版、
-   26.3 NeoForge 皮肤生效；26.2 的 Forge/NeoForge、26.3 Forge 走同一套 mojmap + authlib
-   路径，逻辑上等价，未逐个点开验证。
+   textures 属性，`SupportsSkinAgent` 放宽到 authlib 1–10。26.2 / 26.3 的原版、Forge、
+   NeoForge 组合都确认皮肤生效。
 2. **Fabric/Quilt 的 `SkinManager` 钩子**：目前没接。1.21.11 / 26.x 不需要（authlib 层
    已经够用），但如果以后某个版本必须靠它，得按 §4 的 intermediary 名字匹配，
    并且每个版本都要重新查。
 3. **尚未实测**：1.21.6（含 fabric 1.21.6，authlib 6.0.58，机制同 1.21.1）、
-   fabric 22w13 快照、Quilt。其余 1.7.10 ~ 26.3 的原版 / Fabric / Forge / NeoForge
-   组合都已实机确认（见 §1 表）。
+   快照 22w13oneblockatatime（authlib 3.3.39，本机 aaaa 有实例）、**Quilt**。
+   其余 1.7.10 ~ 26.3 的原版 / Fabric / Forge / NeoForge 组合都已实机确认（见 §1 表）。
+
+   **Quilt 是什么**：Quilt Loader 是 Fabric 的社区分支（QuiltMC），兼容大部分 Fabric
+   模组，类加载机制与 Fabric 同源（Knot、intermediary），所以对 agent 的要求和 Fabric 完全
+   一样（`-javaagent` 不能带 ASM、桥接只能挂 bootstrap、游戏类名是 intermediary、authlib
+   钩子照常命中）。本机没有安装 Quilt，因此未测。注意启动器目前**没有 Quilt 安装入口**
+   （只有 Fabric / Forge / NeoForge 安装器），只能检测 / 启动已有的 Quilt 实例。
 4. **authlib 5 的实际游戏版本**（1.20.5/1.20.6）未本地验证，表里是推断；
    到时候看版本 JSON 就能确认。
 5. **authlib 11+**：`SupportsSkinAgent` 以上限 10 截断，新主版本出现时要重新核对

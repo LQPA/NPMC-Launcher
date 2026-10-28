@@ -135,8 +135,7 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
   `getPackedTextures` 的改名同样要在创建 target **之前**（否则重现 Absent Code）。
 - `SupportsSkinAgent` 放宽到 authlib 1–10；`SkinModuleSupport` 的 HOOK_CLASSES 加了
   services 类，模块环境（Forge/NeoForge 26.3）才有 read edge。
-- 实测：26.2 原版、26.3 原版、26.3 NeoForge（`bridge get: ours=true`，用户确认皮肤生效）。
-  26.2 Forge/NeoForge、26.3 Forge 走同一套 mojmap + authlib 路径，未逐个点开。
+- 实测：26.2 / 26.3 的原版、Forge、NeoForge 全部确认皮肤生效。
 - 诊断：`--dump-instances <文件> --instance <名称|id> --print-launch-command` 现在
   **支持便携布局**（`LauncherPaths.Portable` 会识别 `<root>\data`+`<root>\minecraft`）并能点名实例；
   这是本轮为了核对 26.x 启动命令顺手修的。
@@ -145,8 +144,9 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
 1.21.1（含 ATM10）、1.21.11、26.1.2、26.2、26.3 的原版 + Fabric/Forge/NeoForge 组合全部皮肤生效**
-（26.2 的 Forge/NeoForge、26.3 的 Forge 未逐个点开，但走同一套路径）。
-仅 `.data` 里的 1.21.6、fabric 1.21.6、fabric 22w13 快照未测。
+。
+仅 1.21.6、fabric 22w13 快照、**Quilt** 未测（Quilt = Fabric 的社区分支，机制同类，
+但启动器没有它的安装入口，只能启动已有实例）。
 
 ## 当前状态
 
