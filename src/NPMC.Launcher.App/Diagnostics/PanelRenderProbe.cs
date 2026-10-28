@@ -61,6 +61,19 @@ internal static class PanelRenderProbe
 
             vm.SelectedTab = vm.ContentTabs.First(tab => tab.ContentKind == kind);
 
+            // 数据包按世界存放：先进入一个世界，下载入口与安装目录才有依据
+            if (kind == ContentKind.DataPack)
+            {
+                vm.SelectedWorld = vm.Worlds.FirstOrDefault();
+                vm.ManageDataPacksCommand.Execute(null);
+
+                for (var i = 0; i < 60 && !vm.IsManagingDataPacks; i++)
+                {
+                    await Task.Delay(100);
+                    Dispatcher.UIThread.RunJobs();
+                }
+            }
+
             // --render-list：只看"列表模式"（本地列表 + 筛选框 + 下载入口），不进下载模式
             if (!args.Any(arg => string.Equals(arg, "--render-list", StringComparison.OrdinalIgnoreCase)))
             {

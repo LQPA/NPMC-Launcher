@@ -934,6 +934,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (SelectedWorld is not { } world) return;
 
         DataPackWorld = world;
+
+        // 换世界 = 换安装目标：上一轮的搜索结果与待确认计划都不再适用
+        IsContentDownloadMode = false;
+        ResetSearchState();
+
         RaiseWorldViewChanged();
 
         Status = $"正在管理「{world.Name}」的数据包";
@@ -944,6 +949,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void BackToWorlds()
     {
         DataPackWorld = null;
+
+        // 离开世界：下载模式与搜索结果都跟着作废（结果只对那个世界有效）
+        IsContentDownloadMode = false;
+        ResetSearchState();
+
         RaiseWorldViewChanged();
 
         Content.Clear();
@@ -1458,7 +1468,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (IsContentList
                 && SearchResults.Count > 0
                 && SelectedTab.ContentKind is { } restorable
-                && restorable.SupportsDownload())
+                && restorable.SupportsDownload()
+                && (!restorable.IsPerWorld() || ResolveContentDirectory(restorable) is not null))
                 IsContentDownloadMode = true;
 
             if (IsLogTab) _ = RefreshLogAsync();
@@ -1551,7 +1562,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ContentKind.Mod => "mods 文件夹是空的。把 .jar 放进这个文件夹（或将来自动安装），就会出现在这里。",
         ContentKind.ResourcePack => "resourcepacks 文件夹是空的。支持 .zip 和文件夹两种形式。",
         ContentKind.ShaderPack => "shaderpacks 文件夹是空的。光影通常需要配合 Iris / OptiFine 使用。",
-        ContentKind.DataPack => "这个世界还没有数据包。把 .zip 放进该世界的 datapacks 文件夹即可。",
+        ContentKind.DataPack => "这个世界还没有数据包。点「下载数据包」从 Modrinth 安装，或把 .zip 放进该世界的 datapacks 文件夹。",
         _ => "",
     };
 
@@ -3253,9 +3264,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         try
         {
+            // 加载器：数据包固定用 "datapack"（把同一项目的模组版排除掉），
+            // 模组按实例检测，资源包/光影不过滤。
             var loaders = kind.UsesLoaderFilter()
                 ? await DetectLoadersAsync(instance)
-                : Array.Empty<string>();
+                : kind.PlatformLoaders();
 
             // 解析项目版本、装依赖，用的都是**游戏版本号**，不是加载器 profile 名
             var gameVersion = await ResolveGameVersionAsync(instance);
@@ -3276,6 +3289,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _pendingLoaders = loaders;
             // 用统一的目录解析：数据包按世界存放，模组/资源包/光影是实例子目录
             _pendingDirectory = ResolveContentDirectory(kind);
+
+            if (_pendingDirectory is null)
+            {
+                Status = kind.IsPerWorld()
+                    ? "数据包是按世界生效的：先进入一个世界，再下载"
+                    : "找不到这个内容类型的安装目录";
+                return;
+            }
 
             // 填充下拉时不要触发"选中即重新解析"，否则会解析两遍
             _suppressVersionReload = true;

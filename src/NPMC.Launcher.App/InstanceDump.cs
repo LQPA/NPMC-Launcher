@@ -376,6 +376,7 @@ internal static class InstanceDump
             {
                 "resourcepack" or "pack" => ContentKind.ResourcePack,
                 "shader" or "shaderpack" => ContentKind.ShaderPack,
+                "datapack" or "datapacks" => ContentKind.DataPack,
                 _ => ContentKind.Mod,
             };
 
@@ -388,6 +389,19 @@ internal static class InstanceDump
             lines.Add($"[页签] {kind.DisplayName()}  下载按钮={viewModel.DownloadButtonText}  "
                       + $"筛选框={viewModel.IsContentFilterVisible} 列表={viewModel.ShowContentRows} "
                       + $"搜索面板={viewModel.IsSearchPanelVisible}");
+
+            // 数据包按世界存放：先进入一个世界，否则下载入口不会出现
+            if (kind == ContentKind.DataPack)
+            {
+                viewModel.SelectedWorld = viewModel.Worlds.FirstOrDefault();
+                viewModel.ManageDataPacksCommand.Execute(null);
+
+                for (var i = 0; i < 60 && !viewModel.IsManagingDataPacks; i++) Thread.Sleep(100);
+
+                lines.Add($"    世界：{viewModel.DataPackWorld?.Name ?? "(无)"}"
+                          + $"  管理页={viewModel.IsManagingDataPacks}"
+                          + $"  筛选框={viewModel.IsContentFilterVisible}");
+            }
 
             viewModel.OpenContentDownloadCommand.Execute(null);
             lines.Add($"[下载模式] 筛选框={viewModel.IsContentFilterVisible} 列表={viewModel.ShowContentRows} "

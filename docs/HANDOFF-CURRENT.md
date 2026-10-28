@@ -1,4 +1,4 @@
-# NPMC Launcher 交接（2026-10-28 01:20，明天继续）
+# NPMC Launcher 交接（2026-10-28 10:40）
 
 ## 当前状态
 
@@ -7,8 +7,7 @@
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
 - 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（01:07，44.1 MB，已抬 Medium）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
-- 本次会话结束：2026-10-28 01:20。工作区干净、提交已推送（最后一次 `febc2b6..fa68667`），
-  收尾时 GitHub 偶发连不上，若明天先跑 `git fetch` 失败属正常，重试即可。
+- 本次会话：2026-10-28 上午在昨天的基础上继续（数据包下载界面），提交与 exe 时间看下面。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
 - 仓库可见性：**公开**（`github.com/LQPA/NPMC-Launcher`，API `visibility=public`），源码按
   **AGPL-3.0** 公开。README 原写“本阶段不公开源码”，2026-10-27 已按用户决定（方案 B）改成
@@ -132,6 +131,21 @@
     哈希识别时写 `matched.ProjectId` 与项目名；旧缓存没有这两个字段，反序列化为空串）。
     认不出项目时退回按名字搜索一次。实测：装好 Sodium 后点图标 → 计划可见、可选版本 3 个、
     当前为最新正式版。
+  - **数据包也能下载（2026-10-28）**：存档页签 → 进入某个世界 → 「下载数据包」，
+    走的是同一套搜索/计划/安装，装到 `saves/<世界>/datapacks`。
+    - `ContentKind.SupportsDownload` 现在四类都算；`IsPerWorld()` 的入口把关放在
+      `OpenContentDownload`（没进世界时提示"先选一个世界"）与 `BeginInstallAsync`
+      （`_pendingDirectory` 为空就退回提示，不会误装到 mods）。
+    - 搜索 facet 用 `project_type=datapack`（Modrinth 就是用这个类型返回数据包项目）；
+      但**版本列表**要再加 `loaders=["datapack"]`（`ContentKind.PlatformLoaders`），
+      否则同一项目的模组版 jar 会混进来（Terralith 就是 mod+datapack 双发布）。
+    - 进/出世界都会 `ResetSearchState()` 并退出下载模式：搜索结果只对那个世界有效。
+    - 数据包没有分类标签（Modrinth 的 tag API 里 `project_type=datapack` 是 0 项），
+      所以分类下拉对它仍隐藏。
+    - 实测：`--exercise-kind datapack --exercise-query terralith` → 4 条结果、计划 1 行；
+      `--exercise-search-install` → `Terralith_v2.6.5+26.3.zip`（2.98 MB）落到
+      `saves/TestWorld/datapacks/`，行当场认领（Modrinth），点图标能回到该项目版本。
+      离屏渲染（752 高）确认列表模式有「筛选当前数据包… + 下载数据包」，下载模式无重叠。
 
 ## 关键文件
 
@@ -216,25 +230,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 - 用户已授权：以后发布完**自动**把 `dist\NPMC.Launcher.App.exe` 与 `start.cmd` 覆盖复制到
   `E:\aaaa`（`data\`、`minecraft\` 不动），无需每次再问。
 
-## 下次开工先做（2026-10-28 商定的优先级）
+## 下次开工先做（2026-10-28 更新）
 
-1. **数据包下载界面**（中）：唯一还没统一「列表 ⇄ 下载」的内容类型。数据包按世界存放，
-   需要在存档页签里先选世界，再走同一套搜索/计划/安装，目标目录 `saves\<世界>\datapacks`。
-   相关：`ContentKind.SupportsDownload`（现在排除 DataPack）、`ResolveContentDirectory`。
-2. **一键全部升级**（小~中）：目前检查更新后要逐行点「升级」；要做批量、进度与失败汇总。
-3. **搜索质量**（小）：①「硬核科技」过滤（Modrinth technology 太宽）②末页探测
+1. **一键全部升级**（小~中）：目前检查更新后要逐行点「升级」；要做批量、进度与失败汇总。
+2. **搜索质量**（小）：①「硬核科技」过滤（Modrinth technology 太宽）②末页探测
    `total_hits`/CF `pagination.totalCount`，避免整页时出现空页。
-4. **Fabric/Quilt 的 Low 完整性**（中）：`java.exe` 是 Low 时 `SetFileSecurity` 失败（错误 5），
+3. **Fabric/Quilt 的 Low 完整性**（中）：`java.exe` 是 Low 时 `SetFileSecurity` 失败（错误 5），
    重映射会挂；正解是让 JVM 的临时/remap 目录落到可写位置，而不是硬抬标签。
-5. **补 VM 层测试**（中）：这轮踩过的坑（Avalonia CanExecute 只求值一次、facet 分组、
-   识别缓存新增字段的反序列化、版本号重复时的 Display）都值得写成测试。
-6. 顺带可做：资源包/光影分类中译、CF 资源包分类映射、右侧详情/计划布局、发布签名与
+4. **补 VM 层测试**（中）：这轮踩过的坑（Avalonia CanExecute 只求值一次、facet 分组、
+   识别缓存新增字段的反序列化、版本号重复时的 Display、数据包 loaders 过滤）都值得写成测试。
+5. 顺带可做：资源包/光影分类中译、CF 资源包分类映射、右侧详情/计划布局、发布签名与
    SHA256 清单、用户手册。
+
+已完成（原列表第 1 项）：数据包下载界面，见上面「数据包也能下载」。
 
 ## 本次会话新增的诊断入口（收尾时整理）
 
-- `--exercise-search --exercise-kind mod|resourcepack|shader --exercise-query X`
-  `--exercise-category 名字 --exercise-secondary 名字`：搜索 + 可选分类。
+- `--exercise-search --exercise-kind mod|resourcepack|shader|datapack --exercise-query X`
+  `--exercise-category 名字 --exercise-secondary 名字`：搜索 + 可选分类
+  （数据包会自动进入第一个世界）。
 - `--exercise-search-install`：真下载一次，校验结果保留 + 新行认领 + 点图标跳转。
 - `--exercise-reinstall-version`：已有 A 版本再装 B 版本。
 - `--render-search-panel <png> [--render-kind] [--render-list] [--render-height] [--render-font]`：

@@ -22,8 +22,10 @@ It is being built to provide:
   shader packs never mix between versions.
 - **Launch configuration** — custom window size, JVM heap limits, per-instance Java selection
   and additional JVM arguments.
-- **Mod, resource pack and shader discovery** — searching and installing from the Modrinth public
-  API (CurseForge with a user-supplied API key), with dependency resolution for mods.
+- **Mod, resource pack, shader and data pack discovery** — searching and installing from the
+  Modrinth public API (CurseForge with a user-supplied API key), with dependency resolution for
+  mods. Data packs are installed into the selected world's `datapacks/` folder, since they only
+  apply per world.
 - **Microsoft account sign-in** — standard OAuth 2.0 device authorization flow, described below.
 
 ## Repository layout

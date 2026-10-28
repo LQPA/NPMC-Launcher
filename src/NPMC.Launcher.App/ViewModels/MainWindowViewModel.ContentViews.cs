@@ -50,11 +50,19 @@ public sealed partial class MainWindowViewModel
     /// <summary>本地内容列表（下载模式下让位给搜索结果）。</summary>
     public bool ShowContentRows => ShowContentList && !_isContentDownloadMode;
 
-    /// <summary>搜索面板：只在下载模式里出现。</summary>
-    public bool IsSearchPanelVisible => ShowContentList && !IsDataPackTab && _isContentDownloadMode;
+    /// <summary>
+    /// 搜索面板：只在下载模式里出现。
+    /// 数据包额外要求"已经进入某个世界"——它按世界存放，没选世界就没有安装目标。
+    /// </summary>
+    public bool IsSearchPanelVisible =>
+        ShowContentList && _isContentDownloadMode && (!IsDataPackTab || IsManagingDataPacks);
 
-    /// <summary>列表上方的「筛选 + 下载」那一行。</summary>
-    public bool IsContentFilterVisible => ShowContentList && !IsDataPackTab && !_isContentDownloadMode;
+    /// <summary>列表上方的「筛选 + 下载」那一行（数据包只在世界里显示）。</summary>
+    public bool IsContentFilterVisible =>
+        ShowContentList && !_isContentDownloadMode && (!IsDataPackTab || IsManagingDataPacks);
+
+    /// <summary>数据包页签的底部操作行（下载模式下让位给搜索面板）。</summary>
+    public bool ShowDataPackActions => IsDataPackTab && !_isContentDownloadMode;
 
     // ---- 随内容类型变化的文案 ----
 
@@ -88,9 +96,19 @@ public sealed partial class MainWindowViewModel
     {
         if (SelectedTab.ContentKind is not { } kind || !kind.SupportsDownload()) return;
 
+        // 数据包按世界存放：没有进入世界就没有安装目标，先提示而不是让用户装到别处
+        if (kind.IsPerWorld() && ResolveContentDirectory(kind) is null)
+        {
+            Status = "数据包是按世界生效的：先选一个世界，再下载";
+            return;
+        }
+
+        // CurseForge 没有数据包/光影分类，来源切回 Modrinth（否则会一直提示不支持）
+        if (kind.CurseForgeClassId() is null && SearchSourceIndex != 0) SearchSourceIndex = 0;
+
         IsContentDownloadMode = true;
 
-        // 资源包/光影的分类是联网取的（有缓存就用缓存），进下载模式时补一次
+        // 分类是联网取的（有缓存就用缓存），进下载模式时补一次
         _ = EnsureCategoriesForKindAsync(kind);
     }
 
@@ -109,6 +127,7 @@ public sealed partial class MainWindowViewModel
         OnPropertyChanged(nameof(ShowContentRows));
         OnPropertyChanged(nameof(IsSearchPanelVisible));
         OnPropertyChanged(nameof(IsContentFilterVisible));
+        OnPropertyChanged(nameof(ShowDataPackActions));
         OnPropertyChanged(nameof(IsContentEmptyOrNotList));
         RaisePaneVisibilityChanged();
     }

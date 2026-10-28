@@ -81,12 +81,19 @@ public static class ContentKindExtensions
     /// <summary>
     /// 有没有「下载新 X」的入口（搜索 + 依赖计划 + 安装）。
     ///
-    /// 模组 / 资源包 / 光影都有；**数据包没有** —— 它按世界存放，必须先选世界，
-    /// 界面走的是另一套（世界列表 → 该世界的数据包）。
+    /// 四类都支持；数据包额外要求先进入某个世界（按世界存放，安装目标是
+    /// <c>saves/&lt;世界&gt;/datapacks</c>，见 <see cref="IsPerWorld"/>）。
     /// </summary>
     public static bool SupportsDownload(this ContentKind kind) =>
-        kind is ContentKind.Mod or ContentKind.ResourcePack or ContentKind.ShaderPack;
+        kind is ContentKind.Mod or ContentKind.ResourcePack or ContentKind.ShaderPack or ContentKind.DataPack;
 
     /// <summary>该类型是否可能带依赖（只有模组会）。</summary>
     public static bool HasDependencies(this ContentKind kind) => kind == ContentKind.Mod;
+
+    /// <summary>
+    /// 平台上的固定加载器取值（与实例无关）。数据包在 Modrinth 上的 loader 就是 "datapack"：
+    /// 用它筛版本列表，才能把"同一个项目的模组版（.jar）"排除掉，只留数据包 zip。
+    /// </summary>
+    public static IReadOnlyList<string> PlatformLoaders(this ContentKind kind) =>
+        kind == ContentKind.DataPack ? new[] { "datapack" } : Array.Empty<string>();
 }
