@@ -475,6 +475,29 @@ bridge get: id=963a... ours=true
 
 测试：Core 389 + App 7 = **396 通过、0 失败**。
 
+### 28. 发布签名 + SHA256 清单（2026-10-29 凌晨）
+
+`tools/publish.ps1` 现在默认自动签名，并生成校验清单：
+
+- 证书：`Cert:\CurrentUser\My` 里 `CN=NPMC Launcher (self-signed)`（SHA1 指纹
+  `92AC9CCF8DCAFE1E370A8507A9CAC481C1F3127A`，有效期到 2031-10-25）；
+- `signtool sign /sha1 ... /fd SHA256 /tr http://timestamp.digicert.com /td SHA256`；
+  带时间戳失败会自动去时间戳重试一次；
+- 签名后重新 `icacls /setintegritylevel Medium`（签名不改变完整性标签）；
+- `Get-AuthenticodeSignature` 实测 **Valid**（本机 `CurrentUser\Root` 已信任该证书），
+  时间戳为 DigiCert SHA256 RSA4096 Timestamp Responder；
+- 产出 `SHA256SUMS.txt`（exe + start.cmd）和 `NPMC.Launcher.App.exe.sha256`；
+  本次 exe：`730fb45c564a56264700477b0d8ba1ae022b09656e22207eca06e1647e8a7819`。
+
+正式证书接入口：
+- `-PfxPath <file.pfx>`（密码用 `-PfxPassword` 或环境变量 `NPMC_SIGN_PFX_PASSWORD`）；
+- 或 `-SignThumbprint <指纹>` 指定证书存储里的证书；
+- `-NoSign` 跳过签名（只出未签名 exe + 清单）。
+
+**注意**：自签名证书在别的电脑上仍会显示“未知发布者”，也不会消 SmartScreen；
+要公开分发需要换正式 OV/EV 代码签名证书。本机/团队机器可把该证书导入
+“受信任的根证书颁发机构”后正常校验。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–12 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -488,7 +511,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（00:29，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（00:41，44.2 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

@@ -20,7 +20,16 @@
 param(
     [string]$OutDir = 'dist',
     [switch]$FrameworkDependent,
-    [string]$Runtime = 'win-x64'
+    [string]$Runtime = 'win-x64',
+
+    # 代码签名：默认自动找 CurrentUser\My 里带私钥的 NPMC 代码签名证书；
+    # 没有证书时只警告并跳过（仍然产出可运行 exe）。
+    [switch]$NoSign,
+    [string]$SignThumbprint = '',
+
+    # 正式证书可以直接给 PFX；密码优先取参数，其次环境变量 NPMC_SIGN_PFX_PASSWORD。
+    [string]$PfxPath = '',
+    [string]$PfxPassword = $env:NPMC_SIGN_PFX_PASSWORD
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,6 +111,110 @@ if (Test-Path $startScript) {
     Copy-Item $startScript (Join-Path $target 'start.cmd') -Force
 }
 
+# ---- 代码签名 ----
+# 先签名再抬完整性：Authenticode 会重写 PE 校验和，但不会改变文件内容哈希之外的元数据。
+$signatureStatus = '未签名（-NoSign）'
+
+if (-not $NoSign) {
+    $signtool = $null
+    $command = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($command) {
+        $signtool = $command.Source
+    }
+    else {
+        $kitsRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+        if (Test-Path $kitsRoot) {
+            $signtool = Get-ChildItem $kitsRoot -Directory |
+                Sort-Object Name -Descending |
+                ForEach-Object { Join-Path $_.FullName 'x64\signtool.exe' } |
+                Where-Object { Test-Path $_ } |
+                Select-Object -First 1
+        }
+    }
+
+    $certificate = $null
+    $pfxPath = $null
+
+    if ($PfxPath) {
+        $resolvedPfx = Resolve-Path -LiteralPath $PfxPath -ErrorAction SilentlyContinue
+        if ($resolvedPfx) { $pfxPath = $resolvedPfx.Path }
+    }
+    elseif ($SignThumbprint) {
+        $certificate = Get-ChildItem Cert:\CurrentUser\My |
+            Where-Object { $_.Thumbprint -eq $SignThumbprint } |
+            Select-Object -First 1
+    }
+    else {
+        $certificate = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+            Where-Object { $_.HasPrivateKey -and $_.Subject -like '*NPMC*' } |
+            Select-Object -First 1
+    }
+
+    if (-not $signtool) {
+        $signatureStatus = '跳过：找不到 signtool.exe'
+    }
+    elseif ($PfxPath -and -not $pfxPath) {
+        $signatureStatus = "跳过：找不到 PFX 文件（$PfxPath）"
+    }
+    elseif (-not $pfxPath -and -not $certificate) {
+        $signatureStatus = '跳过：没有可用的代码签名证书'
+    }
+    else {
+        if ($pfxPath) {
+            $signArgs = @('sign', '/f', $pfxPath, '/fd', 'SHA256')
+            if ($PfxPassword) { $signArgs += @('/p', $PfxPassword) }
+            $signArgs += @('/tr', 'http://timestamp.digicert.com', '/td', 'SHA256', $exe)
+            $display = "PFX $pfxPath"
+        }
+        else {
+            $signArgs = @(
+                'sign', '/sha1', $certificate.Thumbprint, '/fd', 'SHA256',
+                '/tr', 'http://timestamp.digicert.com', '/td', 'SHA256', $exe
+            )
+            $display = "$($certificate.Subject)（$($certificate.Thumbprint)）"
+        }
+
+        & $signtool @signArgs | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "! 带时间戳签名失败（退出码 $LASTEXITCODE），改用无时间戳重试…" -ForegroundColor Yellow
+            if ($pfxPath) {
+                $retry = @('sign', '/f', $pfxPath, '/fd', 'SHA256')
+                if ($PfxPassword) { $retry += @('/p', $PfxPassword) }
+            }
+            else {
+                $retry = @('sign', '/sha1', $certificate.Thumbprint, '/fd', 'SHA256')
+            }
+            $retry += $exe
+            & $signtool @retry | Out-Null
+        }
+
+        if ($LASTEXITCODE -eq 0) {
+            $signatureStatus = '已签名'
+            Write-Host "签名    : $display" -ForegroundColor Green
+        }
+        else {
+            $signatureStatus = "签名失败（signtool 退出码 $LASTEXITCODE）"
+            Write-Host "! $signatureStatus" -ForegroundColor Yellow
+        }
+    }
+
+    if ($signatureStatus -ne '已签名') {
+        Write-Host "! $signatureStatus；产物仍是未签名 exe。" -ForegroundColor Yellow
+    }
+}
+
+# 便于脚本/用户核对：自签名证书在别的机器上仍会提示“未知发布者”。
+try {
+    $authenticode = Get-AuthenticodeSignature -FilePath $exe
+    if ($authenticode.Status -ne 'NotSigned') {
+        $subject = if ($authenticode.SignerCertificate) { $authenticode.SignerCertificate.Subject } else { '(未知)' }
+        Write-Host "验证    : $($authenticode.Status) / $subject" -ForegroundColor DarkGray
+    }
+}
+catch {
+    Write-Host "! 无法读取 Authenticode 状态：$($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 # ---- 完整性级别 ----
 # 本仓库所在的 D:\Agents 是 Low 完整性，发布出来的 exe 会继承 Low 标签。
 # Explorer 双击走 ShellExecute，对 Low 完整性的 exe 会静默卡住（任务管理器里连进程都没有），
@@ -117,6 +230,26 @@ catch {
     Write-Host "! 无法把 exe 抬到 Medium 完整性：$($_.Exception.Message)" -ForegroundColor Yellow
     Write-Host "! 双击 exe 可能没有反应；请改用仓库根目录的 launch.cmd（dotnet 宿主）启动。" -ForegroundColor Yellow
 }
+
+# ---- 发布清单（SHA256） ----
+$releaseFiles = @()
+$releaseFiles += Get-Item $exe
+$startScriptPath = Join-Path $target 'start.cmd'
+if (Test-Path $startScriptPath) { $releaseFiles += Get-Item $startScriptPath }
+
+$hashLines = foreach ($file in $releaseFiles) {
+    $hash = (Get-FileHash -Path $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash  $($file.Name)"
+}
+
+$sumsPath = Join-Path $target 'SHA256SUMS.txt'
+Set-Content -Path $sumsPath -Value $hashLines -Encoding ASCII
+$exeHash = $hashLines | Where-Object { $_ -match 'NPMC\.Launcher\.App\.exe$' } | Select-Object -First 1
+Set-Content -Path (Join-Path $target 'NPMC.Launcher.App.exe.sha256') -Value $exeHash -Encoding ASCII
+
+Write-Host ""
+Write-Host "SHA256  : $sumsPath" -ForegroundColor Cyan
+$hashLines | ForEach-Object { Write-Host "          $_" -ForegroundColor DarkGray }
 
 $size = (Get-Item $exe).Length / 1MB
 Write-Host ""
