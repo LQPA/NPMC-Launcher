@@ -23,9 +23,11 @@ public static class SkinAgentProvider
 {
     private const string ModernResource = "NPMC.Launcher.Infrastructure.SkinAgent.jar";
     private const string LegacyResource = "NPMC.Launcher.Infrastructure.SkinAgent.Legacy.jar";
+    private const string BridgeResource = "NPMC.Launcher.Infrastructure.SkinAgentBridge.jar";
 
     private static readonly Lazy<byte[]> ModernBytes = new(() => ReadResource(ModernResource));
     private static readonly Lazy<byte[]> LegacyBytes = new(() => ReadResource(LegacyResource));
+    private static readonly Lazy<byte[]> BridgeBytes = new(() => ReadResource(BridgeResource));
 
     /// <summary>agent 的启动参数 + 本地端口（SkinPort 的 CustomServer2 要用端口）。</summary>
     public sealed record SkinAgentLaunch(string Argument, int Port);
@@ -62,6 +64,9 @@ public static class SkinAgentProvider
         var jar = EnsureAgentJar(launcher, modern);
         if (jar is null) return null;
 
+        var bridge = EnsureBridgeJar(launcher);
+        if (bridge is null) return null;
+
         var port = FindFreePort();
         if (port is null) return null;
 
@@ -71,7 +76,8 @@ public static class SkinAgentProvider
         var log = Path.Combine(logDirectory, "skin-agent.log");
 
         var argument = $"-javaagent:{jar}=port={port};name={account.Username};uuid={account.Uuid}"
-                       + $";skin={skin.Item1};model={skin.Item2};log={log}";
+                       + $";skin={skin.Item1};model={skin.Item2};log={log}"
+                       + $";bridge={bridge}";
 
         return new SkinAgentLaunch(argument, port.Value);
     }
@@ -165,6 +171,32 @@ public static class SkinAgentProvider
         {
             // 直接覆盖：只比较长度时，改了实现但大小相同的 jar 会被留下来，
             // 表现就是"皮肤还是上一次缓存的那张"。
+            File.WriteAllBytes(path, bytes);
+        }
+        catch
+        {
+            return null;
+        }
+
+        return path;
+    }
+
+    /// <summary>
+    /// 桥接 jar：只有它会被追加到 bootstrap，供模块化加载器解析。
+    /// agent 的 ASM 必须留在系统类路径一侧，否则同一个 ASM 类会被两个加载器各定义一次。
+    /// </summary>
+    private static string? EnsureBridgeJar(LauncherPaths launcher)
+    {
+        var bytes = BridgeBytes.Value;
+        if (bytes.Length == 0) return null;
+
+        var directory = Path.Combine(launcher.Root, "cache", "agent");
+        Directory.CreateDirectory(directory);
+
+        var path = Path.Combine(directory, "nmpc-skin-bridge.jar");
+
+        try
+        {
             File.WriteAllBytes(path, bytes);
         }
         catch

@@ -1,13 +1,50 @@
-# NPMC Launcher 交接（2026-10-28 10:40）
+# NPMC Launcher 交接（2026-10-28 19:25）
+
+## ⚠ 下一会话先读这一段（2026-10-28 晚）
+
+**正在做的事：离线皮肤 agent 的加载器兼容。** 今天踩了三个坑并修掉两个半：
+
+1. **Fabric 拒绝启动**：agent jar 内嵌 ASM，Fabric 的 `LoaderUtil.verifyClasspath`
+   发现两份 `org.objectweb.asm` 直接 abort。→ 现在 agent 的 ASM 只在 `-javaagent`
+   侧加载，**不追加到 bootstrap**，Fabric 看不到；桥接类拆成独立小 jar
+   （`nmpc-skin-bridge.jar`）才进 bootstrap。
+2. **ASM 类被两个加载器混用**：之前把整个 agent jar 追加到 bootstrap，导致
+   `ClassWriter` 由 App 加载器定义、`MethodVisitor` 却从 bootstrap 解析 →
+   `VerifyError: Bad type in putfield/putstatic`，所有转换失败、皮肤静默回退。
+   → 改成「bootstrap 只放桥接 jar」。
+3. **进程不退出**：`com.sun.net.httpserver` 的 dispatcher 线程不是 daemon，游戏启动失败后
+   JVM 被吊住，启动器一直显示「运行中」。→ 已换成 `ServerSocket` + daemon 线程。
+
+**当前状态（19:25 构建，已同步 `E:\aaaa`）**：NeoForge 1.21.1 在 18:53 那版实测**皮肤正常**
+（当时验证过 `texturesFor: ours=true`），但 19:10 之后接连引入上面两个回归；
+最新一版（19:24，桥接 jar 方案）**还没有游戏内验证**。
+
+**下一会话第一件事**：让用户用 19:24 之后的 exe 跑一次
+`All-the-Mods-10`（NeoForge 1.21.1）和 `1.21.11-fabric-0.20.1`，进世界看皮肤，然后看
+`E:\aaaa\data\logs\skin-agent.log`：
+
+- 正常应有 `bootstrap search: ...\nmpc-skin-bridge.jar`、`module support installed`、
+  `transforming ...YggdrasilMinecraftSessionService`、`replacing ...unpackTextures`，
+  以及桥接日志 `texturesFor: ours=true` 和 `texture ... (bytes)`；
+- 若 `transform failed`，看是不是别的版本差异（1.21.11 的 authlib 7 方法签名）；
+- 若 `ours=false`，看 `property check` 那行打印的 port / decoded 前缀。
+
+**不要**再把整个 agent jar 追加到 bootstrap（会重现 VerifyError），也**不要**用字节替换
+重定位 ASM（会改坏字节码）。桥接类必须保持「纯反射、不 import authlib、配置读系统属性」。
 
 ## 当前状态
 
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（01:07，44.1 MB，已抬 Medium）
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（19:24，46.3 MB，
+  已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
-- 本次会话：2026-10-28 上午在昨天的基础上继续（数据包下载界面），提交与 exe 时间看下面。
+- 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
+  整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**皮肤 agent 的最终验证在下一会话**。
+- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 325 通过 + 2 个既有失败
+  （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
+  `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
 - 仓库可见性：**公开**（`github.com/LQPA/NPMC-Launcher`，API `visibility=public`），源码按
   **AGPL-3.0** 公开。README 原写“本阶段不公开源码”，2026-10-27 已按用户决定（方案 B）改成
@@ -162,26 +199,32 @@
     `SkinManager`。原因是 1.16+ 的模组加载器（NeoForge/Forge/Fabric）用 ModLauncher
     的模块化类加载器加载 authlib，看不到 `-javaagent` 追加到系统类路径的类。
     最终做法（不再跳过模组实例）：
-    - agent jar 追加到 **bootstrap** 类路径（所有加载器的父委派链都能看到）；
+    - **桥接 jar 单独一个文件**：`nmpc-skin-bridge.jar` 只含 `SkinBridgeModern` /
+      `SkinBridgeLegacy`，被追加到 **bootstrap**；agent jar（含 ASM）只经 `-javaagent`
+      加载，**绝不**追加到 bootstrap —— 否则同一个 ASM 类会被两个加载器各定义一次，
+      验证器报 `VerifyError: Bad type in putfield/putstatic`（19:10 那版就是这么坏的）；
+      Fabric 也看不到 agent jar 里的 ASM，不会再报 duplicate ASM。
     - `SkinModuleSupport`（只编进 modern jar）给被改写的模块加 **read edge**；
-    - 桥接类全部改纯反射、配置走系统属性：`SkinBridgeModern`（authlib ≥5，
-      `unpackTextures`）与 `SkinBridgeLegacy`（authlib ≤5，`getTextures`）；
+    - 桥接类全部改纯反射、配置走系统属性（`nmpc.skin.url/uuid/name/model/port/log`）：
+      `SkinBridgeModern`（authlib ≥5，`unpackTextures`）与 `SkinBridgeLegacy`
+      （authlib ≤5，`getTextures`）；
     - 任一准备步骤失败时 `modernReady=false`，不做替换 —— 最差是没皮肤，不会崩；
     - 踩过的坑：authlib 6/7 的 `Property` 是 record（只有 `value()`，没有 `getValue()`，
       用错会一直 `ours=false` 返回 EMPTY）；1.21.1 的 `SkinManager` 没有 `get`，只有
       `getInsecureSkin` / `getOrLoad` / `registerTextures(UUID, …)`。
-    - 独立探针（authlib 7 与 1.5.21）验证：自己的属性返回带本地 URL 的纹理，别人的返回 EMPTY。
+    - 独立探针（authlib 7 与 1.5.21）验证：自己的属性返回带本地 URL 的纹理，别人的返回 EMPTY；
+      `TriggerProbe`（-javaagent + 强制加载 authlib 类）验证转换成功、无 VerifyError。
     - `SkinAgentTests` 覆盖 NeoForge / Forge / Fabric 都挂 agent、原版保留、微软账号不用。
-    - **Fabric 会拒绝启动（duplicate ASM classes）**：agent 为自包含内嵌了 ASM，Fabric 校验
-      classpath 时发现两份 `org.objectweb.asm` 直接 abort。内嵌 ASM 必须重定位到私有包
-      （`nmpc/skinned/asmx`，`tools/skin-agent/Relocator.java`，用 ASM `ClassRemapper` +
-      前缀 `Remapper`）。**不要用字节替换做重定位**：长度虽然能对齐，但会把 ASM 改坏
-      （`VerifyError: Bad type in putfield/putstatic`，皮肤静默失效）。
+    - `tools/skin-agent/build.ps1` 产出三个 jar：`nmpc-skin-agent.jar`（modern）、
+      `nmpc-skin-agent-legacy.jar`（Java 8）、`nmpc-skin-bridge.jar`；前两个都内嵌 ASM，
+      bridge 不嵌。**不要再引入 Relocator/字节替换**（已删除，重定位方案被证伪）。
     - **进程不退出**：`com.sun.net.httpserver` 的 dispatcher 线程不是 daemon，游戏启动失败后
       JVM 被吊住，启动器永远显示"运行中"。`SkinHttpServer` 已改成 `ServerSocket` + daemon
       线程，路由不变。
     - **PowerShell 脚本必须存成 UTF-8 with BOM**：PS 5.1 会把无 BOM 的 UTF-8 当 ANSI，
       中文注释的字节会把下一行吞进注释（`skin-agent\build.ps1` 曾因此整段不执行、只生成旧 jar）。
+      另外 `$ErrorActionPreference='Stop'` 会把 javac 的 stderr（`注: 使用已过时 API`）当成
+      终止错误，脚本里对 javac 调用用 `$null = & ... 2>&1` 或临时切 Continue。
   - **权限状态（2026-10-28 重装后）**：用户完整删除 `data`/`minecraft`/`runtime` 重新下载后，
     `data`、`minecraft`、`runtime`、`java.exe`、`cache\tmp\game` 全部**没有 Low 标签**
     （继承 Medium）——之前那个"java.exe 是 Low、%TEMP% 写不进"的根源消失；

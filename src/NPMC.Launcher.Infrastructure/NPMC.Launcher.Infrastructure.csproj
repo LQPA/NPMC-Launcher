@@ -17,6 +17,9 @@
                       LogicalName="NPMC.Launcher.Infrastructure.SkinAgent.jar" />
     <EmbeddedResource Include="Skins\Agent\nmpc-skin-agent-legacy.jar"
                       LogicalName="NPMC.Launcher.Infrastructure.SkinAgent.Legacy.jar" />
+    <!-- 桥接类单独一个 jar：只有它需要挂到 bootstrap（见 SkinAgent.prepareBootstrap） -->
+    <EmbeddedResource Include="Skins\Agent\nmpc-skin-bridge.jar"
+                      LogicalName="NPMC.Launcher.Infrastructure.SkinAgentBridge.jar" />
   </ItemGroup>
 
 </Project>

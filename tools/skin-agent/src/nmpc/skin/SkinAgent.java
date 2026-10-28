@@ -32,6 +32,9 @@ public final class SkinAgent {
     static String model = "classic";
     static Path logFile;
 
+    /** 启动器传进来的桥接 jar 路径：bootstrap 只需要它，不需要 agent 自带的 ASM。 */
+    static String bridgePath;
+
     /**
      * 现代类加载环境（模块化加载器）是否已经准备好：bootstrap 追加 + 模块 read edge 都成功。
      * 没准备好时**不做**现代替换 —— 否则注入的调用找不到类，游戏会直接崩；
@@ -84,7 +87,7 @@ public final class SkinAgent {
         log("ready name=" + name + " uuid=" + uuid + " skin=" + skin + " model=" + model);
     }
 
-    /** 把 agent jar 追加到 bootstrap，让模块化加载器也能解析 nmpc.skin.*。 */
+    /** 把**桥接 jar** 追加到 bootstrap，让模块化加载器也能解析桥接类。 */
     private static void prepareBootstrap(Instrumentation instrumentation) {
         // Java 8（1.7.10/1.12）没有模块系统，老加载器本来就能看到系统类路径，不必动 bootstrap
         String specification = System.getProperty("java.specification.version", "");
@@ -93,19 +96,16 @@ public final class SkinAgent {
             return;
         }
 
+        // 只追加桥接类所在的 jar：agent 自己的 ASM 必须留在系统类路径一侧，
+        // 否则同一个 ASM 类会被 bootstrap 和 App 加载器各定义一次，
+        // 验证器会以 "Bad type in putfield/putstatic" 拒绝（实测）。
+        java.io.File jar = BridgeJar();
+        if (jar == null || !jar.isFile()) {
+            log("bootstrap: bridge jar missing");
+            return;
+        }
+
         try {
-            java.security.CodeSource source = SkinAgent.class.getProtectionDomain().getCodeSource();
-            if (source == null || source.getLocation() == null) {
-                log("bootstrap: no code source");
-                return;
-            }
-
-            java.io.File jar = new java.io.File(source.getLocation().toURI());
-            if (!jar.isFile()) {
-                log("bootstrap: not a jar: " + jar);
-                return;
-            }
-
             instrumentation.appendToBootstrapClassLoaderSearch(new java.util.jar.JarFile(jar));
             log("bootstrap search: " + jar);
         } catch (Throwable error) {
@@ -121,6 +121,23 @@ public final class SkinAgent {
         } catch (Throwable error) {
             // legacy jar 里没有这个类（Java 8 没有模块系统），忽略即可
             log("module support unavailable: " + error);
+        }
+    }
+
+    /** 桥接 jar：优先用启动器传的 bridge= 参数，否则找 agent jar 同目录下的同名文件。 */
+    private static java.io.File BridgeJar() {
+        if (bridgePath != null && !bridgePath.isEmpty()) return new java.io.File(bridgePath);
+
+        try {
+            java.security.CodeSource source = SkinAgent.class.getProtectionDomain().getCodeSource();
+            if (source == null || source.getLocation() == null) return null;
+
+            java.io.File self = new java.io.File(source.getLocation().toURI());
+            java.io.File parent = self.getParentFile();
+            return parent == null ? null : new java.io.File(parent, "nmpc-skin-bridge.jar");
+        } catch (Throwable error) {
+            log("bridge path failed: " + error);
+            return null;
         }
     }
 
@@ -215,6 +232,8 @@ public final class SkinAgent {
                 if (!value.isEmpty()) skin = Paths.get(value);
             } else if (key.equals("model")) {
                 model = value.equals("slim") ? "slim" : "classic";
+            } else if (key.equals("bridge")) {
+                bridgePath = value;
             } else if (key.equals("log")) {
                 if (!value.isEmpty()) logFile = Paths.get(value);
             }
