@@ -267,12 +267,14 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 
 用户反馈「technology 太宽、不知道怎么用标签筛出细分类型」。按平台规则改成：
 
-- **Modrinth 模组**：下拉框换成可多选的分类标签（chips），分类来自
+- **Modrinth 模组**：分类改成**下拉多选**（按钮 → Flyout 里的 ToggleButton），分类来自
   `/tag/category`（19 个，带中文名与说明；拉不到时退回内置的 14 个）。
   多选是 **facet 组间 AND**：每个选中分类单独成组，例如「科技 + 存储」= 同时带两个标签。
 - **CurseForge**：保持单分类下拉（CF 搜索 API 只有 `categoryId`，网站也是单选），
   界面会提示这是平台原生限制；选 Modrinth 标签时自动把来源切回 Modrinth。
 - 每个标签有中文说明（`ModCategoryInfo`），例如「科技：机器、能源、自动化；想找细分可加选存储/运输」。
+- 下拉交互：点标签**不关闭**菜单，标签点亮；再点同一标签取消；按钮文字实时显示
+  「分类：科技 + 存储」；菜单里有「清空选择」。CF 仍走单分类下拉。
 - `ModrinthClient.BuildFacets` 抽成可测方法；诊断入口支持逗号/加号分隔：
   `--exercise-search --exercise-category "科技+存储"`。
 
@@ -296,7 +298,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:47，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:50，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

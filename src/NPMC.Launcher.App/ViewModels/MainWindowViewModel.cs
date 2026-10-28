@@ -166,6 +166,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             CopyInstanceAsync,
             () => SelectedInstance is not null && !IsSelectedInstanceRunning);
 
+        ClearSearchCategoriesCommand = new RelayCommand(ClearSearchCategories);
+
 
         BeginRenameCommand = new RelayCommand(
             BeginRename, () => SelectedInstance is not null && !IsSelectedInstanceRunning);
@@ -2780,6 +2782,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool IsCategoryComboVisible => IsCategoryFilterVisible && !IsModCategoryChipsVisible;
 
+    /// <summary>下拉按钮上的文字：没选 = 「分类（可多选）」，选了显示前几个。</summary>
+    public string SearchCategoryButtonText
+    {
+        get
+        {
+            var selected = SearchCategoryChips.Where(chip => chip.IsSelected).Select(chip => chip.Display).ToList();
+            if (selected.Count == 0) return "分类（可多选）";
+
+            var shown = string.Join(" + ", selected.Take(3));
+            return selected.Count <= 3 ? $"分类：{shown}" : $"分类：{shown} 等 {selected.Count} 项";
+        }
+    }
+
+    public RelayCommand ClearSearchCategoriesCommand { get; }
+
+    private void ClearSearchCategories()
+    {
+        foreach (var chip in SearchCategoryChips) chip.IsSelected = false;
+        OnPropertyChanged(nameof(SearchCategoryButtonText));
+    }
+
     /// <summary>当前 SearchCategories 属于哪类项目；-1 表示还没按类型填过。</summary>
     private ContentKind? _categoryKind;
 
@@ -2889,6 +2912,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsModCategoryChipsVisible));
         OnPropertyChanged(nameof(IsCategoryComboVisible));
         OnPropertyChanged(nameof(SelectedModrinthCategories));
+        OnPropertyChanged(nameof(SearchCategoryButtonText));
     }
 
     private void OnCategoryChipChanged(SearchCategoryChip chip)
@@ -2897,6 +2921,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (chip.IsSelected && SearchSourceIndex != 0) SearchSourceIndex = 0;
 
         OnPropertyChanged(nameof(SelectedModrinthCategories));
+        OnPropertyChanged(nameof(SearchCategoryButtonText));
     }
 
     /// <summary>第二个分类维度：资源包的分辨率、光影的性能档位。</summary>
