@@ -262,8 +262,11 @@ public sealed class ForgeInstaller
         // 安装器的 PostProcessors 会在 java.io.tmpdir 里建临时目录（neoforge_installer*）。
         // 用户机器上这一步报过 AccessDeniedException（%TEMP% 写不进去：回收站残留、
         // 杀软、Low 完整性都可能），所以显式给一个我们自己能写的临时目录。
-        var installerTemp = Path.Combine(paths.Root, "cache", "tmp", "forge-installer");
+        var installerTemp = paths.InstallerTemp;
         Directory.CreateDirectory(installerTemp);
+
+        // java.exe 可能带 Low 标签（进程随之降到 Low），Low 只能写同级或更低的目标
+        IntegrityGuard.TryRaiseFileLevel(installerTemp, WindowsIntegrityLevel.Low, out _);
 
         var startInfo = new ProcessStartInfo(javaPath)
         {

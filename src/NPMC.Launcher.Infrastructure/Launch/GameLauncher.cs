@@ -172,6 +172,29 @@ public static class GameLauncher
                 JvmArguments = new[] { skinAgentArgument }.Concat(plan.JvmArguments).ToList(),
             };
 
+        // 游戏进程的临时目录：不能让它用 %TEMP%。
+        // 启动器/Java 可能是 Low 完整性（java.exe 自带 Low 标签），而 %TEMP% 是 Medium，
+        // Low 进程在 %TEMP% 建目录会被拒绝（EuphoriaPatcher 的
+        // "Error creating temporary directory" 就是这个原因）。这里给一个位于数据目录、
+        // 与启动器同级（Low）的临时目录，并显式传给 JVM。
+        var gameTemp = paths.GameTemp;
+        try
+        {
+            Directory.CreateDirectory(gameTemp);
+
+            // 明确标成 Low：java.exe 常带 Low 标签，进程会降到 Low；
+            // Low 只能写同级或更低的目标，标成 Low 才保证它一定写得进去。
+            IntegrityGuard.TryRaiseFileLevel(gameTemp, WindowsIntegrityLevel.Low, out _);
+        }
+        catch
+        {
+            // 建不出来就退回默认，至少不挡住启动
+            gameTemp = "";
+        }
+
+        if (!string.IsNullOrEmpty(gameTemp))
+            plan = plan with { JvmArguments = new[] { $"-Djava.io.tmpdir={gameTemp}" }.Concat(plan.JvmArguments).ToList() };
+
         // Java 优先级：实例指定路径 → 实例指定组件 → 全局默认 Java → 版本元数据声明的组件
         var javaPath = plan.JavaPath;
         if (!string.IsNullOrWhiteSpace(instanceSettings.JavaPath))

@@ -107,6 +107,22 @@ public sealed class LauncherPaths
     public string Runtime   => Path.Combine(GameRoot, "runtime");
     public string Instances => Path.Combine(GameRoot, "instances");
 
+    /// <summary>
+    /// 启动器自己的临时目录（位于数据目录内，<c>&lt;root&gt;\cache\tmp</c>）。
+    ///
+    /// 为什么不直接用 %TEMP%：java.exe 常带 Low 完整性标签，进程会降到 Low，
+    /// 而 %TEMP% 是 Medium —— Low 进程在那里建目录会被拒绝
+    /// （NeoForge 安装器的临时目录、EuphoriaPatcher 的 "Error creating temporary
+    /// directory" 都是这个原因）。数据目录里的这个位置与启动器/游戏同级，可写。
+    /// </summary>
+    public string TempRoot => Path.Combine(Root, "cache", "tmp");
+
+    /// <summary>游戏进程的 java.io.tmpdir。</summary>
+    public string GameTemp => Path.Combine(TempRoot, "game");
+
+    /// <summary>Forge / NeoForge 安装器的 java.io.tmpdir。</summary>
+    public string InstallerTemp => Path.Combine(TempRoot, "forge-installer");
+
     // ---- 可被实例隔离的目录 ----
     public string Libraries => Path.Combine(SharedRoot, "libraries");
     public string Versions  => Path.Combine(SharedRoot, "versions");

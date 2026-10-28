@@ -156,12 +156,24 @@
     所以拉伸/贴边吸附还能用。顶部原来的"root 路径 + 权限"那一条删了（正式版没必要），
     刷新按钮挪进标题栏。注意 `CanHidePackMods` 现在要求 `IsModsTab`：
     资源包/光影页不再出现「隐藏整合包自带模组」。
-  - **Forge/NeoForge 安装器改用自带临时目录（2026-10-28）**：ATM10（1.21.1 + NeoForge 21.1.259）
-    安装失败的真实原因是安装器的 `PostProcessors` 在 `%TEMP%` 建 `neoforge_installer*` 时
-    `AccessDeniedException`（日志见 `E:\aaaa\minecraft\neoforge-21.1.259-installer.jar.log`），
-    **不是 Java 版本问题**（它用的是 java-runtime-delta 的 Java 21.0.7，完全正确；
-    重装 Java 不会有帮助）。现在启动安装器时显式带
-    `-Djava.io.tmpdir=<root>\cache\tmp\forge-installer`，绕开用户 %TEMP% 的权限/杀软问题。
+  - **Low 完整性导致 %TEMP% 不可写（2026-10-28 定位并绕过）**：用户的 `java.exe` 带
+    `Low Mandatory Level` 标签（`icacls` 可见；启动器尝试提升到 Medium 时报 SetFileSecurity: 5，
+    因为 ACL 里只有 Modify、没有 WRITE_OWNER）。Windows 会按镜像标签把进程降到 Low，
+    而 `%TEMP%`（`C:\Users\…\AppData\Local\Temp`）是 Medium 且没有 Low 标签 ——
+    Low 进程在那里建目录直接 AccessDenied。表现：
+    - NeoForge 官方安装器 `PostProcessors.process` → `Files.createTempDirectory` 抛
+      AccessDenied（ATM10 的安装失败）；
+    - 游戏内 EuphoriaPatcher 报 `Error creating temporary directory`。
+    - **不是 Java 版本问题**：安装器日志 `E:\aaaa\minecraft\neoforge-*.installer.jar.log`
+      显示用的是 Java 21.0.7，完全正确；重装 Java 没用。
+    - 修复：`LauncherPaths` 新增 `TempRoot` / `GameTemp` / `InstallerTemp`
+      （`<root>\cache\tmp\{game,forge-installer}`），启动游戏和安装器时显式传
+      `-Djava.io.tmpdir=…`，并把目录标成 Low（`IntegrityGuard.TryRaiseFileLevel(..., Low)`），
+      保证 Low 子进程一定写得进去。实测目录标签变成 `Low (NW)`，游戏参数里能看到
+      `java.io.tmpdir`。
+    - 若以后要让 Fabric/Quilt 重映射也工作，需要管理员执行
+      `icacls "…\runtime\java-runtime-*\bin\java.exe" /setintegritylevel Medium`
+      （用户自己拥有文件才做得到）。
   - **空列表提示分两种情况（2026-10-28）**：以前只要 `Content` 为空就报"文件夹是空的"，
     用户输入筛选词后看到"这个世界还没有数据包"会以为文件丢了。现在 `_contentFileTotal`
     记录筛选前的总数：

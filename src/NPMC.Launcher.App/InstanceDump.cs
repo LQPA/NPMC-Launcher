@@ -2330,6 +2330,11 @@ internal static class InstanceDump
                     lines.Add($"    未替换占位符={(unresolved.Count == 0 ? "无" : string.Join(", ", unresolved))}");
                     lines.Add($"    JVM 参数 {prepared.Plan.JvmArguments.Count} 个 / 游戏参数 {prepared.Plan.GameArguments.Count} 个");
 
+                var tmpArgument = prepared.Plan.JvmArguments
+                    .FirstOrDefault(argument => argument.StartsWith("-Djava.io.tmpdir=", StringComparison.OrdinalIgnoreCase));
+
+                lines.Add($"    java.io.tmpdir = {(tmpArgument is null ? "(未设置，会用 %TEMP%)" : tmpArgument["-Djava.io.tmpdir=".Length..])}");
+
                     foreach (var problem in prepared.Problems) lines.Add($"    问题: {problem}");
 
                     // -p / -cp 里列出的文件是否都在 —— Forge 的模块路径少一个 jar 就起不来
