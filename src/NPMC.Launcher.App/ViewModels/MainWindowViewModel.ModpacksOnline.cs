@@ -28,6 +28,24 @@ public sealed partial class MainWindowViewModel
     public ObservableCollection<ModpackVersionItem> ModpackVersions { get; } = new();
     public ObservableCollection<string> ModpackSources { get; } = new() { "Modrinth", "CurseForge" };
 
+    private int _modpackModeIndex;
+
+    /// <summary>整合包安装方式：0 = 在线搜索，1 = 本地 .mrpack 文件。</summary>
+    public int ModpackModeIndex
+    {
+        get => _modpackModeIndex;
+        set
+        {
+            if (!SetProperty(ref _modpackModeIndex, value)) return;
+            OnPropertyChanged(nameof(IsModpackOnlineMode));
+            OnPropertyChanged(nameof(IsModpackLocalMode));
+        }
+    }
+
+    public bool IsModpackOnlineMode => _modpackModeIndex == 0;
+
+    public bool IsModpackLocalMode => _modpackModeIndex == 1;
+
     public ICommand SearchModpacksCommand { get; private set; }
     public ICommand DownloadModpackCommand { get; private set; }
     public ICommand SaveCurseForgeKeyCommand { get; private set; }

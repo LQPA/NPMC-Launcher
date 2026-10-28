@@ -285,6 +285,18 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 已知仍未做：没有"排除 utility/equipment"的负向过滤（Modrinth facet 不支持 NOT），
 如果之后仍觉得科技太宽，可再加客户端排除或人工预设。
 
+### 17. 整合包页：整页拖放 + 在线/本地安装方式（2026-10-28 晚）
+
+- **整页拖放**：`DragDrop.AllowDrop/DragOver/Drop` 从原来的小方框移到整合包页最外层 Grid，
+  拖 .mrpack 到页面任意位置都算数；本地模式下的框只是视觉提示，文案写了「整页都可以」。
+- **安装方式**：页面标题下新增下拉「在线搜索 / 本地文件」（`ModpackModeIndex`）。
+  在线模式显示 Modrinth/CurseForge 搜索卡片；本地模式显示放大的拖放区。
+  选择或拖入 .mrpack 后会自动切到本地模式（`LoadModpackFileAsync` 里 `ModpackModeIndex = 1`），
+  方便看解析状态与安装计划。
+- 两种模式共用底部的「安装整合包」按钮和状态卡片；拖放处理逻辑没变，只是挂载点上移。
+
+已用界面确认两种模式布局（在线卡片 / 本地大拖放区）；exe 22:56 同步。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -298,7 +310,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:50，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:56，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

@@ -5379,6 +5379,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(path) || IsInstallingModpack) return;
 
+        // 本地选/拖文件后切到「本地安装」，让用户看到解析状态与计划
+        ModpackModeIndex = 1;
+
         try
         {
             ModpackStatus = $"正在解析 {Path.GetFileName(path)}…";

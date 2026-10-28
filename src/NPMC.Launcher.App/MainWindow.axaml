@@ -1485,11 +1485,22 @@
       </Grid>
 
       <!-- 下载页：整合包（本地 .mrpack，可选择或拖入） -->      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
-            IsVisible="{Binding IsModpacksMode}">
+            IsVisible="{Binding IsModpacksMode}"
+            DragDrop.AllowDrop="True"
+            DragDrop.DragOver="OnModpackDragOver"
+            DragDrop.Drop="OnModpackDrop">
         <StackPanel Grid.Row="0" Spacing="4">
           <TextBlock Text="整合包" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
-          <TextBlock Text="选择一个 .mrpack 文件，或直接把它拖到下面的框里"
+          <TextBlock Text="在线搜索，或把 .mrpack 拖到本页任意位置安装"
                      FontSize="12" Foreground="#949CA9" />
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+            <TextBlock Text="安装方式" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
+            <ComboBox SelectedIndex="{Binding ModpackModeIndex, Mode=TwoWay}"
+                      Width="120" FontSize="12">
+              <ComboBoxItem Content="在线搜索" />
+              <ComboBoxItem Content="本地文件" />
+            </ComboBox>
+          </StackPanel>
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
@@ -1497,7 +1508,7 @@
 
             <!-- 在线安装：Modrinth / CurseForge 搜索 → 选版本 → 下载并安装 -->
             <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
-                    CornerRadius="8" Padding="16">
+                    CornerRadius="8" Padding="16" IsVisible="{Binding IsModpackOnlineMode}">
               <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="64,*">
                   <TextBlock Text="来源" FontSize="12" Foreground="#949CA9" VerticalAlignment="Center" />
@@ -1573,15 +1584,14 @@
             </Border>
 
             <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
-                    CornerRadius="8" Padding="24" MinHeight="170"
-                    DragDrop.AllowDrop="True"
-                    DragDrop.DragOver="OnModpackDragOver"
-                    DragDrop.Drop="OnModpackDrop">
+                    CornerRadius="8" Padding="24" MinHeight="260"
+                    IsVisible="{Binding IsModpackLocalMode}">
               <StackPanel Spacing="10" VerticalAlignment="Center">
-                <TextBlock Text="把 .mrpack 拖到这里" FontSize="13" Foreground="#B4BCC8"
+                <TextBlock Text="把 .mrpack 拖到本页任意位置" FontSize="15" Foreground="#B4BCC8"
                            HorizontalAlignment="Center" />
-                <TextBlock Text="或者" FontSize="11" Foreground="#6E7684" HorizontalAlignment="Center" />
-                <Button Content="选择文件…" Click="OnPickModpackClick"
+                <TextBlock Text="（不用非得拖进这个框里，整页都可以）" FontSize="11"
+                           Foreground="#6E7684" HorizontalAlignment="Center" />
+                <Button Content="选择 .mrpack 文件…" Click="OnPickModpackClick"
                         HorizontalAlignment="Center" Padding="14,6" />
               </StackPanel>
             </Border>
