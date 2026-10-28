@@ -74,6 +74,7 @@ public final class SkinAgent {
             System.setProperty("nmpc.skin.uuid", uuid);
             System.setProperty("nmpc.skin.model", model);
             System.setProperty("nmpc.skin.port", String.valueOf(port));
+            if (logFile != null) System.setProperty("nmpc.skin.log", logFile.toString());
             log("bridge properties: url=" + System.getProperty("nmpc.skin.url"));
         } catch (Throwable error) {
             log("properties failed: " + error);

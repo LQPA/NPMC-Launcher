@@ -32,7 +32,10 @@ public final class SkinBridgeModern {
         try {
             ClassLoader loader = property.getClass().getClassLoader();
 
-            if (!isOurProperty(property)) return emptyTextures(loader);
+            boolean ours = isOurProperty(property);
+            log("texturesFor: ours=" + ours + " loader=" + loader);
+
+            if (!ours) return emptyTextures(loader);
 
             return buildTextures(loader);
         } catch (Throwable error) {
@@ -49,6 +52,8 @@ public final class SkinBridgeModern {
         try {
             String id = String.valueOf(invoke(profile, "id", "getId")).replace("-", "");
             String uuid = property("nmpc.skin.uuid", "");
+
+            log("get: id=" + id + " ours=" + id.equalsIgnoreCase(uuid));
 
             if (id.isEmpty() || !id.equalsIgnoreCase(uuid)) {
                 return CompletableFuture.completedFuture(Optional.empty());
@@ -117,8 +122,22 @@ public final class SkinBridgeModern {
         if (port.isEmpty()) return true;
 
         try {
-            Object value = invoke(property, "getValue");
-            if (value == null) return false;
+            // authlib 6/7 的 Property 是 record：value()；老版本是 getValue()
+            Object value = invoke(property, "value", "getValue");
+            if (value == null) {
+                try {
+                    java.lang.reflect.Field field = property.getClass().getDeclaredField("value");
+                    field.setAccessible(true);
+                    value = field.get(property);
+                } catch (Throwable ignored) {
+                    // 没有这个字段就放弃
+                }
+            }
+
+            if (value == null) {
+                log("property check: no value accessor");
+                return false;
+            }
 
             String decoded;
 
@@ -127,6 +146,9 @@ public final class SkinBridgeModern {
             } catch (IllegalArgumentException notStandard) {
                 decoded = new String(Base64.getMimeDecoder().decode(value.toString()), StandardCharsets.UTF_8);
             }
+
+            String sample = decoded.length() > 120 ? decoded.substring(0, 120) : decoded;
+            log("property check: port=" + port + " decoded=" + sample);
 
             return decoded.contains("127.0.0.1:" + port) || decoded.contains("localhost:" + port);
         } catch (Throwable error) {

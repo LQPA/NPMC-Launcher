@@ -110,7 +110,15 @@ final class SkinTransformer implements ClassFileTransformer {
 
                     MethodVisitor target = super.visitMethod(access, name, descriptor, signature, exceptions);
 
-                    if (isSkinManager && SkinAgent.modernReady && "get".equals(name) && GET_DESCRIPTOR.equals(descriptor)) {
+                    // 调试：SkinManager 的方法签名各版本不一样，先把候选打出来（每次启动一条）
+                    if (isSkinManager && (descriptor.endsWith(")Ljava/util/concurrent/CompletableFuture;")
+                            || name.startsWith("get") || name.startsWith("load"))) {
+                        SkinAgent.log("skinmanager: " + name + descriptor);
+                    }
+
+                    // 不写死参数类型：只要叫 get、只有一个参数、返回 CompletableFuture 就接管
+                    if (isSkinManager && SkinAgent.modernReady && "get".equals(name)
+                            && descriptor.endsWith(")Ljava/util/concurrent/CompletableFuture;")) {
                         SkinAgent.log("replacing " + className + "." + name + descriptor);
                         return replaceGet(target);
                     }
