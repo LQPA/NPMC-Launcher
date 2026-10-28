@@ -181,7 +181,9 @@ public static class GameLauncher
         // Low 进程在 %TEMP% 建目录会被拒绝（EuphoriaPatcher 的
         // "Error creating temporary directory" 就是这个原因）。这里给一个位于数据目录、
         // 与启动器同级（Low）的临时目录，并显式传给 JVM。
-        var gameTemp = paths.GameTemp;
+        // 每个实例一个独立临时目录：多实例同时启动时共用一个 tmpdir 会互相踩
+        // （LWJGL 运行时解压的本机库、mod 写的临时文件都往 java.io.tmpdir 放）。
+        var gameTemp = instance is null ? paths.GameTemp : Path.Combine(paths.GameTemp, instance.Id);
         try
         {
             Directory.CreateDirectory(gameTemp);

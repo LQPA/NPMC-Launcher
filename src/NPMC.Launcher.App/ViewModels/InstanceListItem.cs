@@ -99,6 +99,19 @@ public sealed class InstanceListItem : ObservableObject
     public string ShaderPacksDirectory => _layout.ShaderPacks;
     public string SavesDirectory => _layout.Saves;
 
+    private bool _isRunning;
+
+    /// <summary>本启动器进程里这个实例是否正在运行（多实例启动时按实例区分）。</summary>
+    public bool IsRunning => _isRunning;
+
+    public void SetRunning(bool running)
+    {
+        if (_isRunning == running) return;
+
+        _isRunning = running;
+        OnPropertyChanged(nameof(IsRunning));
+    }
+
     public int ModsCount { get => _modsCount; private set => SetProperty(ref _modsCount, value); }
     public int ResourcePackCount { get => _resourcePackCount; private set => SetProperty(ref _resourcePackCount, value); }
     public int ShaderPackCount { get => _shaderPackCount; private set => SetProperty(ref _shaderPackCount, value); }

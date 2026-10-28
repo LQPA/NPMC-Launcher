@@ -161,13 +161,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
         DeleteInstanceCommand = new AsyncRelayCommand(
             DeleteInstanceAsync,
-            () => SelectedInstance is not null && !IsGameRunning);
+            () => SelectedInstance is not null && !IsSelectedInstanceRunning);
         CopyInstanceCommand = new AsyncRelayCommand(
             CopyInstanceAsync,
-            () => SelectedInstance is not null && !IsGameRunning);
+            () => SelectedInstance is not null && !IsSelectedInstanceRunning);
 
 
-        BeginRenameCommand = new RelayCommand(BeginRename, () => SelectedInstance is not null);
+        BeginRenameCommand = new RelayCommand(
+            BeginRename, () => SelectedInstance is not null && !IsSelectedInstanceRunning);
         ConfirmRenameCommand = new AsyncRelayCommand(ConfirmRenameAsync);
         CancelRenameCommand = new RelayCommand(CancelRename);
 
@@ -191,25 +192,32 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
 
         LaunchGameCommand = new AsyncRelayCommand(LaunchGameAsync,
-            () => SelectedInstance is not null && !IsGameRunning, OnOpenError);
+            () => SelectedInstance is not null && !IsSelectedInstanceRunning, OnOpenError);
     }
 
     // ---- 启动游戏 ----
 
-    private bool _isGameRunning;
+    /// <summary>本启动器进程里正在运行的实例（不同实例可以同时启动）。</summary>
+    private readonly RunningInstances _running = new();
 
-    public bool IsGameRunning
+    /// <summary>任意实例正在运行（全局行为，例如状态栏/日志轮询用）。</summary>
+    public bool IsGameRunning => _running.Count > 0;
+
+    /// <summary>选中的实例是否在运行：启动/改名/删除/复制只看这一项。</summary>
+    public bool IsSelectedInstanceRunning => SelectedInstance is { } item && _running.Contains(item.Model.Id);
+
+    public string LaunchButtonText => IsSelectedInstanceRunning ? "运行中…" : "启动游戏";
+
+    /// <summary>把运行状态同步到列表项、按钮文案与命令可用性。</summary>
+    private void SyncRunningState()
     {
-        get => _isGameRunning;
-        private set
-        {
-            if (!SetProperty(ref _isGameRunning, value)) return;
-            OnPropertyChanged(nameof(LaunchButtonText));
-            RaiseCommandStates();
-        }
-    }
+        foreach (var item in Instances) item.SetRunning(_running.Contains(item.Model.Id));
 
-    public string LaunchButtonText => IsGameRunning ? "运行中…" : "启动游戏";
+        OnPropertyChanged(nameof(IsGameRunning));
+        OnPropertyChanged(nameof(IsSelectedInstanceRunning));
+        OnPropertyChanged(nameof(LaunchButtonText));
+        RaiseCommandStates();
+    }
 
     public ICommand LaunchGameCommand { get; }
 
@@ -361,9 +369,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        if (IsGameRunning)
+        if (IsSelectedInstanceRunning)
         {
-            Status = "游戏正在运行，先关闭游戏再改名（实例目录要跟着一起改）";
+            Status = "这个实例正在运行，先关闭游戏再改名（实例目录要跟着一起改）";
             return;
         }
 
@@ -506,9 +514,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (SelectedInstance is not { } instance) return;
 
-        if (IsGameRunning)
+        if (IsSelectedInstanceRunning)
         {
-            Status = "游戏正在运行，先关闭游戏再删除实例。";
+            Status = "这个实例正在运行，先关闭游戏再删除实例。";
             return;
         }
 
@@ -566,7 +574,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
     private async Task CopyInstanceAsync()
     {
-        if (SelectedInstance is not { } source || IsGameRunning) return;
+        if (SelectedInstance is not { } source || IsSelectedInstanceRunning) return;
 
         if (source.Model.Isolation == IsolationLevel.None)
         {
@@ -1078,13 +1086,42 @@ public sealed partial class MainWindowViewModel : ObservableObject
         foreach (var notice in prepared.Notices)
             LauncherLog.Write(_launcher.Root, notice);
 
+        // 同一个实例只能有一个游戏进程；不同实例互不影响（真正启动前的最后一道检查）
+        var instanceId = instance.Model.Id;
+        if (!_running.TryAdd(instanceId))
+        {
+            Status = "这个实例已经在运行了，不能同时启动两次。";
+            return;
+        }
+
+        SyncRunningState();
+
+        Process process;
         try
         {
-            IsGameRunning = true;
-            using var process = GameLauncher.Start(prepared, instance.Model.Settings.CustomTitle);
+            process = GameLauncher.Start(prepared, instance.Model.Settings.CustomTitle);
+        }
+        catch (Exception ex)
+        {
+            _running.Remove(instanceId);
+            SyncRunningState();
+            Status = $"启动失败：{ex.GetBaseException().Message}";
+            LauncherLog.Write(_launcher.Root, $"启动失败 {instance.Id} → {ex.GetBaseException().Message}");
+            return;
+        }
 
-            Status = $"游戏已启动（PID {process.Id}）  日志 {prepared.LatestLog}";
+        Status = $"游戏已启动（PID {process.Id}）  日志 {prepared.LatestLog}";
 
+        // 这里必须**立刻返回**：如果在这里 await 到游戏退出，AsyncRelayCommand 会一直
+        // 处于"执行中"的禁用状态，界面上就再也点不动启动按钮，也就没法启动第二个实例。
+        _ = AwaitGameExitAsync(process, instanceId, instance);
+    }
+
+    /// <summary>后台等待某个实例结束：更新状态栏并清掉它的"运行中"标记。</summary>
+    private async Task AwaitGameExitAsync(Process process, string instanceId, InstanceListItem instance)
+    {
+        try
+        {
             // 不要用 EnableRaisingEvents：受限环境下打开父进程句柄会被拒绝。
             // WaitForExitAsync 在正常用户环境可用（本机已实测过真实启动）。
             await process.WaitForExitAsync();
@@ -1110,15 +1147,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Status = $"启动失败：{ex.GetBaseException().Message}";
-            LauncherLog.Write(_launcher.Root, $"启动失败 {instance.Id} → {ex.GetBaseException().Message}");
+            Status = $"等待游戏退出失败：{ex.GetBaseException().Message}";
         }
         finally
         {
-            IsGameRunning = false;
+            _running.Remove(instanceId);
+            process.Dispose();
+            SyncRunningState();
         }
     }
-
     private async Task<LauncherSettings> LoadLauncherSettingsAsync()
     {
         try
@@ -1170,6 +1207,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(WindowHeight));
             SyncPresetFromInstance();
             NotifyAdvancedOptionsChanged();
+            OnPropertyChanged(nameof(IsSelectedInstanceRunning));
+            OnPropertyChanged(nameof(LaunchButtonText));
 
             // 导出表单也属于"跟着实例走"：包名与内容摘要必须换成新实例的，
             // 否则会拿上一个实例的名字去导出（用户实测：495 个 Mod 的摘要留在 6 个 Mod 的实例上）
@@ -1432,9 +1471,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>删除世界：两次点击确认（会删掉 level.dat 与所有区块数据，不可恢复）。</summary>
     private async void DeleteWorld(WorldItem world)
     {
-        if (IsGameRunning)
+        if (IsSelectedInstanceRunning)
         {
-            Status = "游戏正在运行，先关闭游戏再删除存档。";
+            Status = "这个实例正在运行，先关闭游戏再删除存档。";
             return;
         }
 
@@ -2105,6 +2144,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             foreach (var instance in catalog.Instances)
                 Instances.Add(new InstanceListItem(_launcher, instance));
 
+            SyncRunningState();
             OnPropertyChanged(nameof(IsEmpty));
 
             SelectedInstance = Instances.FirstOrDefault();

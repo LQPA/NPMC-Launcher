@@ -109,8 +109,15 @@
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:InstanceListItem">
               <StackPanel Spacing="3" Margin="2,5">
-                <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-                           Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                             Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
+                  <Border Grid.Column="1" Background="#1F3A2A" BorderBrush="#3E7A52" BorderThickness="1"
+                          CornerRadius="6" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center"
+                          IsVisible="{Binding IsRunning}">
+                    <TextBlock Text="运行中" FontSize="10" Foreground="#7FD08A" />
+                  </Border>
+                </Grid>
                 <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#B4BCC8" />
                 <TextBlock Text="{Binding ContentText}" FontSize="11" Foreground="#949CA9" />
                 <TextBlock Text="{Binding ModpackSummaryText}" FontSize="10" Foreground="#E0A94A"

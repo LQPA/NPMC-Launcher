@@ -192,7 +192,28 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 实测（1.12.2，设置里填标题/标语/JVM 参数后从界面启动）：窗口标题变成「NPMC 测试标题」、
 主界面标语变成「NPMC 自定义横幅」、`logs/nmpc-command.txt` 里有 `-Dnmpc.advanced=1`；
 `options.txt` 为 `resourcePacks:["nmpc-splash.zip"]`，资源包 396 字节。用户确认生效。
-测试：351 通过 + 2 个既有失败（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
+测试：354 通过 + 2 个既有失败（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
+
+### 12. 单启动器多实例启动（2026-10-28 晚）
+
+原来 `IsGameRunning` 是一个全局 bool：只要有一个游戏在跑，所有实例的启动/改名/删除/复制
+都被禁用。现在改成按实例跟踪：
+
+- `RunningInstances`（Core）只负责"哪些实例 Id 正在运行"；
+- `InstanceListItem.IsRunning` 给列表项加「运行中」角标；
+- 启动/改名/删除/复制命令的 CanExecute 只看**当前选中的实例**是否在运行；
+- `LaunchGameAsync` 启动进程后**立刻返回**，由 `AwaitGameExitAsync` 在后台等待退出并清标记。
+  这一点很关键：之前一直 await 到游戏退出，`AsyncRelayCommand` 会一直处于"执行中"，
+  按钮整个灰掉，等于第二个实例永远起不来（用户实测就是这个现象）。
+- 游戏临时目录从共享的 `cache\tmp\game` 改为 `cache\tmp\game\<实例Id>`
+  （`-Djava.io.tmpdir` 每实例独立，避免 LWJGL/mod 的临时文件互相踩）。
+
+同一实例仍然只能开一个：`GameLauncher.Start` 里的 `.nmpc-running` 文件锁保留，
+`RunningInstances` 再挡一层。无隔离实例共用游戏目录，也会被这层锁挡住。
+
+实测（GUI，1.12.2 + 1.15）：两个游戏窗口同时存在；列表两个「运行中」角标；
+选中未运行的实例时启动按钮可用；杀掉 1.15 后角标消失、可在 1.12.2 继续运行时重新启动 1.15。
+`cache\tmp\game\1.12.2` 与 `...\1.15` 各自独立，命令文件里的 `-Djava.io.tmpdir` 也对得上。
 
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
@@ -207,13 +228,13 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（21:46，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（21:55，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
   整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已覆盖 1.7.10 ~ 26.3 的
   原版 / Fabric / Forge / NeoForge 组合（用户实机确认）**，只剩 1.21.6 / 快照 / Quilt 未测。
-- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 351 通过 + 2 个既有失败
+- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 354 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
