@@ -348,6 +348,29 @@ Unofficial Mandala's GUI Dark Mode、The Rename Compat Project、Created Simple 
 经 CF API 与 Modrinth 核对：项目/文件元数据在 CF 侧已删除、Modrinth 无同名项目，**无法自动补齐**。
 这些多为装饰/兼容/QoL 文件，缺省不影响启动，建议先启动再按崩溃日志决定是否找替代。
 
+### 21. BMC4 六个“缺失模组”其实是已删除的资源包（2026-10-28 晚）
+
+用 CF API 核对这 6 个文件的 `classId` 全是 **12（资源包）**，链接也是
+`curseforge.com/minecraft/texture-packs/...`，不是模组：
+
+| 项目 | 状态 | 发布日期 |
+|---|---|---|
+| Climate Rivers language Fix | status=4, allowDist=false | 2025-10-20 |
+| Mandala's GUI Vanilla Crosshair | status=4 | 2025-06-19 |
+| Stay Clear | status=4 | 2025-06-03 |
+| (Unofficial) Mandala's GUI Dark Mode | status=4 | 2025-10-03 |
+| The Rename Compat Project | status=4 | 2026-07-10 |
+| Created Simple Storage Network | status=4 | 2023-07-07 |
+
+CF 页面与项目页都已 404，API 仍返回元数据但 `downloadUrl` 为空；Modrinth 无同名项目。
+这些都是“非官方/兼容/美化”类资源包（Mandala GUI 扩展、准星、暗色兼容、语言修正、改名贴图），
+属于版权/授权风险高的衍生作品，作者或 CF 下架后会立刻从网页消失；整合包作者无法预防，
+BMC4 最新版也一样（发布时它们还存在）。
+
+顺带修了一个分类错误：blocked 文件以前一律按 `mods` 记录，现在按项目 `classId` 映射
+（12 → resourcepacks，6552 → shaderpacks），已安装的 BMC4 标记也改正了。
+这些是纯视觉资源包，缺省不影响进入游戏。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、

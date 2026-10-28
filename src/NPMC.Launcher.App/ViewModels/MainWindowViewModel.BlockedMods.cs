@@ -178,7 +178,7 @@ public sealed partial class MainWindowViewModel
         var directories = BrowserDownloadLocator.GetCandidateDirectories();
         _blockedImporter.Watch(directories);
 
-        UpdateBlockedStatus($"缺少 {BlockedMods.Count} 个模组，可随时在 CurseForge 下载后自动导入"
+        UpdateBlockedStatus($"缺少 {BlockedMods.Count} 个文件，可随时在 CurseForge 下载后自动导入"
                             + $"（监听 {directories.Count} 个下载目录）");
     }
     /// <summary>安装完成后调用：把 blocked 列表显示出来并开始监听下载目录。</summary>
@@ -200,7 +200,7 @@ public sealed partial class MainWindowViewModel
         var directories = BrowserDownloadLocator.GetCandidateDirectories();
         _blockedImporter.Watch(directories);
 
-        UpdateBlockedStatus($"有 {BlockedMods.Count} 个文件被作者禁止第三方下载，"
+        UpdateBlockedStatus($"有 {BlockedMods.Count} 个文件被作者禁止第三方下载（可能是资源包/光影），"
                             + $"已开始监听 {directories.Count} 个下载目录：{string.Join("；", directories)}");
     }
 

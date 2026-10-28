@@ -1632,7 +1632,7 @@
             <Border Background="#2A2618" BorderBrush="#6B5A2E" BorderThickness="1"
                     CornerRadius="8" Padding="16" IsVisible="{Binding HasBlockedMods}">
               <StackPanel Spacing="8">
-                <TextBlock Text="有模组只能从 CurseForge 手动下载" FontSize="12" FontWeight="SemiBold"
+                <TextBlock Text="有文件只能从 CurseForge 手动下载（资源包/光影也会列在这里）" FontSize="12" FontWeight="SemiBold"
                            Foreground="#E0A94A" />
                 <ItemsControl ItemsSource="{Binding BlockedMods}">
                   <ItemsControl.ItemTemplate>

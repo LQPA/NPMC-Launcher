@@ -175,6 +175,15 @@ public sealed class CurseForgeModpackPreparer
 
                     if (metadata is not null)
                     {
+                        // 资源包（classId 12）与光影（6552）不能一律塞进 mods/，
+                        // 否则 blocked 列表会告诉用户把它放进 mods。
+                        var targetFolder = project?.ClassId switch
+                        {
+                            12 => "resourcepacks",
+                            6552 => "shaderpacks",
+                            _ => "mods",
+                        };
+
                         lock (blockedFiles)
                         {
                             blockedFiles.Add(new BlockedModFile(
@@ -182,7 +191,8 @@ public sealed class CurseForgeModpackPreparer
                                 project?.Name ?? label,
                                 project?.Slug ?? "",
                                 metadata.FileName,
-                                metadata.Sha1 ?? ""));
+                                metadata.Sha1 ?? "",
+                                targetFolder));
                         }
                     }
                 }
