@@ -183,7 +183,7 @@ public sealed class MrpackExporter
     /// 绝对路径的额外文件：文件按文件名放到包根，目录则保留目录名层级。
     /// 不存在的路径直接跳过（用户可能手写过期路径）。
     /// </summary>
-    private static List<(string Entry, string FullPath)> CollectExternalFiles(IReadOnlyList<string> paths)
+    internal static List<(string Entry, string FullPath)> CollectExternalFiles(IReadOnlyList<string> paths)
     {
         var result = new List<(string, string)>();
 
@@ -225,7 +225,7 @@ public sealed class MrpackExporter
         return result;
     }
 
-    private static List<(string RelativePath, string FullPath)> CollectContentFiles(
+    internal static List<(string RelativePath, string FullPath)> CollectContentFiles(
         string gameDirectory,
         MrpackExportOptions options)
     {
@@ -303,7 +303,7 @@ public sealed class MrpackExporter
         return string.Equals(fileName, pattern, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static List<string> CollectOverrideFiles(string gameDirectory, MrpackExportOptions options)
+    internal static List<string> CollectOverrideFiles(string gameDirectory, MrpackExportOptions options)
     {
         var overrides = new List<string>();
 

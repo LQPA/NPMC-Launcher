@@ -282,9 +282,15 @@ public sealed class CurseForgeClient
                 var file = ParseFile(fileElement);
                 if (file is null) continue;
 
+                // exactMatches 里的 id 是**项目 id（modId）**，不是指纹；
+                // 真正的指纹在 file.fileFingerprint 里。早先误用 id 会导致
+                // “单文件能匹配、批量结果全部对不上号”的 bug。
                 var fingerprint = 0u;
-                if (match.TryGetProperty("id", out var idElement) && idElement.TryGetInt64(out var id))
-                    fingerprint = (uint)id;
+                if (fileElement.TryGetProperty("fileFingerprint", out var fingerprintElement)
+                    && fingerprintElement.TryGetInt64(out var fingerprintValue))
+                {
+                    fingerprint = (uint)fingerprintValue;
+                }
 
                 matches.Add(new CurseForgeMatch(fingerprint, file));
             }

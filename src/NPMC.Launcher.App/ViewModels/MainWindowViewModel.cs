@@ -650,6 +650,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         "完整 ZIP（含存档与配置）",
         "Modrinth 整合包（.mrpack）",
+        "CurseForge 整合包（.zip）",
     };
 
     private int _exportFormatIndex;
@@ -661,22 +662,34 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _exportFormatIndex, value)) return;
             OnPropertyChanged(nameof(IsMrpackExport));
+            OnPropertyChanged(nameof(IsCurseForgeExport));
+            OnPropertyChanged(nameof(IsPackExport));
             OnPropertyChanged(nameof(ExportFormatHint));
         }
     }
 
     public bool IsMrpackExport => _exportFormatIndex == 1;
 
-    public string ExportFormatHint => IsMrpackExport
-        ? "生成 Modrinth 整合包：能在 Modrinth 找到的文件只写下载地址（包很小），"
-          + "勾选的内容原样打包进 overrides。导入时需要联网。"
-        : "把当前实例的 mods / config / resourcepacks / shaderpacks / saves 等打包成 ZIP；"
-          + "不会包含 logs 和 crash-reports。";
+    public bool IsCurseForgeExport => _exportFormatIndex == 2;
+
+    /// <summary>两种整合包格式共用“名称/版本/作者/内容选择”表单。</summary>
+    public bool IsPackExport => IsMrpackExport || IsCurseForgeExport;
+
+    public string ExportFormatHint => _exportFormatIndex switch
+    {
+        1 => "生成 Modrinth 整合包：能在 Modrinth 找到的文件只写下载地址（包很小），"
+             + "勾选的内容原样打包进 overrides。导入时需要联网。",
+        2 => "生成 CurseForge 整合包：按指纹把文件换成 projectID/fileID，写入 manifest.json；"
+             + "认不出来的文件进 overrides。需要 CurseForge API key。",
+        _ => "把当前实例的 mods / config / resourcepacks / shaderpacks / saves 等打包成 ZIP；"
+             + "不会包含 logs 和 crash-reports。",
+    };
 
     // ---- 整合包内容选择（照着「整合包制作」的表单）----
 
     private string _exportPackName = "";
     private string _exportPackVersion = "1.0.0";
+    private string _exportPackAuthor = "NPMC Launcher";
 
     /// <summary>整合包名称；选实例时默认填实例名。</summary>
     public string ExportPackName
@@ -689,6 +702,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         get => _exportPackVersion;
         set => SetProperty(ref _exportPackVersion, value);
+    }
+
+    /// <summary>CurseForge 的 manifest 要写作者名；Modrinth 的 mrpack 不需要。</summary>
+    public string ExportPackAuthor
+    {
+        get => _exportPackAuthor;
+        set => SetProperty(ref _exportPackAuthor, value);
     }
 
     private bool _exportIncludeMods = true;
@@ -981,6 +1001,71 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ExportStatus = $"导出失败：{ex.GetBaseException().Message}";
             Status = ExportStatus;
             LauncherLog.Write(_launcher.Root, $"导出 mrpack 失败：{ex}");
+        }
+    }
+
+    /// <summary>
+    /// 导出 CurseForge 格式整合包（manifest.json + overrides）。需要 CF API key：
+    /// manifest 只认 (projectID, fileID)，文件要先算 MurmurHash2 指纹再查 CF。
+    /// </summary>
+    public async Task ExportCurseForgeAsync(string targetPath)
+    {
+        if (SelectedInstance is not { } instance) return;
+
+        LoadExportRules();
+        ExportStatus = $"正在导出 CurseForge 整合包「{instance.Name}」…";
+
+        try
+        {
+            if (!CurseForgeClient.TryResolveApiKey(out var key, out var problem) || key is null)
+            {
+                ExportStatus = $"导出 CurseForge 整合包需要 API key：{problem ?? "未配置"}";
+                Status = ExportStatus;
+                return;
+            }
+
+            var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
+            var loader = version is null ? null : LoaderDetector.DetectWithVersion(version);
+            var gameVersion = await ResolveGameVersionAsync(instance);
+
+            var exporter = new CurseForgePackExporter(new CurseForgeClient(_http, key));
+            var progress = new Progress<string>(text => ExportStatus = text);
+
+            var options = new MrpackExportOptions
+            {
+                IncludeMods = ExportIncludeMods,
+                IncludeResourcePacks = ExportIncludeResourcePacks,
+                IncludeShaderPacks = ExportIncludeShaderPacks,
+                BundleExtra = ExportBundleExtra,
+                Rules = ExportRules.Split(_exportRuleLines).Rules,
+                ExternalPaths = ExportRules.Split(_exportRuleLines).External,
+            };
+
+            var result = await exporter.ExportAsync(
+                instance.GameDirectory,
+                targetPath,
+                string.IsNullOrWhiteSpace(ExportPackName) ? instance.Name : ExportPackName.Trim(),
+                string.IsNullOrWhiteSpace(ExportPackVersion) ? "1.0.0" : ExportPackVersion.Trim(),
+                string.IsNullOrWhiteSpace(ExportPackAuthor) ? "NPMC Launcher" : ExportPackAuthor.Trim(),
+                gameVersion,
+                loader?.Key,
+                loader?.Version,
+                options,
+                progress);
+
+            ExportStatus = $"已导出 CurseForge 整合包：{result.FileCount} 个下载项、"
+                           + $"{result.OverrideCount} 个覆盖文件、{result.UnresolvedCount} 个未识别"
+                           + $"（{result.Bytes / 1024.0 / 1024.0:F1} MB）"
+                           + (ExportBundleExtra ? "" : "；只生成了 manifest，没有打包任何文件");
+            Status = ExportStatus;
+            LauncherLog.Write(_launcher.Root,
+                $"导出 CurseForge 整合包 {instance.Name} → {targetPath}");
+        }
+        catch (Exception ex)
+        {
+            ExportStatus = $"导出失败：{ex.GetBaseException().Message}";
+            Status = ExportStatus;
+            LauncherLog.Write(_launcher.Root, $"导出 CurseForge 整合包失败：{ex}");
         }
     }
 

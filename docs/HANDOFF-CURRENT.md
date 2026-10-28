@@ -421,6 +421,28 @@ BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
   `InstanceListItem` 的记忆/自动内存摘要；App 测试 7 个。
 - Core 测试 385 个（新增 `ModpackInstallMemoryTests`），全绿。
 
+### 26. CurseForge 整合包导出（2026-10-29 凌晨）
+
+导出页格式新增「CurseForge 整合包（.zip）」（`ExportFormatIndex = 2`），与 mrpack 共用
+名称/版本/内容选择表单；CF 额外有「作者」字段（manifest 需要）。
+
+实现（`CurseForgePackExporter`）：
+- 内容文件算 MurmurHash2（Standard，seed=1）→ 批量调 `/v1/fingerprints` 换
+  `(projectID, fileID)` 写进 `manifest.json`；
+- 认不出来的文件、以及已禁用（`.disabled`）文件 → 原样进 `overrides/`；
+- `config` / `options.txt` 等沿用 `MrpackExporter` 的规则进 overrides；
+- loader id 拼成 `forge-47.4.20` / `neoforge-21.1.259`。
+
+过程中发现并修了一个**指纹映射 bug**：`/v1/fingerprints` 返回的 `exactMatches[].id` 是
+项目 id（modId），不是指纹；指纹在 `file.fileFingerprint`。之前按 `id` 建映射，
+导致批量结果全对不上（第一次导出 0 个下载项，418 个全进 overrides）。
+
+实测（BMC4）：导出 **413 个下载项 + 1393 个覆盖文件 + 5 个未识别，72.0 MB**；
+把导出的 zip 再喂给本地 CF 安装：识别为 BMC4 / 1.20.1 / forge 47.4.20，
+384 个可下载文件（352 个模组）+ 29 个需手动下载，可安装。
+
+测试：Core 388、App 7，合计 **395 通过、0 失败**。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -434,7 +456,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:58，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（00:06，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、

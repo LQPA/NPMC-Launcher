@@ -242,18 +242,23 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel viewModel) return;
         if (viewModel.SelectedInstance is not { } instance) return;
 
-        var mrpack = viewModel.ExportFormatIndex == 1;
+        var format = viewModel.ExportFormatIndex;
+        var mrpack = format == 1;
+        var curseForge = format == 2;
 
         try
         {
             var files = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Title = mrpack ? "导出 Modrinth 整合包" : "导出实例",
+                Title = curseForge ? "导出 CurseForge 整合包"
+                    : mrpack ? "导出 Modrinth 整合包" : "导出实例",
                 SuggestedFileName = instance.Name + (mrpack ? ".mrpack" : ".zip"),
                 DefaultExtension = mrpack ? "mrpack" : "zip",
                 FileTypeChoices = mrpack
                     ? new[] { new FilePickerFileType("Modrinth 整合包") { Patterns = new[] { "*.mrpack" } } }
-                    : new[] { new FilePickerFileType("ZIP 压缩包") { Patterns = new[] { "*.zip" } } },
+                    : curseForge
+                        ? new[] { new FilePickerFileType("CurseForge 整合包") { Patterns = new[] { "*.zip" } } }
+                        : new[] { new FilePickerFileType("ZIP 压缩包") { Patterns = new[] { "*.zip" } } },
             });
 
             var path = files?.TryGetLocalPath();
@@ -264,6 +269,7 @@ public partial class MainWindow : Window
             if (!mrpack && !path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) path += ".zip";
 
             if (mrpack) await viewModel.ExportMrpackAsync(path);
+            else if (curseForge) await viewModel.ExportCurseForgeAsync(path);
             else await viewModel.ExportInstanceAsync(path);
         }
         catch (Exception ex)

@@ -1199,13 +1199,17 @@
               <TextBlock Text="{Binding ExportFormatHint}" FontSize="11" Foreground="#949CA9"
                          TextWrapping="Wrap" MaxWidth="620" />
 
-              <!-- 整合包信息与内容清单：只对 .mrpack 有意义（ZIP 按完整打包） -->
-              <StackPanel Spacing="10" IsVisible="{Binding IsMrpackExport}">
+              <!-- 整合包信息与内容清单：对 .mrpack / CurseForge zip 有意义（完整 ZIP 按全量打包） -->
+              <StackPanel Spacing="10" IsVisible="{Binding IsPackExport}">
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <TextBlock Text="整合包名称" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
-                  <TextBox Text="{Binding ExportPackName}" Width="280" FontSize="12" />
+                  <TextBox Text="{Binding ExportPackName}" Width="240" FontSize="12" />
                   <TextBlock Text="版本" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
                   <TextBox Text="{Binding ExportPackVersion}" Width="90" FontSize="12" />
+                  <TextBlock Text="作者" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center"
+                             IsVisible="{Binding IsCurseForgeExport}" />
+                  <TextBox Text="{Binding ExportPackAuthor}" Width="140" FontSize="12"
+                           IsVisible="{Binding IsCurseForgeExport}" />
                 </StackPanel>
 
                 <TextBlock Text="导出内容" FontSize="12" Foreground="#C9CED6" Margin="0,2,0,0" />

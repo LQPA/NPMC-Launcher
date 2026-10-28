@@ -971,6 +971,35 @@ internal static class InstanceDump
             }
         }
 
+        // 导出 CurseForge 整合包（--exercise-export-cf <zip> [--exercise-export-instance 名称]）
+        var exportCfIndex = Array.FindIndex(args, arg =>
+            string.Equals(arg, "--exercise-export-cf", StringComparison.OrdinalIgnoreCase));
+
+        if (exportCfIndex >= 0 && exportCfIndex + 1 < args.Length)
+        {
+            var exportTargetIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-export-instance", StringComparison.OrdinalIgnoreCase));
+            var exportTargetName = exportTargetIndex >= 0 && exportTargetIndex + 1 < args.Length
+                ? args[exportTargetIndex + 1]
+                : null;
+
+            var exportInstance = (exportTargetName is null
+                                     ? null
+                                     : viewModel.Instances.FirstOrDefault(item =>
+                                         string.Equals(item.Name, exportTargetName, StringComparison.OrdinalIgnoreCase)
+                                         || string.Equals(item.Id, exportTargetName, StringComparison.OrdinalIgnoreCase)))
+                                 ?? viewModel.SelectedInstance
+                                 ?? viewModel.Instances.FirstOrDefault();
+
+            if (exportInstance is not null)
+            {
+                viewModel.SelectedInstance = exportInstance;
+                viewModel.RefreshCapabilitiesAsync(exportInstance).GetAwaiter().GetResult();
+                viewModel.ExportCurseForgeAsync(args[exportCfIndex + 1]).GetAwaiter().GetResult();
+                lines.Add($"[CF导出] {viewModel.ExportStatus}");
+            }
+        }
+
         // 验证下载进度真的在动：采样 DownloadProgress
         if (args.Any(arg => string.Equals(arg, "--exercise-download-progress", StringComparison.OrdinalIgnoreCase)))
         {
