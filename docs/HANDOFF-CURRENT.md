@@ -172,6 +172,16 @@
       `getInsecureSkin` / `getOrLoad` / `registerTextures(UUID, …)`。
     - 独立探针（authlib 7 与 1.5.21）验证：自己的属性返回带本地 URL 的纹理，别人的返回 EMPTY。
     - `SkinAgentTests` 覆盖 NeoForge / Forge / Fabric 都挂 agent、原版保留、微软账号不用。
+    - **Fabric 会拒绝启动（duplicate ASM classes）**：agent 为自包含内嵌了 ASM，Fabric 校验
+      classpath 时发现两份 `org.objectweb.asm` 直接 abort。内嵌 ASM 必须重定位到私有包
+      （`nmpc/skinned/asmx`，`tools/skin-agent/Relocator.java`，用 ASM `ClassRemapper` +
+      前缀 `Remapper`）。**不要用字节替换做重定位**：长度虽然能对齐，但会把 ASM 改坏
+      （`VerifyError: Bad type in putfield/putstatic`，皮肤静默失效）。
+    - **进程不退出**：`com.sun.net.httpserver` 的 dispatcher 线程不是 daemon，游戏启动失败后
+      JVM 被吊住，启动器永远显示"运行中"。`SkinHttpServer` 已改成 `ServerSocket` + daemon
+      线程，路由不变。
+    - **PowerShell 脚本必须存成 UTF-8 with BOM**：PS 5.1 会把无 BOM 的 UTF-8 当 ANSI，
+      中文注释的字节会把下一行吞进注释（`skin-agent\build.ps1` 曾因此整段不执行、只生成旧 jar）。
   - **权限状态（2026-10-28 重装后）**：用户完整删除 `data`/`minecraft`/`runtime` 重新下载后，
     `data`、`minecraft`、`runtime`、`java.exe`、`cache\tmp\game` 全部**没有 Low 标签**
     （继承 Medium）——之前那个"java.exe 是 Low、%TEMP% 写不进"的根源消失；
