@@ -36,6 +36,8 @@ public sealed partial class MainWindowViewModel
 
     private bool _isDeletingAccount;
     private string _deleteAccountText = "删除账号";
+    private bool _isClearingTokens;
+    private string _clearAllTokensText = "清除所有登录令牌";
 
     private AccountChoiceItem? _selectedAccountChoice;
     private bool _suppressAccountSelection;
@@ -46,6 +48,7 @@ public sealed partial class MainWindowViewModel
     public ICommand CancelCreateAccountCommand { get; private set; }
     public ICommand SaveAccountNameCommand { get; private set; }
     public ICommand DeleteAccountCommand { get; private set; }
+    public ICommand ClearAllTokensCommand { get; private set; }
     public ICommand SetDefaultAccountCommand { get; private set; }
     public ICommand CopyAccountUuidCommand { get; private set; }
     public ICommand ToggleUuidVisibilityCommand { get; private set; }
@@ -94,6 +97,7 @@ public sealed partial class MainWindowViewModel
         SaveAccountNameCommand = new AsyncRelayCommand(SaveAccountNameAsync);
         DeleteAccountCommand = new AsyncRelayCommand(DeleteAccountAsync,
             () => SelectedAccount is not null);
+        ClearAllTokensCommand = new RelayCommand(ClearAllTokens);
         SetDefaultAccountCommand = new RelayCommand(SetDefaultAccount,
             () => SelectedAccount is not null);
         CopyAccountUuidCommand = new RelayCommand(CopyAccountUuid,
@@ -995,6 +999,49 @@ public sealed partial class MainWindowViewModel
         catch (Exception ex)
         {
             AccountStatus = $"改名失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    public string ClearAllTokensText
+    {
+        get => _clearAllTokensText;
+        private set => SetProperty(ref _clearAllTokensText, value);
+    }
+
+    /// <summary>
+    /// 删除本机保存的所有微软 refresh token（账号条目保留）。第一次点击只进入确认态，
+    /// 第二次才真正删除；8 秒内不点则自动恢复。
+    /// </summary>
+    private void ClearAllTokens()
+    {
+        if (!_isClearingTokens)
+        {
+            _isClearingTokens = true;
+            ClearAllTokensText = "再次点击确认清除";
+            AccountStatus = "将删除本机所有微软 refresh token（账号保留，下次启动需要重新登录）。再点一次确认。";
+
+            _ = Task.Delay(TimeSpan.FromSeconds(8)).ContinueWith(_ =>
+            {
+                _isClearingTokens = false;
+                ClearAllTokensText = "清除所有登录令牌";
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+
+            return;
+        }
+
+        _isClearingTokens = false;
+        ClearAllTokensText = "清除所有登录令牌";
+
+        try
+        {
+            var deleted = new MicrosoftAccountService(_launcher).Tokens.DeleteAll();
+            AccountStatus = deleted > 0
+                ? $"已清除 {deleted} 个微软登录令牌；账号仍保留，使用时会要求重新登录。"
+                : "本机没有保存的微软登录令牌。";
+        }
+        catch (Exception ex)
+        {
+            AccountStatus = $"清除令牌失败：{ex.GetBaseException().Message}";
         }
     }
 

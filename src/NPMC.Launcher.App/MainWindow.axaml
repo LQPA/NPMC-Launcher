@@ -373,6 +373,9 @@
         <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0"
                     IsVisible="{Binding ShowAccountDetail}">
           <Button Content="设为默认账号" Command="{Binding SetDefaultAccountCommand}" FontSize="12" />
+          <Button Content="{Binding ClearAllTokensText}" Command="{Binding ClearAllTokensCommand}"
+                  FontSize="12"
+                  ToolTip.Tip="删除本机保存的所有微软 refresh token；账号条目保留，下次需要重新登录" />
           <Button Content="{Binding DeleteAccountText}" Command="{Binding DeleteAccountCommand}"
                   FontSize="12" Foreground="#E06C6C" />
         </StackPanel>

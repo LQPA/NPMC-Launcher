@@ -17,7 +17,11 @@ public sealed class MicrosoftTokenStore
     {
     }
 
-    public MicrosoftTokenStore(string directory) => _directory = directory;
+    public MicrosoftTokenStore(string directory)
+    {
+        _directory = directory;
+        TokenDirectoryAcl.Protect(_directory);
+    }
 
     public string Directory => _directory;
 
@@ -29,6 +33,9 @@ public sealed class MicrosoftTokenStore
         System.IO.Directory.CreateDirectory(_directory);
         var encrypted = WindowsDpapi.Protect(Encoding.UTF8.GetBytes(refreshToken));
         File.WriteAllBytes(FilePath(accountId), encrypted);
+
+        // 新写入的 .bin 也收进“仅当前用户/SYSTEM/管理员”的 ACL
+        TokenDirectoryAcl.Protect(_directory);
     }
 
     public string? Load(string accountId)
@@ -51,5 +58,28 @@ public sealed class MicrosoftTokenStore
     {
         var path = FilePath(accountId);
         if (File.Exists(path)) File.Delete(path);
+    }
+
+    /// <summary>删除本机保存的全部微软 refresh token；返回删除个数。账号条目本身不动。</summary>
+    public int DeleteAll()
+    {
+        if (!System.IO.Directory.Exists(_directory)) return 0;
+
+        var deleted = 0;
+
+        foreach (var path in System.IO.Directory.EnumerateFiles(_directory, "*.bin"))
+        {
+            try
+            {
+                System.IO.File.Delete(path);
+                deleted++;
+            }
+            catch
+            {
+                // 删不掉的（占用/权限）跳过，不动其他文件
+            }
+        }
+
+        return deleted;
     }
 }

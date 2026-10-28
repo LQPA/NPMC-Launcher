@@ -2421,7 +2421,16 @@ internal static class InstanceDump
             }
         }
 
-        // 只组装启动计划、不真跑：核对命令行（尤其 Forge 1.17+ 的 -p 模块路径与占位符）        if (args.Any(arg => string.Equals(arg, "--exercise-launch-plan", StringComparison.OrdinalIgnoreCase)))
+        // 令牌目录 ACL 自检：--exercise-token-acl
+        if (args.Any(arg => string.Equals(arg, "--exercise-token-acl", StringComparison.OrdinalIgnoreCase)))
+        {
+            var tokenDirectory = Path.Combine(dumpPaths.Root, "microsoft-tokens");
+            var aclOk = NPMC.Launcher.Infrastructure.Accounts.TokenDirectoryAcl.Protect(tokenDirectory);
+            lines.Add($"[令牌ACL] {tokenDirectory} ok={aclOk}");
+        }
+
+        // 只组装启动计划、不真跑：核对命令行（尤其 Forge 1.17+ 的 -p 模块路径与占位符）
+        if (args.Any(arg => string.Equals(arg, "--exercise-launch-plan", StringComparison.OrdinalIgnoreCase)))
         {
             var planIndex = Array.FindIndex(args, arg =>
                 string.Equals(arg, "--exercise-launch-plan", StringComparison.OrdinalIgnoreCase));

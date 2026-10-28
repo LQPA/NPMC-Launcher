@@ -441,7 +441,7 @@ BMC4 那 6 个资源包不会再拼成 `mc-mods` 的 404 链接。
 把导出的 zip 再喂给本地 CF 安装：识别为 BMC4 / 1.20.1 / forge 47.4.20，
 384 个可下载文件（352 个模组）+ 29 个需手动下载，可安装。
 
-测试：Core 389、App 7，合计 **396 通过、0 失败**。
+测试：Core 389、App 7，合计 **399 通过、0 失败**。
 
 ### 27. authlib 11+/12 预研（2026-10-29）
 
@@ -473,7 +473,7 @@ bridge get: id=963a... ours=true
 
 截图确认自定义皮肤（不是默认 Steve/Alex），26.4 快照 + authlib 12 的皮肤链路通过。
 
-测试：Core 389 + App 7 = **396 通过、0 失败**。
+测试：Core 389 + App 7 = **399 通过、0 失败**。
 
 ### 28. 发布签名 + SHA256 清单（2026-10-29 凌晨）
 
@@ -498,6 +498,28 @@ bridge get: id=963a... ours=true
 要公开分发需要换正式 OV/EV 代码签名证书。本机/团队机器可把该证书导入
 “受信任的根证书颁发机构”后正常校验。
 
+### 29. 微软 token 安全加固（2026-10-29 凌晨）
+
+存储本身没变：`data\microsoft-tokens\<accountId>.bin` 仍是 **DPAPI（CurrentUser）密文**，
+`accounts.json` 只存公开信息，不存 token。
+
+新增 `TokenDirectoryAcl`（`MicrosoftTokenStore` 构造/保存时调用）：
+- 把目录设为 **Hidden**（只是少一点误点/误拷，不是安全边界）；
+- ACL 去掉继承，只保留 **当前用户 + SYSTEM + Administrators** 的完全控制；
+- 额外 `/remove:g` 删除 Everyone / Authenticated Users / Users / Guests /
+  INTERACTIVE / ANONYMOUS LOGON —— 如果旧目录之前把继承 ACE 转成了显式 ACE，
+  只靠 `/inheritance:r` 是删不掉的（这次实测踩到了）；
+- `/T` 把已有 `.bin` 一起收紧；失败静默，不影响登录。
+
+实测 `Get-Acl` 只剩 SYSTEM / Administrators / 当前用户（加上 inherit-only 的重复项）；
+目录属性 `Hidden, Directory`。
+
+账号页新增 **「清除所有登录令牌」**：第一次点击进入确认态，第二次才删除
+`microsoft-tokens\*.bin`；账号条目保留，下次使用会要求重新登录。
+
+**限制**：同一 Windows 用户下的恶意进程仍然可以调用 DPAPI 解密；隐藏/改路径都防不了这个。
+测试：Core 392 + App 7 = **399 通过、0 失败**。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–12 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -511,7 +533,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（00:41，44.2 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（00:52，44.2 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
