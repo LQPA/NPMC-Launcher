@@ -192,7 +192,7 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 实测（1.12.2，设置里填标题/标语/JVM 参数后从界面启动）：窗口标题变成「NPMC 测试标题」、
 主界面标语变成「NPMC 自定义横幅」、`logs/nmpc-command.txt` 里有 `-Dnmpc.advanced=1`；
 `options.txt` 为 `resourcePacks:["nmpc-splash.zip"]`，资源包 396 字节。用户确认生效。
-测试：365 通过 + 2 个既有失败（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
+测试：369 通过（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
 
 ### 12. 单启动器多实例启动（2026-10-28 晚）
 
@@ -247,6 +247,22 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 写进新实例，老的实例保持原样（想改就去概览页勾自动）。
 提示文字说明推荐依据（整合包推荐 / 模组数量 / 当前空闲内存），实例页里仍可单独改回手动。
 
+### 15. 布局语义统一（2026-10-28 晚）
+
+`LauncherPaths` 有三个根：`Root`（启动器数据）、`SharedRoot`（versions/libraries/assets）、
+`GameRoot`（runtime/instances/默认游戏目录）。之前 `GameRoot` 默认等于 `SharedRoot`，
+导致只传 `(root, sharedRoot)` 时 runtime/instances 也跟着跑；Full 隔离又把 `GameRoot`
+传成实例目录，等于每个完全隔离实例再装一份 Java。
+
+现在统一为：
+
+- `GameRoot` 默认 `Root`（便携布局 `Portable` 显式传 `minecraft`）；
+- `SharedRoot` 只影响 `versions/libraries/assets`；
+- `InstanceLayout.Paths` 始终用 `Launcher.GameRoot`，Full 隔离只把共享资源搬进实例，
+  `runtime` 与 `instances` 留在启动器游戏根（Java 运行时共享，不重复占盘）。
+
+`SharedRootTests`、`InstanceLayoutTests` 恢复通过，并新增便携布局断言。测试 **369 通过、0 失败**。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -260,13 +276,13 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:21，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:33，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
   整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已覆盖 1.7.10 ~ 26.3 的
   原版 / Fabric / Forge / NeoForge 组合（用户实机确认）**，只剩 1.21.6 / 快照 / Quilt 未测。
-- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 365 通过 + 2 个既有失败
+- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 369 通过
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
@@ -605,9 +621,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
     org.lwjgl extract 路径，但 `-Djna.tmpdir` / `-Dio.netty.native.workdir` 仍指向实例所在的
     `versions\26.3\natives\{jna,netty}`，于是往 `E:\aaaa` 写了这两个缓存目录。复现请在临时根里
     把这四个 -D 参数一起改掉。
-13. 两个**既有**测试失败（与本次改动无关）：`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`
-    与 `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`，
-    它们仍断言"Full 隔离时 runtime 留在启动器根目录"，与现在的实现不一致。
+13. （已修复，2026-10-28）布局语义统一：`GameRoot` 默认等于 `Root`（便携布局显式传 minecraft），
+    `runtime` / `instances` 永远跟着 `GameRoot`；`SharedRoot` 只换 versions/libraries/assets；
+    Full 隔离只把共享资源搬进实例，runtime 仍共享。`SharedRootTests` 与 `InstanceLayoutTests`
+    已恢复通过，并补了便携布局断言（测试 369 通过、0 失败）。
 14. 26.3 + Sodium 0.9.2 的 mixin 崩溃是模组侧不兼容（`LevelExtractorMixin` 找不到
     `extractVisibleBlockEntities`），与本机库缓存问题无关；建议换 Sodium 更新版本或反馈上游。
 15. **Sodium 在 26.3 上只有 beta 能用**（2026-10-27 实测）：

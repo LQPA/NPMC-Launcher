@@ -33,10 +33,9 @@ public sealed class InstanceLayout
         : Launcher.SharedRoot;
 
     /// <summary>带 SharedRoot 的路径集合，可直接交给安装器/启动器使用。</summary>
-    public LauncherPaths Paths => new(
-        Launcher.Root,
-        SharedRoot,
-        Instance.Isolation == IsolationLevel.Full ? GameDirectory : Launcher.GameRoot);
+    // 完全隔离只搬 versions / libraries / assets（SharedRoot），runtime 与 instances
+    // 始终留在启动器的游戏根：Java 运行时是启动器资产，没必要每个实例再装一份。
+    public LauncherPaths Paths => new(Launcher.Root, SharedRoot, Launcher.GameRoot);
 
     // ---- 游戏目录下的标准子目录 ----
     public string Mods           => Path.Combine(GameDirectory, "mods");

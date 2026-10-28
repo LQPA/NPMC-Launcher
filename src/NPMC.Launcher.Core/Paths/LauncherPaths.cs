@@ -29,7 +29,8 @@ public sealed class LauncherPaths
     {
         Root = Normalize(root ?? AppContext.BaseDirectory);
         SharedRoot = string.IsNullOrWhiteSpace(sharedRoot) ? Root : Normalize(sharedRoot);
-        GameRoot = string.IsNullOrWhiteSpace(gameRoot) ? SharedRoot : Normalize(gameRoot);
+        // GameRoot（runtime / instances）默认跟启动器根走；只有显式传入时才变（便携布局传 minecraft）
+        GameRoot = string.IsNullOrWhiteSpace(gameRoot) ? Root : Normalize(gameRoot);
     }
 
     /// <summary>

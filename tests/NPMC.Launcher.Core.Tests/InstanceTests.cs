@@ -158,6 +158,31 @@ public class SharedRootTests
     }
 
     [Fact]
+    public void Portable_layout_keeps_runtime_and_instances_under_minecraft()
+    {
+        var baseDir = Path.Combine(Path.GetTempPath(), "npmc-portable-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var paths = LauncherPaths.Portable(baseDir);
+            var data = Path.Combine(baseDir, "data");
+            var minecraft = Path.Combine(baseDir, "minecraft");
+
+            Assert.Equal(data, paths.Root);
+            Assert.Equal(minecraft, paths.SharedRoot);
+            Assert.Equal(minecraft, paths.GameRoot);
+
+            // versions / libraries / assets 与 runtime / instances 都在 minecraft 下
+            Assert.Equal(Path.Combine(minecraft, "versions"), paths.Versions);
+            Assert.Equal(Path.Combine(minecraft, "runtime"), paths.Runtime);
+            Assert.Equal(Path.Combine(minecraft, "instances"), paths.Instances);
+        }
+        finally
+        {
+            try { if (Directory.Exists(baseDir)) Directory.Delete(baseDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void SharedRoot_defaults_to_root()
     {
         var paths = new LauncherPaths(@"C:\npmc");
