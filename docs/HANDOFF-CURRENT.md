@@ -168,9 +168,9 @@
       按**逻辑名**（去掉 `.disabled`）去重；安装流程改用它。
     - 所有比较改写为逻辑名（`ApplyPackModFilter`、`RebuildModContent`、检查更新过滤、
       识别打标），否则被禁用的整合包模组仍然折叠不到。
-    - 已有实例补一个入口：模组页「标记为整合包自带」按钮（`MarkModsAsPackFilesCommand`），
-      把当前 mods 里的文件一次性写进 `PackFiles`，不用重装整合包。
-    - 实测：3 个 jar（含一个 `.jar.disabled`）→ 标记后 `PackFiles` 3→6、折叠 3 个；
+    - 曾经加过一个「标记为整合包自带」按钮给旧实例补录；修好安装路径后它就是死按钮
+      （用户指出"彻底成无效按钮"），已删除 —— 旧实例要纠正只能重新导入整合包。
+    - 实测：3 个 jar（含一个 `.jar.disabled`）→ `PackFiles` 记成 3 个逻辑名、折叠 3 个；
       `PackFileCollectorTests` 5 个用例覆盖 overrides 补录、sha1 保留、`.disabled` 归一、
       去重与目录缺失。
   - **导出整合包（.mrpack）表单（2026-10-28）**：导出页从"一个按钮"改成"格式 + 整合包名称/版本 +

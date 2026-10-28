@@ -1124,11 +1124,6 @@
           <TextBlock Text="{Binding PackModsHint}" IsVisible="{Binding CanHidePackMods}"
                      FontSize="10" Foreground="#949CA9" VerticalAlignment="Center" />
 
-          <!-- 旧版本导入时没把 overrides 里的模组记进 PackFiles：给一个一次性补齐的入口 -->
-          <Button Content="标记为整合包自带" Command="{Binding MarkModsAsPackFilesCommand}"
-                  IsVisible="{Binding CanHidePackMods}" FontSize="10" Padding="8,1"
-                  ToolTip.Tip="把当前 mods 里的文件都算作整合包自带（用于导入时没记录到 overrides 的旧实例）" />
-
           <TextBlock Text="{Binding UpdateSummaryText}" IsVisible="{Binding HasUpdates}"
                      Foreground="#7BC47F" FontSize="12" VerticalAlignment="Center" Margin="4,0,0,0" />
         </StackPanel>

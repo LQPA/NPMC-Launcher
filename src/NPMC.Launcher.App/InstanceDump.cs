@@ -755,28 +755,6 @@ internal static class InstanceDump
             }
         }
 
-        // 把 mods 里的文件标记为整合包自带（补齐旧导入没记录的 overrides）
-        if (args.Any(arg => string.Equals(arg, "--exercise-pack-mark", StringComparison.OrdinalIgnoreCase)))
-        {
-            viewModel.SelectedInstance ??= viewModel.Instances.FirstOrDefault();
-
-            // 标记逻辑依赖当前页签的模组快照：先切到模组页并扫描一次
-            viewModel.SelectedTab = viewModel.ContentTabs.First(tab => tab.ContentKind == ContentKind.Mod);
-            viewModel.RefreshContentAsync().GetAwaiter().GetResult();
-
-            lines.Add("");
-            lines.Add($"[标记整合包自带] 之前：{viewModel.PackModsHint}（可折叠={viewModel.CanHidePackMods}）");
-            lines.Add($"    实例={viewModel.SelectedInstance?.Name} 目录={viewModel.SelectedInstance?.GameDirectory} "
-                      + $"整合包标记={viewModel.SelectedInstance?.HasModpackInfo}");
-            lines.Add($"    调试：页签={viewModel.SelectedTab.Title} 模组页={viewModel.IsModsTab} "
-                      + $"列表={viewModel.Content.Count} 行");
-
-            viewModel.MarkModsAsPackFilesCommand.Execute(null);
-
-            lines.Add($"    之后：{viewModel.Status}");
-            lines.Add($"    {viewModel.PackModsHint}（可折叠={viewModel.CanHidePackMods}）");
-        }
-
         // 导出表单必须"跟着实例走"：换实例后包名与内容摘要都要换
         if (args.Any(arg => string.Equals(arg, "--exercise-export-form", StringComparison.OrdinalIgnoreCase)))
         {
