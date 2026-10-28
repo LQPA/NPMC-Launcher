@@ -26,8 +26,11 @@ public enum IsolationLevel
 /// <summary>实例级设置，覆盖全局默认值。</summary>
 public sealed record InstanceSettings
 {
-    /// <summary>最大堆内存（MB）。</summary>
+    /// <summary>最大堆内存（MB）。<see cref="AutoMemory"/> 为 true 时忽略这个值。</summary>
     public int MemoryMb { get; init; } = 4096;
+
+    /// <summary>自动设置内存：按物理内存与模组数量估算（见 <see cref="MemoryAutoCalculator"/>）。</summary>
+    public bool AutoMemory { get; init; }
 
     public int WindowWidth { get; init; } = 1280;
     public int WindowHeight { get; init; } = 720;

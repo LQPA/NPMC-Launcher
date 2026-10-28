@@ -389,6 +389,7 @@ public class JsonInstanceStoreTests
                     ExtraGameArguments = new List<string> { "--demo", "--width", "1600" },
                     CustomTitle = "我的世界 · ATM10",
                     SplashText = "NPMC 自定义横幅",
+                    AutoMemory = true,
                 });
 
             await store.SaveAsync(new[] { instance });
@@ -399,6 +400,7 @@ public class JsonInstanceStoreTests
             Assert.Equal(new[] { "--demo", "--width", "1600" }, loaded[0].Settings.ExtraGameArguments);
             Assert.Equal("我的世界 · ATM10", loaded[0].Settings.CustomTitle);
             Assert.Equal("NPMC 自定义横幅", loaded[0].Settings.SplashText);
+            Assert.True(loaded[0].Settings.AutoMemory);
         }
         finally { TryDelete(dir); }
     }

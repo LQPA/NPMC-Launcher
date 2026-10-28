@@ -59,7 +59,17 @@ public sealed class InstanceListItem : ObservableObject
     public int WindowWidth => _model.Settings.WindowWidth;
     public int WindowHeight => _model.Settings.WindowHeight;
 
-    public string MemoryText => $"{MemoryMb} MB";
+    public string MemoryText
+    {
+        get
+        {
+            if (!_model.Settings.AutoMemory) return $"{MemoryMb} MB";
+
+            var (total, available) = MemoryAutoCalculator.GetMemoryInfo();
+            var recommendation = MemoryAutoCalculator.Recommend(ModsCount, ModpackName, total, available);
+            return $"自动 {recommendation.MemoryMb} MB";
+        }
+    }
 
     public string WindowText => _model.Settings.Fullscreen
         ? "全屏"
@@ -73,6 +83,7 @@ public sealed class InstanceListItem : ObservableObject
     public bool HasModpackInfo => _modpackInfo is not null;
 
     public string ModpackSummaryText => _modpackInfo?.SummaryText ?? "";
+    public string? ModpackName => _modpackInfo?.Name;
 
     public bool HasMissingMods => _modpackInfo?.HasMissing == true;
 
@@ -86,6 +97,8 @@ public sealed class InstanceListItem : ObservableObject
         OnPropertyChanged(nameof(IsModpack));
         OnPropertyChanged(nameof(HasModpackInfo));
         OnPropertyChanged(nameof(ModpackSummaryText));
+        OnPropertyChanged(nameof(ModpackName));
+        OnPropertyChanged(nameof(MemoryText));
         OnPropertyChanged(nameof(HasMissingMods));
         OnPropertyChanged(nameof(MissingModsCount));
     }
@@ -237,5 +250,7 @@ public sealed class InstanceListItem : ObservableObject
 
         OnPropertyChanged(nameof(HasShaderProvider));
         OnPropertyChanged(nameof(ContentText));
+        OnPropertyChanged(nameof(MemoryText));
+        OnPropertyChanged(nameof(SummaryText));
     }
 }

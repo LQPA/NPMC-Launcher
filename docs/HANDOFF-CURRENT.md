@@ -192,7 +192,7 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 实测（1.12.2，设置里填标题/标语/JVM 参数后从界面启动）：窗口标题变成「NPMC 测试标题」、
 主界面标语变成「NPMC 自定义横幅」、`logs/nmpc-command.txt` 里有 `-Dnmpc.advanced=1`；
 `options.txt` 为 `resourcePacks:["nmpc-splash.zip"]`，资源包 396 字节。用户确认生效。
-测试：354 通过 + 2 个既有失败（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
+测试：365 通过 + 2 个既有失败（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
 
 ### 12. 单启动器多实例启动（2026-10-28 晚）
 
@@ -215,6 +215,31 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 选中未运行的实例时启动按钮可用；杀掉 1.15 后角标消失、可在 1.12.2 继续运行时重新启动 1.15。
 `cache\tmp\game\1.12.2` 与 `...\1.15` 各自独立，命令文件里的 `-Djava.io.tmpdir` 也对得上。
 
+### 13. 自动内存（2026-10-28 晚）
+
+概览页「内存」行右侧新增「自动」复选框（实例设置 `AutoMemory`）。开启后手填数字框禁用，
+下方显示一行建议值，例如：
+
+> 自动：8192 MB（ATM10 推荐 8192 MB · 空闲 13.1 GB / 物理 30.9 GB）
+
+推荐顺序（`MemoryAutoCalculator.Recommend`）：
+
+1. 有整合包推荐值的直接用（`ModpackMemoryRecommendations`：ATM10/ATM9/ATM8 = 8192，
+   ATM7/ATM6 = 7168，GTNH = 8192，RLCraft/DawnCraft/Better Minecraft = 6144 等，
+   名字匹配忽略大小写与标点）；
+2. 没命中就按模组数量分档：≤20 → 4096，≤60 → 5120，≤120 → 6144，≤200 → 8192，
+   ≤300 → 10240，更多 → 12288；
+3. 再用**当前空闲物理内存**兜底：不超过空闲的 75%、物理内存的一半、16 GB；
+   最低 2048 MB，按 512 MB 对齐。空闲不够时会在说明里注明「已降到 X MB」。
+
+每次启动都重新计算（`GameLauncher.Prepare`），所以夜里挂机、白天开一堆程序时得到的值会不同；
+界面上的数字只是"此刻的建议值"。只影响启动，不改用户手填的 `MemoryMb`。
+
+实测（无界面，直接 dump 启动命令）：
+`All-the-Mods-10`（`.nmpc-modpack.json` 里 name=All the Mods 10）→ `-Xmx8192M`；
+`1.12.2`（无整合包、0 模组）→ `-Xmx4096M`；当时物理 30.9 GB、空闲 13.1 GB，
+按公式两者都未被空闲内存压低，与预期一致。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -228,13 +253,13 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（21:55，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:16，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
   整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已覆盖 1.7.10 ~ 26.3 的
   原版 / Fabric / Forge / NeoForge 组合（用户实机确认）**，只剩 1.21.6 / 快照 / Quilt 未测。
-- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 354 通过 + 2 个既有失败
+- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 365 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）

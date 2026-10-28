@@ -1203,6 +1203,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             // 概览页的可编辑字段都从 SelectedInstance 取值，切换实例时必须重读
             OnPropertyChanged(nameof(MemoryMb));
+            OnPropertyChanged(nameof(AutoMemory));
+            OnPropertyChanged(nameof(MemoryAutoHint));
             OnPropertyChanged(nameof(WindowWidth));
             OnPropertyChanged(nameof(WindowHeight));
             SyncPresetFromInstance();
@@ -1666,6 +1668,36 @@ public sealed partial class MainWindowViewModel : ObservableObject
             item.ApplySettings(item.Model.Settings with { MemoryMb = memory });
             OnPropertyChanged();
             ScheduleInstanceSave();
+        }
+    }
+
+    /// <summary>自动内存：按当前空闲内存与模组数量估算最大堆。</summary>
+    public bool AutoMemory
+    {
+        get => SelectedInstance?.Model.Settings.AutoMemory ?? false;
+        set
+        {
+            if (SelectedInstance is not { } item) return;
+            if (item.Model.Settings.AutoMemory == value) return;
+
+            item.ApplySettings(item.Model.Settings with { AutoMemory = value });
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(MemoryAutoHint));
+            ScheduleInstanceSave();
+        }
+    }
+
+    /// <summary>自动内存的说明文字（只在开启时显示）。</summary>
+    public string MemoryAutoHint
+    {
+        get
+        {
+            if (SelectedInstance is not { } item || !item.Model.Settings.AutoMemory) return "";
+
+            var (total, available) = MemoryAutoCalculator.GetMemoryInfo();
+            var recommendation = MemoryAutoCalculator.Recommend(
+                item.ModsCount, item.ModpackName, total, available);
+            return MemoryAutoCalculator.Describe(recommendation, total, available);
         }
     }
 

@@ -145,6 +145,25 @@ public static class GameLauncher
             ? instanceSettings.MemoryMb
             : launcherSettings.DefaultMemoryMb;
 
+        // 自动内存：先按整合包推荐 / 模组数量得出"需要多少"，再用当前空闲内存兜底。
+        // 只影响启动，不改用户自己填的数字。
+        if (instanceSettings.AutoMemory)
+        {
+            var mods = 0;
+            try
+            {
+                if (layout is not null && Directory.Exists(layout.Mods))
+                    mods = Directory.EnumerateFiles(layout.Mods, "*.jar", SearchOption.AllDirectories).Count();
+            }
+            catch
+            {
+                // 数不出来就按 0 个算，自动值仍有基础内存
+            }
+
+            var packName = layout is null ? null : InstanceModpackStore.Load(layout.GameDirectory)?.Name;
+            memory = MemoryAutoCalculator.RecommendForCurrentMachine(mods, packName).MemoryMb;
+        }
+
         // client.jar、natives 与资源索引都在**根版本**目录下。
         // 加载器 profile 自己的目录里只有那个 JSON，没有 jar —— 用它去找必然报"缺少 client jar"。
         var rootVersionId = version.RootVersionId ?? version.Id;

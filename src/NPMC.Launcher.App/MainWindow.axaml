@@ -512,9 +512,17 @@
                                  Minimum="{Binding MinimalMemory}"
                                  Maximum="{Binding MaximalMemory}"
                                  Increment="256" FormatString="0"
-                                 Width="130" />
+                                 Width="130" IsEnabled="{Binding !AutoMemory}" />
                   <TextBlock Text="MB" FontSize="12" Foreground="#B4BCC8" VerticalAlignment="Center" />
+                  <CheckBox Content="自动" IsChecked="{Binding AutoMemory, Mode=TwoWay}"
+                            FontSize="12" Margin="10,0,0,0" VerticalAlignment="Center"
+                            ToolTip.Tip="根据当前空闲内存和模组数量自动计算最大堆（每次启动重新计算）" />
                 </StackPanel>
+              </Grid>
+
+              <Grid ColumnDefinitions="96,*" IsVisible="{Binding AutoMemory}">
+                <TextBlock Grid.Column="1" Text="{Binding MemoryAutoHint}" FontSize="10"
+                           Foreground="#6E7684" TextWrapping="Wrap" />
               </Grid>
 
               <!-- Java：默认由版本元数据决定，也可指定某个运行时或系统 JRE -->
