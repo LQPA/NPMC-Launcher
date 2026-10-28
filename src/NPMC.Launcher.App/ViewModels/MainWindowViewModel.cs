@@ -13,6 +13,7 @@ using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Mirrors;
 using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Mods;
+using NPMC.Launcher.Core.Modpacks;
 using NPMC.Launcher.Core.Paths;
 using NPMC.Launcher.Core.Settings;
 using NPMC.Launcher.Infrastructure.Diagnostics;
@@ -5285,7 +5286,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private ModpackPlan? _modpackPlan;
     private bool _isInstallingModpack;
     private CancellationTokenSource? _modpackInstallCts;
-    private string _modpackStatus = "选择一个 .mrpack 文件，或直接把它拖到这里";
+    private string _modpackStatus = "选择一个 .mrpack / CurseForge .zip 整合包，或直接把它拖到本页任意位置";
     private string _modpackProgress = "";
 
     // 必须同时判断"在下载页"与"选了哪个区块"：只判断区块的话，
@@ -5387,10 +5388,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ModpackStatus = $"正在解析 {Path.GetFileName(path)}…";
             ModpackProgress = "";
 
-            var installer = CreateModpackInstaller();
-            var plan = await installer.PrepareFromFileAsync(
-                path,
-                Path.Combine(_launcher.Root, "cache", "modpacks"));
+            var plan = await PrepareLocalModpackAsync(path);
 
             _modpackPlan = plan;
 
@@ -5403,7 +5401,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             ModpackStatus = plan.Problems.Count == 0
                 ? $"已就绪：{plan.Name}"
-                : $"已就绪：{plan.Name}（{plan.Problems.Count} 个覆盖层条目无法解压）";
+                : $"已就绪：{plan.Name}（{plan.Problems.Count} 条提示，见安装计划）";
         }
         catch (Exception ex)
         {
@@ -5419,6 +5417,46 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ModpackStatus = $"无法读取该文件：{ex.GetBaseException().Message}";
             LauncherLog.Write(_launcher.Root, $"解析整合包失败 {path} → {ex.GetBaseException().Message}");
         }
+    }
+
+    /// <summary>
+    /// 本地整合包按格式分派：.mrpack 直接解析；CF 的 zip 只有 (projectID,fileID)，
+    /// 需要 API key 把文件换成下载地址，再走同一套安装流程。
+    /// </summary>
+    private async Task<ModpackPlan> PrepareLocalModpackAsync(string path)
+    {
+        var format = ModpackArchiveFormatDetector.Detect(path);
+        var cacheDirectory = Path.Combine(_launcher.Root, "cache", "modpacks");
+
+        // 给实例标记来源：CF 本地包要标 curseforge，否则徽标/更新来源会按 Modrinth 处理
+        _modpackSource = format == ModpackArchiveFormat.CurseForge ? "curseforge" : "modrinth";
+        _modpackProjectId = "";
+
+        if (format == ModpackArchiveFormat.CurseForge)
+        {
+            if (!CurseForgeClient.TryResolveApiKey(out var key, out _) || key is null)
+            {
+                throw new InvalidOperationException(
+                    "本地 CurseForge 整合包需要 CurseForge API key：请先在设置里填写。" +
+                    "（manifest.json 里只有 projectID/fileID，没有下载地址）");
+            }
+
+            var preparer = new CurseForgeModpackPreparer(
+                _downloader, new CurseForgeClient(_http, key), _modrinth);
+
+            var progress = new Progress<string>(text => ModpackStatus = text);
+
+            return await preparer.PrepareFromFileAsync(path, cacheDirectory, progress);
+        }
+
+        if (format == ModpackArchiveFormat.Modrinth)
+        {
+            return await CreateModpackInstaller().PrepareFromFileAsync(path, cacheDirectory);
+        }
+
+        throw new InvalidDataException(
+            "无法识别的整合包：Modrinth 的 .mrpack 应包含 modrinth.index.json；" +
+            "CurseForge 整合包应包含 manifest.json（通常导出为 .zip）。");
     }
 
     private ModpackInstaller CreateModpackInstaller()

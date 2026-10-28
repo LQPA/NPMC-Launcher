@@ -922,6 +922,23 @@ internal static class InstanceDump
             lines.Add($"    摘要   = {viewModel.ModpackSummary}");
             lines.Add($"    状态   = {viewModel.ModpackStatus}");
             lines.Add($"    可安装 = {viewModel.InstallModpackCommand.CanExecute(null)}");
+            lines.Add($"    提示   = {viewModel.ModpackWarnings}");
+            lines.Add($"    待手动 = {viewModel.BlockedMods.Count}");
+
+            if (args.Any(arg =>
+                    string.Equals(arg, "--exercise-modpack-install", StringComparison.OrdinalIgnoreCase)))
+            {
+                lines.Add("    开始安装…");
+                viewModel.InstallModpackCommand.Execute(null);
+
+                // 安装可能下载几百个文件；最多等 30 分钟
+                for (var i = 0; i < 1800 && viewModel.IsInstallingModpack; i++)
+                    Thread.Sleep(1000);
+
+                lines.Add($"    安装完成 = {!viewModel.IsInstallingModpack}");
+                lines.Add($"    安装状态 = {viewModel.ModpackStatus}");
+                lines.Add($"    安装进度 = {viewModel.ModpackProgress}");
+            }
         }
 
         // 验证下载进度真的在动：采样 DownloadProgress

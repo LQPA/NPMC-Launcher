@@ -49,6 +49,52 @@ public sealed class CurseForgeModpackPreparer
 
         await _downloader.EnsureFromAsync(new[] { archiveUrl }, archivePath, null, cancellationToken);
 
+        return await PrepareFromArchiveAsync(
+            archivePath, cacheDirectory, $"cf-{modId}-{fileId}",
+            progress, allowModrinthFallback, cancellationToken);
+    }
+
+    /// <summary>
+    /// 从**本地** CurseForge 整合包 zip 准备（manifest.json + overrides）。
+    ///
+    /// 和在线安装的唯一差别是不用下载整合包本体；manifest 解析、按文件 ID 查下载地址、
+    /// 覆盖层解压、被作者禁用的文件列成 blocked，全部复用同一套逻辑。
+    /// 需要 CurseForge API key：manifest 里只有 projectID/fileID，没有文件名和地址。
+    /// </summary>
+    public async Task<ModpackPlan> PrepareFromFileAsync(
+        string archivePath,
+        string cacheDirectory,
+        IProgress<string>? progress = null,
+        bool allowModrinthFallback = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(archivePath))
+            throw new FileNotFoundException($"找不到整合包文件：{archivePath}", archivePath);
+
+        Directory.CreateDirectory(cacheDirectory);
+
+        // 与 mrpack 一样：原文件可能是用户唯一副本，先复制到缓存再解压
+        var label = "cf-local-" + Path.GetFileNameWithoutExtension(archivePath);
+        var localCopy = Path.Combine(cacheDirectory, label + ".zip");
+
+        if (!string.Equals(Path.GetFullPath(localCopy), Path.GetFullPath(archivePath), StringComparison.OrdinalIgnoreCase))
+            File.Copy(archivePath, localCopy, overwrite: true);
+
+        progress?.Report("正在解析本地 CurseForge 整合包…");
+
+        return await PrepareFromArchiveAsync(
+            localCopy, cacheDirectory, label, progress, allowModrinthFallback, cancellationToken);
+    }
+
+    /// <summary>在线下载与本地文件两条路共用的部分：读 manifest → 解压覆盖层 → 解析文件地址。</summary>
+    private async Task<ModpackPlan> PrepareFromArchiveAsync(
+        string archivePath,
+        string cacheDirectory,
+        string label,
+        IProgress<string>? progress,
+        bool allowModrinthFallback,
+        CancellationToken cancellationToken)
+    {
         CurseForgeModpackManifest manifest;
         string extractRoot;
 
@@ -66,13 +112,12 @@ public sealed class CurseForgeModpackPreparer
             if (manifest.Files.Count == 0)
                 throw new InvalidDataException("manifest.json 里没有任何文件");
 
-            extractRoot = Path.Combine(cacheDirectory, $"cf-{modId}-{fileId}-overrides");
+            extractRoot = Path.Combine(cacheDirectory, label + "-overrides");
             if (Directory.Exists(extractRoot)) Directory.Delete(extractRoot, recursive: true);
 
             Directory.CreateDirectory(extractRoot);
             ExtractOverrides(archive, manifest.OverridesDirectory, extractRoot, cancellationToken);
         }
-
         progress?.Report($"正在解析 {manifest.Files.Count} 个模组的下载地址…");
 
         var files = new List<ModpackFile>();

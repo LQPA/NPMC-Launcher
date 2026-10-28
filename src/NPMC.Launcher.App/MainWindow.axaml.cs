@@ -396,11 +396,12 @@ public partial class MainWindow : Window
         var path = e.Data.GetFiles()?
             .Select(item => item.TryGetLocalPath())
             .FirstOrDefault(local => local is not null
-                                     && local.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase));
+                                     && (local.EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase)
+                                         || local.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)));
 
         if (string.IsNullOrWhiteSpace(path))
         {
-            viewModel.ReportModpackFailure("拖入的文件不是 .mrpack");
+            viewModel.ReportModpackFailure("拖入的文件不是 .mrpack，也不是 CurseForge 整合包 .zip");
         }
         else
         {

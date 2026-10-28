@@ -192,7 +192,7 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 实测（1.12.2，设置里填标题/标语/JVM 参数后从界面启动）：窗口标题变成「NPMC 测试标题」、
 主界面标语变成「NPMC 自定义横幅」、`logs/nmpc-command.txt` 里有 `-Dnmpc.advanced=1`；
 `options.txt` 为 `resourcePacks:["nmpc-splash.zip"]`，资源包 396 字节。用户确认生效。
-测试：372 通过（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
+测试：379 通过（`SplashTextPackTests` 覆盖 pack_format、options 改写、apply/clear）。
 
 ### 12. 单启动器多实例启动（2026-10-28 晚）
 
@@ -261,7 +261,7 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 - `InstanceLayout.Paths` 始终用 `Launcher.GameRoot`，Full 隔离只把共享资源搬进实例，
   `runtime` 与 `instances` 留在启动器游戏根（Java 运行时共享，不重复占盘）。
 
-`SharedRootTests`、`InstanceLayoutTests` 恢复通过，并新增便携布局断言。测试 **372 通过、0 失败**。
+`SharedRootTests`、`InstanceLayoutTests` 恢复通过，并新增便携布局断言。测试 **379 通过、0 失败**。
 
 ### 16. 搜索：平台原生的多选分类（2026-10-28 晚）
 
@@ -280,7 +280,7 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 
 实测（1.12.2-forge，查询 storage）：只选「存储」→ 20 个结果；
 「科技 + 存储」→ 12 个（Refined Storage、Storage Drawers 等科技存储模组），
-说明交集确实生效。测试 **372 通过、0 失败**（新增 `ModrinthFacetsTests`）。
+说明交集确实生效。测试 **379 通过、0 失败**（新增 `ModrinthFacetsTests`）。
 
 已知仍未做：没有"排除 utility/equipment"的负向过滤（Modrinth facet 不支持 NOT），
 如果之后仍觉得科技太宽，可再加客户端排除或人工预设。
@@ -297,6 +297,29 @@ Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 
 已用界面确认两种模式布局（在线卡片 / 本地大拖放区）；exe 22:56 同步。
 
+### 18. 本地 CurseForge 格式整合包（2026-10-28 晚）
+
+本地安装现在同时支持两种格式，按压缩包里的清单自动识别
+（`ModpackArchiveFormatDetector`）：
+
+- **Modrinth `.mrpack`**：有 `modrinth.index.json` → 原来的安装路径；
+- **CurseForge `.zip`**：有 `manifest.json` → 新增 `CurseForgeModpackPreparer.PrepareFromFileAsync`，
+  复制到缓存 → 解析 manifest → 解压 overrides → 用 CurseForge API 把
+  `(projectID, fileID)` 换成下载地址 → 交给同一套 `ModpackInstaller` 安装。
+  需要 CurseForge API key（manifest 里没有文件名和地址）；被作者禁止 API 下载的文件
+  会进「只能从 CurseForge 手动下载」列表，和在线 CF 整合包一样处理。
+
+界面：文件选择与整页拖放都接受 `.mrpack` / `.zip`；本地 CF 包解析后自动切到「本地文件」模式，
+状态文案不再误报“覆盖层无法解压”（`plan.Problems` 里有下载失败/手动下载提示）。
+
+实测（用户提供的 `BMC4 [FORGE] 1.20.1 v62hf.zip`）：
+- 解析：BMC4 / 1.20.1 / forge 47.4.20 / 396 个可下载文件 / 364 个模组 / 29 个需手动下载；
+- 安装：**完成**（文件 396、跳过 0、覆盖层 5539），实例 `BMC4` 为 1.20.1-forge-47.4.20，
+  mods 352 个 jar（约 951 MB），启动计划可正常生成（自动内存 7680 MB）。
+- 修了一个标记问题：本地 CF 包安装后 `.nmpc-modpack.json` 的来源改为 `curseforge`（之前是 modrinth）。
+
+诊断入口新增 `--exercise-modpack-install`（配合 `--exercise-modpack <路径>` 真正安装一次）。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
 Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
@@ -310,7 +333,7 @@ Quilt 也已实测通过（1.21.1 + Quilt 0.31.0-beta.4，皮肤生效），启�
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（22:56，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（23:08，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
@@ -658,7 +681,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 13. （已修复，2026-10-28）布局语义统一：`GameRoot` 默认等于 `Root`（便携布局显式传 minecraft），
     `runtime` / `instances` 永远跟着 `GameRoot`；`SharedRoot` 只换 versions/libraries/assets；
     Full 隔离只把共享资源搬进实例，runtime 仍共享。`SharedRootTests` 与 `InstanceLayoutTests`
-    已恢复通过，并补了便携布局断言（测试 372 通过、0 失败）。
+    已恢复通过，并补了便携布局断言（测试 379 通过、0 失败）。
 14. 26.3 + Sodium 0.9.2 的 mixin 崩溃是模组侧不兼容（`LevelExtractorMixin` 找不到
     `extractVisibleBlockEntities`），与本机库缓存问题无关；建议换 Sodium 更新版本或反馈上游。
 15. **Sodium 在 26.3 上只有 beta 能用**（2026-10-27 实测）：

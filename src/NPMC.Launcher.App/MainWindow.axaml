@@ -1491,7 +1491,7 @@
             DragDrop.Drop="OnModpackDrop">
         <StackPanel Grid.Row="0" Spacing="4">
           <TextBlock Text="整合包" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
-          <TextBlock Text="在线搜索，或把 .mrpack 拖到本页任意位置安装"
+          <TextBlock Text="在线搜索，或把 .mrpack / CurseForge 整合包 .zip 拖到本页任意位置安装"
                      FontSize="12" Foreground="#949CA9" />
           <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
             <TextBlock Text="安装方式" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
@@ -1587,11 +1587,11 @@
                     CornerRadius="8" Padding="24" MinHeight="260"
                     IsVisible="{Binding IsModpackLocalMode}">
               <StackPanel Spacing="10" VerticalAlignment="Center">
-                <TextBlock Text="把 .mrpack 拖到本页任意位置" FontSize="15" Foreground="#B4BCC8"
+                <TextBlock Text="把 .mrpack 或 CF 整合包 .zip 拖到本页任意位置" FontSize="15" Foreground="#B4BCC8"
                            HorizontalAlignment="Center" />
-                <TextBlock Text="（不用非得拖进这个框里，整页都可以）" FontSize="11"
+                <TextBlock Text="（Modrinth .mrpack 或 CurseForge 导出的 .zip，整页都可以）" FontSize="11"
                            Foreground="#6E7684" HorizontalAlignment="Center" />
-                <Button Content="选择 .mrpack 文件…" Click="OnPickModpackClick"
+                <Button Content="选择整合包文件…" Click="OnPickModpackClick"
                         HorizontalAlignment="Center" Padding="14,6" />
               </StackPanel>
             </Border>
