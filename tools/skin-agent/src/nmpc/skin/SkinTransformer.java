@@ -24,6 +24,13 @@ import org.objectweb.asm.Opcodes;
  */
 final class SkinTransformer implements ClassFileTransformer {
     private static final String YGGDRASIL = "com/mojang/authlib/yggdrasil/YggdrasilMinecraftSessionService";
+
+    /**
+     * authlib 9 仍然是 Yggdrasil*，从 10（26.3）开始换成 MinecraftServices*；
+     * 两者方法签名一致（getPackedTextures / unpackTextures）。
+     */
+    private static final String SERVICES = "com/mojang/authlib/services/MinecraftServicesSessionService";
+
     private static final String SKIN_MANAGER = "net/minecraft/client/resources/SkinManager";
 
     /** 1.7.10 常见整合包的 SkinPort；它的默认皮肤会按 UUID 哈希选 Alex/Steve。 */
@@ -43,6 +50,11 @@ final class SkinTransformer implements ClassFileTransformer {
 
     private static final String GET_DESCRIPTOR =
             "(Lcom/mojang/authlib/GameProfile;)Ljava/util/concurrent/CompletableFuture;";
+
+    /** 26.x 的 SkinManager 用 getPackedTextures 取 textures 属性，再交给 unpackTextures 解码。 */
+    private static final String PACKED_METHOD = "getPackedTextures";
+    private static final String PACKED_DESCRIPTOR =
+            "(Lcom/mojang/authlib/GameProfile;)Lcom/mojang/authlib/properties/Property;";
 
     /**
      * 1.7.10 的 Forge/LaunchWrapper 会先加载它自带的旧版 ASM（5.x），
@@ -73,10 +85,12 @@ final class SkinTransformer implements ClassFileTransformer {
     public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
                             ProtectionDomain domain, byte[] bytes) {
         boolean isYggdrasil = YGGDRASIL.equals(className);
+        boolean isServices = SERVICES.equals(className);
+        boolean isSession = isYggdrasil || isServices;
         boolean isSkinManager = SKIN_MANAGER.equals(className);
         boolean isSkinPort = SKINPORT_DEFAULT.equals(className);
 
-        if (!isYggdrasil && !isSkinManager && !isSkinPort) return null;
+        if (!isSession && !isSkinManager && !isSkinPort) return null;
 
         SkinAgent.log("transforming " + className + " loader=" + loader);
 
@@ -95,6 +109,10 @@ final class SkinTransformer implements ClassFileTransformer {
                 private int skinManagerAccess;
                 private String skinManagerSignature;
                 private String[] skinManagerExceptions;
+                private boolean packedRenamed;
+                private int packedAccess;
+                private String packedSignature;
+                private String[] packedExceptions;
 
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String descriptor,
@@ -128,6 +146,21 @@ final class SkinTransformer implements ClassFileTransformer {
                                 descriptor, signature, exceptions);
                     }
 
+                    // getPackedTextures：26.x 的 SkinManager 靠它拿 textures 属性，authlib 10 又没法把
+                    // session host 指到本地（EnvironmentParser 只认 discovery.host），
+                    // 所以本地账号必须在这里合成一个带本地 URL 的 textures 属性。
+                    if (isSession && SkinAgent.modernReady && PACKED_METHOD.equals(name)
+                            && PACKED_DESCRIPTOR.equals(descriptor)) {
+                        packedRenamed = true;
+                        packedAccess = access;
+                        packedSignature = signature;
+                        packedExceptions = exceptions;
+
+                        SkinAgent.log("wrapping " + className + "." + name + descriptor);
+                        return super.visitMethod(access, "nmpc$getPackedTextures$impl",
+                                descriptor, signature, exceptions);
+                    }
+
                     MethodVisitor target = super.visitMethod(access, name, descriptor, signature, exceptions);
 
                     // 调试：SkinManager 的方法签名各版本不一样，先把候选打出来（每次启动一条）
@@ -141,7 +174,7 @@ final class SkinTransformer implements ClassFileTransformer {
                         return replaceSkinPort(target);
                     }
 
-                    if (!isYggdrasil) return target;
+                    if (!isSession) return target;
 
                     if (SkinAgent.modernReady && MODERN_METHOD.equals(name) && MODERN_DESCRIPTOR.equals(descriptor)) {
                         SkinAgent.log("replacing " + className + "." + name + descriptor);
@@ -173,6 +206,32 @@ final class SkinTransformer implements ClassFileTransformer {
                         method.visitVarInsn(Opcodes.ALOAD, 1);
                         method.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridgeModern", "get",
                                 "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/concurrent/CompletableFuture;", false);
+                        method.visitInsn(Opcodes.ARETURN);
+                        method.visitMaxs(2, 2);
+                        method.visitEnd();
+                    }
+
+                    if (packedRenamed)
+                    {
+                        // getPackedTextures(GameProfile) → SkinBridgeModern.packedTextures(this, profile)
+                        MethodVisitor method = super.visitMethod(
+                            packedAccess & ~(Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE),
+                            PACKED_METHOD, PACKED_DESCRIPTOR, packedSignature, packedExceptions);
+
+                        method.visitCode();
+                        if (classMajor >= 50)
+                        {
+                            method.visitFrame(Opcodes.F_NEW, 2, new Object[] {
+                                    className,
+                                    "com/mojang/authlib/GameProfile"
+                            }, 0, null);
+                        }
+
+                        method.visitVarInsn(Opcodes.ALOAD, 0);
+                        method.visitVarInsn(Opcodes.ALOAD, 1);
+                        method.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridgeModern", "packedTextures",
+                                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false);
+                        method.visitTypeInsn(Opcodes.CHECKCAST, "com/mojang/authlib/properties/Property");
                         method.visitInsn(Opcodes.ARETURN);
                         method.visitMaxs(2, 2);
                         method.visitEnd();

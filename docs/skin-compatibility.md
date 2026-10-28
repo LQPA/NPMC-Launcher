@@ -22,12 +22,16 @@
 | 1.21.6 | 6.0.58 | 同上（与 6.0.54 同一套） | `modern` | 未验证 |
 | 1.21.11 | 7.0.61 | 同上；**环境属性必须三个全有**（见 §3） | `modern` | **已实测（原版 + Fabric / Forge / NeoForge）** |
 | 26.1.2 | 7.0.63 | 同上；客户端 `SkinManager.get` 在没有 textures 时直接返回空 | `modern` | **已实测（原版 + Forge 64.1.5 + NeoForge 26.1.2.124）** |
-| 26.2 | 9.0.75 | `Yggdrasil*` 类族退役，改用 `MinecraftServices*`（推断） | **不挂 agent** | 未验证 / 未支持 |
-| 26.3 | 10.0.77 | `MinecraftServicesSessionService implements SessionService`（`unpackTextures` 仍在） | **不挂 agent** | 未验证 / 未支持 |
+| 26.2 | 9.0.75 | 仍是 `YggdrasilMinecraftSessionService`，但多了 `getPackedTextures` | `modern` | **已实测（原版）** |
+| 26.3 | 10.0.77 | `MinecraftServicesSessionService implements SessionService`（`unpackTextures` 仍在），环境只认 discovery | `modern` | **已实测（原版 + NeoForge 26.3.0.99）** |
 
-`SkinAgentProvider.SupportsSkinAgent` 目前只认 authlib **主版本 1–7**：
-26.2（9.x）与 26.3（10.x）**连 session host 都不改**，所以那两个版本现在没有离线皮肤，
-但也不会因为 agent 崩游戏。要支持它们得走 §7 的方案。
+`SkinAgentProvider.SupportsSkinAgent` 现在认 authlib **主版本 1–10**。26.x 的两个关键变化：
+
+- **26.2（authlib 9）**：仍是 `YggdrasilMinecraftSessionService`，host 属性和 7 一样
+  （session / services / profiles），原有钩子直接可用；
+- **26.3（authlib 10）**：换成 `MinecraftServicesSessionService`，`EnvironmentParser`
+  只认 `minecraft.api.discovery.host` / `env`，**session host 重定向失效**；
+  靠新增的 `getPackedTextures` 钩子给本地账号合成 textures 属性（见 §5）。
 
 ## 2. 三个时代的 authlib API（决定我们 hook 哪个方法）
 
@@ -35,7 +39,8 @@
 |---|---|---|---|
 | 1.x – 4.x | `YggdrasilMinecraftSessionService.getTextures(GameProfile, boolean)` | `Map<Type, MinecraftProfileTexture>` | 我们的做法：把原方法改名 `nmpc$getTextures$impl`，另生成同名方法按 UUID 分流（本地账号返回本地纹理，其他人走原实现） |
 | 5.x – 7.x | `YggdrasilMinecraftSessionService.unpackTextures(Property)` | `MinecraftProfileTextures` | 整段替换；`textures` 属性的 base64 JSON 里带 `127.0.0.1:<端口>` 才算"我们自己的" |
-| 9.x – 10.x | `SessionService.unpackTextures(Property)`（实现类 `MinecraftServicesSessionService`） | 同上 | 类名变了，方法签名没变；但**环境变量机制也变了**（§3） |
+| 9.x | `YggdrasilMinecraftSessionService.unpackTextures(Property)` | `MinecraftProfileTextures` | 和 7 同一套；SkinManager 会先 `getPackedTextures` 再解码 |
+| 10.x | `SessionService.unpackTextures(Property)`（实现类 `MinecraftServicesSessionService`） | 同上 | 类名变了，方法签名没变；**环境变量机制也变了**（§3），必须靠 `getPackedTextures` 钩子 |
 
 另外两个随版本变化的点：
 
@@ -53,7 +58,8 @@
 | 4.x | `auth` / `account` / `session` / `services` | 退回官方 |
 | 6.0.54 / 6.0.58 | `session` + `services` | 退回官方 |
 | **7.x** | `session` + `services` + **`profiles`** | **整体忽略**，打一行 `Ignoring hosts properties. All need to be set: [...]`，客户端仍然去 `sessionserver.mojang.com` 查离线账号 → 没有 textures 属性 → 皮肤静默不生效 |
-| 9.x / 10.x | `discovery.host` / `env`（`EnvironmentParser`） | 旧的 session/services 写法失效 |
+| 9.x | `session` + `services` + `profiles`（与 7 相同） | 退回官方 |
+| 10.x | **`discovery.host` / `env`**（旧的 session/services/profiles 全部失效） | 无所谓：26.3 走 `getPackedTextures` 钩子，不依赖 host 重定向 |
 
 `SkinAgent.premain` 现在把 `auth`/`account`/`session`/`services`/`profiles` 全设上：
 session 指本地，其余指官方。**多设没用，少设是致命的**。
@@ -92,7 +98,8 @@ session 指本地，其余指官方。**多设没用，少设是致命的**。
 |---|---|---|
 | `YggdrasilMinecraftSessionService.getTextures(GameProfile, Z)Map` | authlib 1–4 | 改名保留原方法 + 生成分流方法，调 `SkinBridgeLegacy.isLocal/textures` |
 | `YggdrasilMinecraftSessionService.unpackTextures(Property)MinecraftProfileTextures` | authlib 5–7（要求 `modernReady`） | 整段替换为 `SkinBridgeModern.texturesFor(property)` |
-| `SkinManager.get(<单参数>)CompletableFuture` | **mojmap** 名字、`modernReady` | 原方法改名 `nmpc$get$impl` 保留；生成同名方法调 `SkinBridgeModern.get`：本地账号用 `registerTextures` 注册本地纹理，其它玩家交回原实现（26.1.2 / 1.21.11 Forge/NeoForge 需要；1.21.1 没有 `get`，不触发；Fabric 下类名是 intermediary，不触发） |
+| `SessionService.getPackedTextures(GameProfile)Property`<br>`Yggdrasil…getPackedTextures`（authlib 9） | `isSession`（Yggdrasil 或 MinecraftServices）、`modernReady` | 改名保留原方法 `nmpc$getPackedTextures$impl`；生成同名方法调 `SkinBridgeModern.packedTextures`：本地账号返回合成 textures 属性（base64 JSON，URL 指本地），其它玩家交回原实现。**26.3 靠它才能拿到皮肤** |
+| `SkinManager.get(<单参数>)CompletableFuture` | **mojmap** 名字、`modernReady` | 原方法改名 `nmpc$get$impl` 保留；生成同名方法调 `SkinBridgeModern.get`：本地账号用 `registerTextures`（第一个参数是 UUID）注册本地纹理，其它玩家交回原实现（26.1.2 / 1.21.11 / 26.x 需要；1.21.1 没有 `get`，不触发；Fabric 下类名是 intermediary，不触发） |
 | `ForgeSkinPort$DefaultSkinProvider.getSkin(IPlayerProfile)ISkin` | 1.7.10 SkinPort | `SkinPortBridge.get(provider, profile)` |
 
 本地 HTTP 服务（`SkinHttpServer`，`ServerSocket` + daemon 线程）：
@@ -112,10 +119,13 @@ session 指本地，其余指官方。**多设没用，少设是致命的**。
 | NeoForge 1.21.1（authlib 6） | `bootstrap search: ...nmpc-skin-bridge.jar`、`module support installed`、`transforming ...YggdrasilMinecraftSessionService`、`replacing ...unpackTextures`、`profile <uuid> -> ...png`、`texturesFor: ours=true` |
 | Fabric 1.15（authlib 1.5.25，Java 8） | `bootstrap search: ...`、`wrapping ...getTextures(...)`、`legacy textures served url=http://127.0.0.1:<port>/...`；**不应**出现 `NoClassDefFoundError: nmpc/skin/SkinBridgeLegacy` |
 | Forge/NeoForge 1.21.11（authlib 7，mojmap） | `wrapping ...SkinManager.get(...)`（不是 `replacing`）、`bridge get: id=... ours=true`；**不应**出现 `argument type mismatch`、`Absent Code attribute` 或启动崩溃 |
+| 26.2（authlib 9） | `wrapping ...YggdrasilMinecraftSessionService.getPackedTextures(...)`、`replacing ...unpackTextures`、`bridge get: ... ours=true` |
+| 26.3（authlib 10） | `transforming ...services/MinecraftServicesSessionService`、`wrapping ...getPackedTextures`、`replacing ...unpackTextures`、`bridge get` 或 `packedTextures: ours=true`；**不应**出现 `NoSuchMethodError` / 启动崩溃 |
 | Fabric 1.21.11（authlib 7） | 同上，且 `read edge added: null -> null`（Fabric 没有模块）；`latest.log` 里 `sessionHost=http://127.0.0.1:<port>`；**不应**出现 `Ignoring hosts properties` |
 | Forge 1.20.1（authlib 4） | `wrapping ...getTextures(...)`、`legacy textures served url=...`（桥接日志前缀是 `legacy`） |
 | 1.7.10（authlib 1 + SkinPort） | `bootstrap: java 1.8..., skipped`、`wrapping ...getTextures`、`skinport get id=... name=...` |
-| Fabric/NeoForge 26.2 / 26.3 | 当前**没有** agent 日志（authlib ≥8 不挂），皮肤是默认皮肤 |
+| 26.2（authlib 9，原版/Forge/NeoForge） | `wrapping ...YggdrasilMinecraftSessionService.getPackedTextures`、`replacing ...unpackTextures`、`bridge get: ... ours=true` |
+| 26.3（authlib 10，原版/Forge/NeoForge） | `transforming ...services/MinecraftServicesSessionService`、`wrapping ...getPackedTextures`、`replacing ...unpackTextures`、`bridge get` 或 `packedTextures: ours=true` |
 
 排查顺序：先看 `Environment:` 行的 sessionHost 是不是 `127.0.0.1`；再看有没有
 `transforming/replacing`；最后看 `texturesFor: ours=`（false 就看 `property check` 那行的
@@ -123,17 +133,18 @@ port / decoded 前缀）。
 
 ## 7. 已知缺口 / 下一步
 
-1. **authlib 8/9/10（26.2 / 26.3）没有支持**：`YggdrasilMinecraftSessionService` 换成了
-   `MinecraftServicesSessionService`，`EnvironmentParser` 只认 `minecraft.api.discovery.host`
-   和 `minecraft.api.env`，旧的 session host 重定向失效。可选做法：
-   - 把 transformer 的类名扩到 `com/mojang/authlib/services/MinecraftServicesSessionService`，
-     并拦 `fetchProfile(UUID, boolean)` 直接返回带本地 textures 的 `ProfileResult`；
-   - 或在客户端 `SkinManager` 层接管（mojmap 对 NeoForge 可行；Fabric 要用该版本的
-     intermediary 名，见 §4）。
-2. **Fabric/Quilt 的 `SkinManager` 钩子**：目前没接。1.21.11 不需要（authlib 路径已经够用），
-   但如果以后某个版本必须靠它，得按 §4 的 intermediary 名字匹配，并且每个版本都要重新查。
+1. **26.2 / 26.3 已支持**（2026-10-28 晚）：扩展为 `isSession`（Yggdrasil 或
+   `MinecraftServicesSessionService`），新增 `getPackedTextures` 钩子给本地账号合成
+   textures 属性，`SupportsSkinAgent` 放宽到 authlib 1–10。实测：26.2 原版、26.3 原版、
+   26.3 NeoForge 皮肤生效；26.2 的 Forge/NeoForge、26.3 Forge 走同一套 mojmap + authlib
+   路径，逻辑上等价，未逐个点开验证。
+2. **Fabric/Quilt 的 `SkinManager` 钩子**：目前没接。1.21.11 / 26.x 不需要（authlib 层
+   已经够用），但如果以后某个版本必须靠它，得按 §4 的 intermediary 名字匹配，
+   并且每个版本都要重新查。
 3. **尚未实测**：1.21.6（含 fabric 1.21.6，authlib 6.0.58，机制同 1.21.1）、
-   fabric 22w13 快照、Quilt。其余 1.7.10 ~ 26.1.2 的原版 / Fabric / Forge / NeoForge
-   组合都已由用户实机确认（见 §1 表）。
+   fabric 22w13 快照、Quilt。其余 1.7.10 ~ 26.3 的原版 / Fabric / Forge / NeoForge
+   组合都已实机确认（见 §1 表）。
 4. **authlib 5 的实际游戏版本**（1.20.5/1.20.6）未本地验证，表里是推断；
    到时候看版本 JSON 就能确认。
+5. **authlib 11+**：`SupportsSkinAgent` 以上限 10 截断，新主版本出现时要重新核对
+   `SessionService` 的签名（尤其 `getPackedTextures` / `unpackTextures`）。

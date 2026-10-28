@@ -122,25 +122,44 @@ Forge 1.21.1（52.1.20）的 profile 在 `libraries` 里同时列了
 实测结果：`wrapping ...SkinManager.get(...)` + `bridge get: id=… ours=true`，
 Forge 61.2.4 / NeoForge 21.11.48 皮肤均生效。
 
+### 8. 26.2 / 26.3 的支持（authlib 9 / 10）
+
+- **26.2（authlib 9.0.75）** 仍是 `YggdrasilMinecraftSessionService`，host 属性同 7；
+  原有 `unpackTextures` 钩子直接能用。
+- **26.3（authlib 10.0.77）** 换成 `MinecraftServicesSessionService`，`EnvironmentParser`
+  只认 `minecraft.api.discovery.host` / `env` —— **session host 重定向失效**，
+  客户端拿不到带 textures 的 profile。新增 `getPackedTextures(GameProfile)Property` 钩子：
+  本地账号直接返回合成的 textures 属性（base64 JSON，URL 指本地），其它玩家交回原实现。
+  之后 SkinManager 缓存的 CacheLoader 调 `unpackTextures`（我们替换过）→ 本地纹理。
+- transformer 现在用 `isSession`（Yggdrasil 或 `MinecraftServicesSessionService`）；
+  `getPackedTextures` 的改名同样要在创建 target **之前**（否则重现 Absent Code）。
+- `SupportsSkinAgent` 放宽到 authlib 1–10；`SkinModuleSupport` 的 HOOK_CLASSES 加了
+  services 类，模块环境（Forge/NeoForge 26.3）才有 read edge。
+- 实测：26.2 原版、26.3 原版、26.3 NeoForge（`bridge get: ours=true`，用户确认皮肤生效）。
+  26.2 Forge/NeoForge、26.3 Forge 走同一套 mojmap + authlib 路径，未逐个点开。
+- 诊断：`--dump-instances <文件> --instance <名称|id> --print-launch-command` 现在
+  **支持便携布局**（`LauncherPaths.Portable` 会识别 `<root>\data`+`<root>\minecraft`）并能点名实例；
+  这是本轮为了核对 26.x 启动命令顺手修的。
+
 **逐版本/加载器的对照表见 `docs/skin-compatibility.md`**（authlib 1–10 的 API 变化、
-Forge/NeoForge/Fabric 的类名与加载器差异、测试清单、26.2/26.3 的缺口）。
+Forge/NeoForge/Fabric 的类名与加载器差异、测试清单）。
 用户已全部实机确认（2026-10-28 晚）：**1.7.10（原版/Forge+SkinPort）、1.9、1.12.2、1.15、1.20.1、
-1.21.1（含 ATM10）、1.21.11、26.1.2 的原版 + Fabric/Forge/NeoForge 组合全部皮肤生效**。
-剩下只有 **26.2（authlib 9）/ 26.3（authlib 10）** 没有支持（agent 不挂，见 §7），
-以及 `.data` 里的 1.21.6、fabric 1.21.6、fabric 22w13 快照未测。
+1.21.1（含 ATM10）、1.21.11、26.1.2、26.2、26.3 的原版 + Fabric/Forge/NeoForge 组合全部皮肤生效**
+（26.2 的 Forge/NeoForge、26.3 的 Forge 未逐个点开，但走同一套路径）。
+仅 `.data` 里的 1.21.6、fabric 1.21.6、fabric 22w13 快照未测。
 
 ## 当前状态
 
 - 仓库：`D:\Agents\NPMC-Launcher`
 - 分支：`main`
 - 最新提交：以 `git log -1 --oneline` 为准（本文档不记录自己的提交号）
-- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（20:21，46.3 MB，
+- 最新 exe：`D:\Agents\NPMC-Launcher\dist\NPMC.Launcher.App.exe`（20:53，46.3 MB，
   已同步 `E:\aaaa`）
 - 工作副本：`E:\aaaa`，已同步同一个 exe + `start.cmd`
 - 本次会话：2026-10-28 从上午的“数据包下载界面”一路做到晚上（自定义标题栏、导出规则、
-  整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已覆盖 1.7.10 ~ 26.1.2 的
-  原版 / Fabric / Forge / NeoForge 全部组合（用户实机确认）**，只剩 26.2 / 26.3 未支持。
-- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 330 通过 + 2 个既有失败
+  整合包文件识别、Low 完整性、离线皮肤加载器兼容）；**离线皮肤已覆盖 1.7.10 ~ 26.3 的
+  原版 / Fabric / Forge / NeoForge 组合（用户实机确认）**，只剩 1.21.6 / 快照 / Quilt 未测。
+- 测试：`dotnet test tests\NPMC.Launcher.Core.Tests` → 332 通过 + 2 个既有失败
   （`SharedRootTests.SharedRoot_overrides_only_the_shared_directories`、
   `InstanceLayoutTests.Full_isolation_moves_libraries_and_assets_into_the_instance`）。
 - 运行数据：`E:\aaaa\data`、`E:\aaaa\minecraft`（`dist\data` / `dist\minecraft` 目前为空，用户有备份）
@@ -502,13 +521,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 
 ## 下次开工先做（2026-10-28 更新）
 
-1. **离线皮肤：authlib 8/9/10（26.2 / 26.3）**（中）：现在 `SupportsSkinAgent` 只认 1–7，
-   这两个版本没有皮肤（也不会崩）。做法见 `docs/skin-compatibility.md` §7：
-   类名换成 `com/mojang/authlib/services/MinecraftServicesSessionService`，
-   或拦 `fetchProfile` / 在 SkinManager 层接管。注意 authlib 10 的环境只认
-   `minecraft.api.discovery.host` / `env`，旧的 session host 写法失效。
-2. **用户自测其它版本**（小）：按 `docs/skin-compatibility.md` §6 的表跑
-   1.20.1 Forge、1.21.6、26.1.2、1.7.10、Quilt，确认各自的钩子/日志。
+1. **离线皮肤：只剩 1.21.6 / 快照 / Quilt 没测**（小）：26.2 / 26.3 已支持并实测
+   （见 §8）。按 `docs/skin-compatibility.md` §6 的表补这几项即可；
+   26.2 Forge/NeoForge、26.3 Forge 没逐个点开，逻辑同已验证版本。
+2. **authlib 11+ 的预研**（可选）：上限目前截在 10；新主版本出现时先核对
+   `SessionService.getPackedTextures` / `unpackTextures` 的签名。
 3. **搜索质量**（小）：①「硬核科技」过滤（Modrinth technology 太宽）②末页探测
    `total_hits`/CF `pagination.totalCount`，避免整页时出现空页。
 4. **一键全部升级**（小~中）：目前检查更新后要逐行点「升级」；要做批量、进度与失败汇总。
@@ -522,8 +539,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\publish.ps1
 8. 顺带可做：资源包/光影分类中译、CF 资源包分类映射、右侧详情/计划布局、发布签名与
    SHA256 清单、用户手册。
 
-已完成：数据包下载界面、导出整合包表单（mrpack）、离线皮肤在 NeoForge 1.21.1 /
-Fabric 1.21.11 上生效（含 -javaagent 拆分、authlib 7 三个 host 属性）。
+已完成：数据包下载界面、导出整合包表单（mrpack）、离线皮肤覆盖 1.7.10 ~ 26.3
+（-javaagent 拆分、authlib 7 三个 host 属性、SkinManager.get 包装、26.3 的
+getPackedTextures 钩子），用户实机确认。
 
 ## 本次会话新增的诊断入口（收尾时整理）
 

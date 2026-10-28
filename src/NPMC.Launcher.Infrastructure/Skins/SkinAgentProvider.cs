@@ -97,11 +97,15 @@ public static class SkinAgentProvider
         return new SkinAgentLaunch($"-javaagent:{jars.Entry}=" + string.Join(";", settings), port.Value);
     }
 
-    /// <summary>agent 支持的 authlib 主版本：1~7。</summary>
+    /// <summary>
+    /// agent 支持的 authlib 主版本：1~10。
+    /// 1~4 走 getTextures；5~9 走 unpackTextures（9 仍是 Yggdrasil*）；
+    /// 10（26.3）换成 MinecraftServicesSessionService，靠 getPackedTextures 合成 textures 属性。
+    /// </summary>
     public static bool SupportsSkinAgent(VersionJson version)
     {
         var major = AuthlibMajor(version);
-        return major is >= 1 and <= 7;
+        return major is >= 1 and <= 10;
     }
 
     /// <summary>authlib 4~7 会读 minecraft.api.*.host；更老/更新的版本不读。</summary>

@@ -131,6 +131,74 @@ public final class SkinBridgeModern {
         }
     }
 
+    /**
+     * 由 getPackedTextures(GameProfile) 调用：本地账号合成一个带本地 URL 的 textures 属性。
+     *
+     * authlib 9/10 的 SkinManager 先 getPackedTextures 拿属性、再交给 unpackTextures 解码；
+     * authlib 10（26.3）的环境只认 minecraft.api.discovery.host，没法再把 session 指到本地，
+     * 所以这一步决定了 26.3 能不能拿到皮肤。其它玩家交回原实现。
+     */
+    public static Object packedTextures(Object service, Object profile) {
+        try {
+            String id = String.valueOf(invoke(profile, "id", "getId")).replace("-", "");
+            String uuid = property("nmpc.skin.uuid", "");
+            boolean ours = !id.isEmpty() && id.equalsIgnoreCase(uuid);
+
+            log("packedTextures: id=" + id + " ours=" + ours);
+
+            if (ours) {
+                try {
+                    Object property = buildProperty(service.getClass().getClassLoader());
+                    if (property != null) return property;
+                } catch (Throwable error) {
+                    log("packedTextures: build failed: " + error);
+                }
+            }
+
+            return originalPacked(service, profile);
+        } catch (Throwable error) {
+            log("packedTextures failed: " + error);
+            return null;
+        }
+    }
+
+    /** 合成 Property("textures", base64(JSON))，字段与本地 HTTP 接口返回的 textures 一致。 */
+    private static Object buildProperty(ClassLoader loader) throws Exception {
+        String url = property("nmpc.skin.url", "");
+        if (url.isEmpty()) return null;
+
+        StringBuilder json = new StringBuilder();
+        json.append("{\"timestamp\":").append(System.currentTimeMillis())
+                .append(",\"profileId\":\"").append(property("nmpc.skin.uuid", ""))
+                .append("\",\"profileName\":\"").append(property("nmpc.skin.name", ""))
+                .append("\",\"textures\":{\"SKIN\":{\"url\":\"").append(url).append("\"");
+        if ("slim".equals(property("nmpc.skin.model", "classic")))
+            json.append(",\"metadata\":{\"model\":\"slim\"}");
+        json.append("}}}");
+
+        String value = java.util.Base64.getEncoder()
+                .encodeToString(json.toString().getBytes(StandardCharsets.UTF_8));
+
+        Class<?> propertyClass = Class.forName("com.mojang.authlib.properties.Property", true, loader);
+        return propertyClass.getConstructor(String.class, String.class).newInstance("textures", value);
+    }
+
+    /** 原 getPackedTextures：改写时被改名成 nmpc$getPackedTextures$impl 保留下来。 */
+    private static Object originalPacked(Object service, Object profile) {
+        try {
+            for (Method method : service.getClass().getDeclaredMethods()) {
+                if (!method.getName().equals("nmpc$getPackedTextures$impl") || method.getParameterCount() != 1) continue;
+
+                method.setAccessible(true);
+                return method.invoke(service, profile);
+            }
+        } catch (Throwable error) {
+            log("original packedTextures failed: " + error);
+        }
+
+        return null;
+    }
+
     /** 构建 MinecraftProfileTextures(skin, cape, elytra, SignatureState.UNSIGNED)。 */
     private static Object buildTextures(ClassLoader loader) throws Exception {
         String url = property("nmpc.skin.url", "");

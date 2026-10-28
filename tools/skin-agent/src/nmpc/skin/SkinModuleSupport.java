@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class SkinModuleSupport {
     private static final Set<String> HOOK_CLASSES = Set.of(
             "com/mojang/authlib/yggdrasil/YggdrasilMinecraftSessionService",
+            "com/mojang/authlib/services/MinecraftServicesSessionService",
             "net/minecraft/client/resources/SkinManager");
 
     private static final Set<Module> PATCHED = ConcurrentHashMap.newKeySet();

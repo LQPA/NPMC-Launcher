@@ -72,7 +72,10 @@ internal static class InstanceDump
         var outputPath = Path.GetFullPath(args[index + 1]);
         var root = LauncherRoot.Resolve(args);
 
-        var viewModel = new MainWindowViewModel(new LauncherPaths(root));
+        // 便携布局（<root>\data + <root>\minecraft）也要能诊断：Portable 在旧式布局上会自动回退。
+        var dumpPaths = LauncherPaths.Portable(root);
+
+        var viewModel = new MainWindowViewModel(dumpPaths);
         viewModel.LoadAsync().GetAwaiter().GetResult();
 
         var lines = new List<string>
@@ -115,15 +118,26 @@ internal static class InstanceDump
             }
         }
 
-        // 优先验证加载器实例：它最能暴露 inheritsFrom 没合并的问题
-        var launchTarget = viewModel.Instances.FirstOrDefault(item =>
-                               item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
-                           ?? first;
+        // 优先验证加载器实例：它最能暴露 inheritsFrom 没合并的问题。
+        // --instance <名称|id> 可以点名，方便核对 26.x 这类新版本。
+        string? ArgumentValue(string name)
+        {
+            var at = Array.FindIndex(args, arg => string.Equals(arg, name, StringComparison.OrdinalIgnoreCase));
+            return at >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+        }
+
+        var requestedInstance = ArgumentValue("--instance");
+        var launchTarget = requestedInstance is not null
+            ? viewModel.Instances.FirstOrDefault(item =>
+                  string.Equals(item.Name, requestedInstance, StringComparison.OrdinalIgnoreCase)
+                  || string.Equals(item.Id, requestedInstance, StringComparison.OrdinalIgnoreCase))
+            : viewModel.Instances.FirstOrDefault(item =>
+                  item.VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase))
+              ?? first;
 
         if (launchTarget is not null)
         {
-            var paths = new LauncherPaths(root);
-            var version = GameLauncher.TryLoadInstalledVersionAsync(paths, launchTarget.VersionId)
+            var version = GameLauncher.TryLoadInstalledVersionAsync(dumpPaths, launchTarget.VersionId)
                 .GetAwaiter().GetResult();
 
             lines.Add("");
@@ -133,7 +147,7 @@ internal static class InstanceDump
             }
             else
             {
-                var prepared = GameLauncher.Prepare(paths, launchTarget.Model, version, new LauncherSettings());
+                var prepared = GameLauncher.Prepare(dumpPaths, launchTarget.Model, version, new LauncherSettings());
 
                 lines.Add($"[启动准备] 实例={launchTarget.Name}  可启动={prepared.CanLaunch}");
                 lines.Add($"    版本       = {version.Id}");
