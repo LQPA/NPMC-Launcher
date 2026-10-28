@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Root = 'D:\Agents\NPMC-Launcher',
     [string]$JavaHome = 'D:\Agents\NPMC-Launcher\.data\runtime\java-runtime-gamma'
 )
@@ -51,7 +51,9 @@ function Build-Agent {
 }
 
 $allSources = Get-ChildItem $src -Recurse -Filter '*.java' | Select-Object -ExpandProperty FullName
-$legacySources = @($allSources | Where-Object { $_ -notmatch 'SkinBridgeModern\.java$' })
+$legacySources = @($allSources | Where-Object {
+        $_ -notmatch 'SkinBridgeModern\.java$' -and $_ -notmatch 'SkinModuleSupport\.java$'
+    })
 
 $legacyClasspath = @()
 $legacyClasspath += (Join-Path $Root '.data\libraries\com\mojang\authlib\1.5.21\authlib-1.5.21.jar')

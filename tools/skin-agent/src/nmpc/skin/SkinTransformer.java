@@ -110,7 +110,7 @@ final class SkinTransformer implements ClassFileTransformer {
 
                     MethodVisitor target = super.visitMethod(access, name, descriptor, signature, exceptions);
 
-                    if (isSkinManager && "get".equals(name) && GET_DESCRIPTOR.equals(descriptor)) {
+                    if (isSkinManager && SkinAgent.modernReady && "get".equals(name) && GET_DESCRIPTOR.equals(descriptor)) {
                         SkinAgent.log("replacing " + className + "." + name + descriptor);
                         return replaceGet(target);
                     }
@@ -122,7 +122,7 @@ final class SkinTransformer implements ClassFileTransformer {
 
                     if (!isYggdrasil) return target;
 
-                    if (MODERN_METHOD.equals(name) && MODERN_DESCRIPTOR.equals(descriptor)) {
+                    if (SkinAgent.modernReady && MODERN_METHOD.equals(name) && MODERN_DESCRIPTOR.equals(descriptor)) {
                         SkinAgent.log("replacing " + className + "." + name + descriptor);
                         return replaceModern(target);
                     }
@@ -202,14 +202,16 @@ final class SkinTransformer implements ClassFileTransformer {
         };
     }
 
-    /** return SkinBridgeModern.textures() */
+    /** return (MinecraftProfileTextures) SkinBridgeModern.texturesFor(property) */
     private static MethodVisitor replaceModern(MethodVisitor target) {
         return new MethodVisitor(ASM_API) {
             @Override
             public void visitEnd() {
                 target.visitCode();
-                target.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridgeModern", "textures",
-                        "()Lcom/mojang/authlib/minecraft/MinecraftProfileTextures;", false);
+                target.visitVarInsn(Opcodes.ALOAD, 1);
+                target.visitMethodInsn(Opcodes.INVOKESTATIC, "nmpc/skin/SkinBridgeModern", "texturesFor",
+                        "(Ljava/lang/Object;)Ljava/lang/Object;", false);
+                target.visitTypeInsn(Opcodes.CHECKCAST, "com/mojang/authlib/minecraft/MinecraftProfileTextures");
                 target.visitInsn(Opcodes.ARETURN);
                 target.visitMaxs(1, 2);
                 target.visitEnd();

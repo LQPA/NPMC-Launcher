@@ -4,7 +4,6 @@ using System.Net.Sockets;
 using System.Reflection;
 using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Models;
-using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
 
 namespace NPMC.Launcher.Infrastructure.Skins;
@@ -46,12 +45,6 @@ public static class SkinAgentProvider
 
         var major = AuthlibMajor(version) ?? 0;
         var modern = major >= 4;
-
-        // 1.16+ 的模组加载器（NeoForge / Forge / Fabric）用模块化类加载器加载 authlib，
-        // agent 注入的 nmpc.skin.* 只挂在系统类路径上，模块里看不到 —— 表现就是启动后在
-        // SkinManager 取皮肤时 NoClassDefFoundError: nmpc/skin/SkinBridgeModern（ATM10 实测崩溃）。
-        // 1.7.10/1.12 那代加载器还是普通 URLClassLoader，agent 正常工作，所以只排除 modern。
-        if (modern && LoaderDetector.Detect(version).Count > 0) return null;
 
         var resolved = account.Skin switch
         {

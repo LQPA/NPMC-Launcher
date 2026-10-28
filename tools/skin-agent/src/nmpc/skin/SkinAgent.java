@@ -31,6 +31,13 @@ public final class SkinAgent {
     static Path skin;
     static String model = "classic";
     static Path logFile;
+
+    /**
+     * 现代类加载环境（模块化加载器）是否已经准备好：bootstrap 追加 + 模块 read edge 都成功。
+     * 没准备好时**不做**现代替换 —— 否则注入的调用找不到类，游戏会直接崩；
+     * 不替换最多只是没有离线皮肤（authlib 会把未签名纹理当无效，退回默认皮肤）。
+     */
+    static boolean modernReady;
     private static String skinId;
 
     public static void premain(String args, Instrumentation instrumentation) {
@@ -58,7 +65,61 @@ public final class SkinAgent {
             log("transformer failed: " + error);
         }
 
+        // 现代加载器（Forge/NeoForge/Fabric 1.16+）把 authlib 放在模块层里，看不到系统类路径。
+        // 把自己追加到 bootstrap，并给改写到的模块加 read edge（SkinModuleSupport 只在 Java 17+ 的 jar 里）。
+        prepareBootstrap(instrumentation);
+
+        try {
+            System.setProperty("nmpc.skin.url", base() + "/textures/" + skinId() + ".png");
+            System.setProperty("nmpc.skin.uuid", uuid);
+            System.setProperty("nmpc.skin.model", model);
+            System.setProperty("nmpc.skin.port", String.valueOf(port));
+            log("bridge properties: url=" + System.getProperty("nmpc.skin.url"));
+        } catch (Throwable error) {
+            log("properties failed: " + error);
+        }
+
         log("ready name=" + name + " uuid=" + uuid + " skin=" + skin + " model=" + model);
+    }
+
+    /** 把 agent jar 追加到 bootstrap，让模块化加载器也能解析 nmpc.skin.*。 */
+    private static void prepareBootstrap(Instrumentation instrumentation) {
+        // Java 8（1.7.10/1.12）没有模块系统，老加载器本来就能看到系统类路径，不必动 bootstrap
+        String specification = System.getProperty("java.specification.version", "");
+        if (specification.startsWith("1.")) {
+            log("bootstrap: java " + specification + ", skipped");
+            return;
+        }
+
+        try {
+            java.security.CodeSource source = SkinAgent.class.getProtectionDomain().getCodeSource();
+            if (source == null || source.getLocation() == null) {
+                log("bootstrap: no code source");
+                return;
+            }
+
+            java.io.File jar = new java.io.File(source.getLocation().toURI());
+            if (!jar.isFile()) {
+                log("bootstrap: not a jar: " + jar);
+                return;
+            }
+
+            instrumentation.appendToBootstrapClassLoaderSearch(new java.util.jar.JarFile(jar));
+            log("bootstrap search: " + jar);
+        } catch (Throwable error) {
+            log("bootstrap append failed: " + error);
+            return;
+        }
+
+        try {
+            Class<?> support = Class.forName("nmpc.skin.SkinModuleSupport", true, SkinAgent.class.getClassLoader());
+            support.getMethod("install", Instrumentation.class).invoke(null, instrumentation);
+            modernReady = true;
+            log("module support installed");
+        } catch (Throwable error) {
+            // legacy jar 里没有这个类（Java 8 没有模块系统），忽略即可
+            log("module support unavailable: " + error);
+        }
     }
 
     static String base() {
