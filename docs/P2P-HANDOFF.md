@@ -6,6 +6,21 @@
 
 ---
 
+## 新会话启动协议（先做这 6 步）
+
+1. 工作目录设为 `D:\Agents\NPMC-Launcher`（不是 `D:\Agents`），先 `git status` 确认干净。
+2. 按顺序读：本文件 → `docs/p2p/DESIGN-OUTLINE.md` 的 §1、§2、§5、§11、§12。
+3. **不要假设仓库里已有 P2P 代码**：房间、节点、Gateway、TPM、Named Pipe 都还没有。
+4. 向用户确认 §9 的前四项：目标版本、Agent 注入策略、支持平台、正版/离线账号。
+5. 选择第一个 gate：
+   - **Gate 0-B（TPM）可以立即开始**，不依赖 Minecraft 版本；
+   - **Gate 0-A（Gateway）必须先有目标版本**；
+   - **Gate 0-C（真实网络）需要两台机器/网络**。
+6. 在写业务代码前，先建 ADR 和项目骨架；**Gate 0 跑通前不要动 `MainWindowViewModel` 的房间/节点 UI**。
+
+“按现在的顺序开发”指的是 **Gate 0-A/0-B/0-C → D → P → S → T**，不是从 D1 开始逐条写。
+D/P/S/T 的完整表格在 `docs/p2p/DESIGN-OUTLINE.md` §11。
+
 ## 0. 一分钟结论
 
 - 这里说的 **P2P 联机模块目前只有设计文档，没有任何代码**。
