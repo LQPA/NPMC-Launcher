@@ -64,7 +64,13 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="1" ColumnDefinitions="180,340,*">
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="180" />
+        <!-- 左侧列表列：下载页与右侧内容各占一半；实例/账号页仍是固定的 340（见 VM 的 LeftListColumnWidth） -->
+        <ColumnDefinition Width="{Binding LeftListColumnWidth}" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
 
       <!-- ================= 左侧导航 ================= -->
       <Border Background="#1F2229" BorderBrush="#31353F" BorderThickness="0,0,1,0" Padding="12,18">
@@ -1607,8 +1613,9 @@
             </StackPanel>
           </StackPanel>
 
-          <!-- 状态放在标题右侧：不用滚到底就能看到进度，滚动区也少一张卡片 -->
-          <Border Grid.Column="1" Width="360" Margin="16,0,0,0" VerticalAlignment="Top"
+          <!-- 状态放在标题右侧：不用滚到底就能看到进度，滚动区也少一张卡片。
+               宽度可伸缩：下载页分类列变宽后内容区只有 ~500，卡片必须能跟着收窄，否则会挤掉左边的标题行 -->
+          <Border Grid.Column="1" MaxWidth="360" MinWidth="200" Margin="16,0,0,0" VerticalAlignment="Top"
                   Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
                   CornerRadius="8" Padding="12,10">
             <StackPanel Spacing="4">
