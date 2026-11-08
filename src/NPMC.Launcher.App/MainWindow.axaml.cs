@@ -110,6 +110,16 @@ public partial class MainWindow : Window
         _isDraggingInstance = false;
     }
 
+    /// <summary>点行里的 ☆/★：切换收藏（不改变选中项以外的东西）。</summary>
+    private void OnToggleFavoriteClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is InstanceListItem item)
+        {
+            Vm?.ToggleFavorite(item);
+        }
+
+        e.Handled = true;
+    }
     /// <summary>指针下面的那一行（用可视树里的 ListBoxItem 命中，比按行高估算可靠）。</summary>
     private InstanceListItem? FindInstanceAt(Point position)
     {

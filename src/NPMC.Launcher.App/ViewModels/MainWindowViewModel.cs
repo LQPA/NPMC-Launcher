@@ -498,7 +498,40 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (from < 0 || to < 0 || from == to) return;
 
         var moved = Instances[from];
+        var selectedId = _selectedInstance?.Id;
+
         Instances.Move(from, to);
+
+        // Move 会让 ListBox 重建容器，期间 SelectedItem 可能被置空 —— 那会连带把右侧详情清掉。
+        // 这里把原来的选中项装回去：拖动排序不该改变"正在看哪个实例"。
+        if (selectedId is not null)
+        {
+            var keep = Instances.FirstOrDefault(item =>
+                string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase));
+            if (keep is not null && !ReferenceEquals(keep, _selectedInstance))
+            {
+                SelectedInstance = keep;
+            }
+        }
+
+        RefreshVisibleInstances();
+
+        // 兜底：ListBox 重建容器后可能在下一帧才把 SelectedItem 置空。
+        // 只要拖动前那个实例还在，就选回去 —— 拖动排序不该把右侧详情清掉。
+        if (selectedId is not null)
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (_selectedInstance is not null) return;
+
+                var restore = Instances.FirstOrDefault(item =>
+                    string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase));
+                if (restore is not null)
+                {
+                    SelectedInstance = restore;
+                }
+            });
+        }
 
         Status = $"已移动「{moved.Name}」";
         _ = PersistInstanceOrderAsync(Instances.Select(item => item.Id).ToList());
@@ -1586,6 +1619,87 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public ObservableCollection<InstanceListItem> Instances { get; } = new();
 
+    /// <summary>
+    /// 列表实际绑定的集合（受「只显示收藏」过滤）。
+    /// 实例的增删改仍然只动 <see cref="Instances"/>，改完调 <see cref="RefreshVisibleInstances"/> 同步过来 ——
+    /// 这样排序、持久化、统计这些逻辑不用关心过滤状态。
+    /// </summary>
+    public ObservableCollection<InstanceListItem> VisibleInstances { get; } = new();
+
+    private readonly HashSet<string> _favoriteIds = new(StringComparer.OrdinalIgnoreCase);
+    private bool _showFavoritesOnly;
+
+    /// <summary>只显示收藏的实例。</summary>
+    public bool ShowFavoritesOnly
+    {
+        get => _showFavoritesOnly;
+        set
+        {
+            if (!SetProperty(ref _showFavoritesOnly, value)) return;
+            RefreshVisibleInstances();
+        }
+    }
+
+    /// <summary>有没有任何实例（与过滤无关）。</summary>
+    public bool IsEmpty => Instances.Count == 0;
+
+    /// <summary>有实例，但「只显示收藏」把它们全挡住了 —— 需要单独一句空状态提示。</summary>
+    public bool IsFilteredEmpty => !IsEmpty && VisibleInstances.Count == 0;
+
+    public string FavoritesFilterHint => _favoriteIds.Count == 0
+        ? "还没有收藏的实例：点实例行右边的 ☆ 收藏"
+        : "当前没有收藏的实例（收藏的实例可能已被删除）";
+
+    /// <summary>收藏 / 取消收藏，并立即落盘。</summary>
+    public void ToggleFavorite(InstanceListItem item)
+    {
+        if (item.IsFavorite)
+        {
+            item.IsFavorite = false;
+            _favoriteIds.Remove(item.Id);
+            Status = $"已取消收藏「{item.Name}」";
+        }
+        else
+        {
+            item.IsFavorite = true;
+            _favoriteIds.Add(item.Id);
+            Status = $"已收藏「{item.Name}」";
+        }
+
+        PersistFavorites();
+        RefreshVisibleInstances();
+    }
+
+    private void PersistFavorites() => InstanceFavoritesStore.Save(_launcher, _favoriteIds);
+
+    /// <summary>按过滤条件重建可见列表；尽量保持当前选中项。</summary>
+    private void RefreshVisibleInstances()
+    {
+        var selectedId = _selectedInstance?.Id;
+
+        VisibleInstances.Clear();
+        foreach (var instance in Instances)
+        {
+            if (_showFavoritesOnly && !_favoriteIds.Contains(instance.Id)) continue;
+            VisibleInstances.Add(instance);
+        }
+
+        // 过滤后选中项可能被挡住：优先保持原来那个，否则退回第一行
+        var keep = selectedId is null
+            ? null
+            : VisibleInstances.FirstOrDefault(item =>
+                string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase));
+
+        _selectedInstance = keep ?? VisibleInstances.FirstOrDefault();
+        OnPropertyChanged(nameof(SelectedInstance));
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(ShowInstanceHeader));
+        OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(IsFilteredEmpty));
+        OnPropertyChanged(nameof(FavoritesFilterHint));
+        RaisePaneVisibilityChanged();
+    }
+
     public InstanceListItem? SelectedInstance
     {
         get => _selectedInstance;
@@ -2017,7 +2131,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    public bool IsEmpty => Instances.Count == 0;
 
     // 除了目录存在，还要 该实例真的用得上"：没有加载器不给「打开 mods」，没有 Iris/OptiFine 不给「打开光影」。
     // 只有目录真实存在才显示入口：用户没装光影就不该看到一个点了也只会新建空文件夹的按钮。
@@ -2601,10 +2714,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
             foreach (var instance in catalog.Instances)
                 Instances.Add(new InstanceListItem(_launcher, instance));
 
+            // 收藏是界面偏好：按 id 打回每个条目，再按过滤条件重建可见列表
+            _favoriteIds.Clear();
+            foreach (var id in InstanceFavoritesStore.Load(_launcher))
+                _favoriteIds.Add(id);
+
+            foreach (var item in Instances)
+                item.IsFavorite = _favoriteIds.Contains(item.Id);
+
             SyncRunningState();
             OnPropertyChanged(nameof(IsEmpty));
 
-            SelectedInstance = Instances.FirstOrDefault();
+            RefreshVisibleInstances();
+
+            // 默认选中第一行；列表被过滤空时 RefreshVisibleInstances 已经把它置 null 了
+            if (_selectedInstance is null)
+                SelectedInstance = VisibleInstances.FirstOrDefault();
 
             // 账号页与实例概览的账号下拉都依赖账号列表，进实例页前先加载好
             await EnsureAccountsLoadedAsync();

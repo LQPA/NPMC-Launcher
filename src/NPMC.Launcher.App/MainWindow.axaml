@@ -116,17 +116,24 @@
       <local:P2PTestWindow x:Name="P2PPageView" Grid.Column="1" Grid.ColumnSpan="2" IsVisible="{Binding IsP2PPage}" />
 
       <!-- ================= 实例列表 ================= -->
-      <Grid Grid.Column="1" Background="#1B1D23" IsVisible="{Binding IsInstancesPage}">
+      <Grid Grid.Column="1" Background="#1B1D23" RowDefinitions="Auto,*"
+            IsVisible="{Binding IsInstancesPage}">
 
-        <ListBox x:Name="InstanceList"
-                 ItemsSource="{Binding Instances}"
+        <!-- 只显示收藏：实例多的时候用来缩小范围 -->
+        <StackPanel Grid.Row="0" Margin="12,10,12,2">
+          <CheckBox Content="只显示收藏" FontSize="12"
+                    IsChecked="{Binding ShowFavoritesOnly, Mode=TwoWay}" />
+        </StackPanel>
+
+        <ListBox x:Name="InstanceList" Grid.Row="1"
+                 ItemsSource="{Binding VisibleInstances}"
                  SelectedItem="{Binding SelectedInstance, Mode=TwoWay}"
                  Background="Transparent" BorderThickness="0" Padding="8"
                  IsVisible="{Binding !IsEmpty}">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:InstanceListItem">
               <StackPanel Spacing="3" Margin="2,5">
-                <Grid ColumnDefinitions="*,Auto">
+                <Grid ColumnDefinitions="*,Auto,Auto">
                   <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
                              Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
                   <Border Grid.Column="1" Background="#1F3A2A" BorderBrush="#3E7A52" BorderThickness="1"
@@ -134,6 +141,11 @@
                           IsVisible="{Binding IsRunning}">
                     <TextBlock Text="运行中" FontSize="10" Foreground="#7FD08A" />
                   </Border>
+                  <Button Grid.Column="2" Click="OnToggleFavoriteClick"
+                          Content="{Binding FavoriteGlyph}"
+                          ToolTip.Tip="{Binding FavoriteTip}"
+                          Background="Transparent" BorderThickness="0" Padding="6,0"
+                          FontSize="14" Foreground="#E0A94A" VerticalAlignment="Center" />
                 </Grid>
                 <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#B4BCC8" />
                 <TextBlock Text="{Binding ContentText}" FontSize="11" Foreground="#949CA9" />
@@ -144,7 +156,16 @@
           </ListBox.ItemTemplate>
         </ListBox>
 
-        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+        <!-- 有实例但被「只显示收藏」全挡住时的空状态 -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Spacing="6" Margin="24" IsVisible="{Binding IsFilteredEmpty}">
+          <TextBlock Text="没有收藏的实例" FontSize="14" Foreground="#B4BCC8"
+                     HorizontalAlignment="Center" />
+          <TextBlock Text="{Binding FavoritesFilterHint}" FontSize="11" Foreground="#949CA9"
+                     HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="0" Grid.RowSpan="2" VerticalAlignment="Center" HorizontalAlignment="Center"
                     Spacing="8" Margin="24" IsVisible="{Binding IsEmpty}">
           <TextBlock Text="还没有实例" FontSize="14" Foreground="#B4BCC8"
                      HorizontalAlignment="Center" />

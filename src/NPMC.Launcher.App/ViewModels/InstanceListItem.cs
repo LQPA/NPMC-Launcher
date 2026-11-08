@@ -1,4 +1,4 @@
-﻿using NPMC.Launcher.Core.Content;
+using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
 using NPMC.Launcher.Core.Paths;
 
@@ -125,8 +125,29 @@ public sealed class InstanceListItem : ObservableObject
         OnPropertyChanged(nameof(IsRunning));
     }
 
-    public int ModsCount { get => _modsCount; private set => SetProperty(ref _modsCount, value); }
-    public int ResourcePackCount { get => _resourcePackCount; private set => SetProperty(ref _resourcePackCount, value); }
+    private bool _isFavorite;
+
+    /// <summary>
+    /// 是否收藏。由 ViewModel 统一写（改动即时落到 favorites.json），
+    /// 列表上的星标与「只显示收藏」过滤都读它。
+    /// </summary>
+    public bool IsFavorite
+    {
+        get => _isFavorite;
+        set
+        {
+            if (!SetProperty(ref _isFavorite, value)) return;
+            OnPropertyChanged(nameof(FavoriteGlyph));
+            OnPropertyChanged(nameof(FavoriteTip));
+        }
+    }
+
+    /// <summary>实心星 = 已收藏，空心星 = 未收藏。</summary>
+    public string FavoriteGlyph => _isFavorite ? "★" : "☆";
+
+    public string FavoriteTip => _isFavorite ? "取消收藏" : "收藏这个实例";
+
+    public int ModsCount { get => _modsCount; private set => SetProperty(ref _modsCount, value); }    public int ResourcePackCount { get => _resourcePackCount; private set => SetProperty(ref _resourcePackCount, value); }
     public int ShaderPackCount { get => _shaderPackCount; private set => SetProperty(ref _shaderPackCount, value); }
     public int SaveCount { get => _saveCount; private set => SetProperty(ref _saveCount, value); }
 
