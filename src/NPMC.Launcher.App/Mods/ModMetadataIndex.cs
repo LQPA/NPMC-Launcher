@@ -61,7 +61,13 @@ public sealed class ModIndex
     private readonly Dictionary<string, (string? JarPath, string? ModId)> _classCache =
         new(StringComparer.Ordinal);
 
-    public ModIndex(IEnumerable<ModMetadata> mods, IEnumerable<string>? allJars = null)
+    /// <summary>包名 → jar 索引（懒建：只有在真要反查类名时才扫 jar，避免拖慢正常启动）。</summary>
+    private readonly Lazy<ClassIndex>? _classIndex;
+
+    public ModIndex(
+        IEnumerable<ModMetadata> mods,
+        IEnumerable<string>? allJars = null,
+        Func<ClassIndex>? classIndexFactory = null)
     {
         Mods = mods.ToList();
         _byId = new Dictionary<string, ModMetadata>(StringComparer.OrdinalIgnoreCase);
@@ -87,6 +93,11 @@ public sealed class ModIndex
 
         _allJars = (allJars ?? Mods.Select(m => m.JarPath).Distinct(StringComparer.OrdinalIgnoreCase))
             .ToList();
+
+        if (classIndexFactory is not null)
+        {
+            _classIndex = new Lazy<ClassIndex>(classIndexFactory);
+        }
     }
 
     public static ModIndex Empty { get; } = new(Array.Empty<ModMetadata>());
@@ -147,6 +158,36 @@ public sealed class ModIndex
             jarPath = cached.JarPath ?? string.Empty;
             mod = cached.ModId is null ? null : Find(cached.ModId);
             return cached.JarPath is not null;
+        }
+
+        // 有包名索引时先问它，作用有两个：
+        //   1) 索引里连这个类的包前缀都没有 ⇒ 任何 jar 都不可能提供它，直接给出否定（省掉几百个 zip）；
+        //   2) 有前缀 ⇒ 知道最可能的那个 jar，只打开它确认一次条目是否真的存在。
+        //      确认不到仍然退回全量扫描（包名匹配不等于这个类一定在里面）。
+        try
+        {
+            if (_classIndex?.Value is { } classIndex)
+            {
+                if (!classIndex.TryFindProvider(entryName, out var indexedJar, out _))
+                {
+                    _classCache[entryName] = (null, null);
+                    return false;
+                }
+
+                if (JarContains(indexedJar, entryName))
+                {
+                    var indexedOwner = Mods.FirstOrDefault(m =>
+                        string.Equals(m.JarPath, indexedJar, StringComparison.OrdinalIgnoreCase));
+                    _classCache[entryName] = (indexedJar, indexedOwner?.ModId);
+                    jarPath = indexedJar;
+                    mod = indexedOwner;
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // 索引建不起来（权限/损坏）就退回逐 jar 扫描
         }
 
         foreach (var jar in _allJars)
@@ -273,7 +314,10 @@ public static class ModMetadataIndex
 {
     private const int CacheVersion = 1;
 
-    public static ModIndex Build(string? modsDirectory, string? cacheFilePath = null)
+    public static ModIndex Build(
+        string? modsDirectory,
+        string? cacheFilePath = null,
+        string? classIndexCachePath = null)
     {
         if (string.IsNullOrWhiteSpace(modsDirectory) || !Directory.Exists(modsDirectory))
         {
@@ -329,7 +373,13 @@ public static class ModMetadataIndex
             SaveCache(cacheFilePath, freshEntries);
         }
 
-        return new ModIndex(mods, candidates.Select(c => c.FullName));
+        return new ModIndex(
+            mods,
+            candidates.Select(c => c.FullName),
+            // 包名索引懒建：只有诊断真要反查类名时才会扫 jar
+            classIndexCachePath is null
+                ? null
+                : () => ClassIndex.Build(candidates.Select(c => c.FullName), classIndexCachePath));
     }
 
     private static Dictionary<string, CacheEntry> LoadCache(string? cacheFilePath)

@@ -1546,7 +1546,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 // 建索引要读几百个 jar 的元数据，放在线程池里做，别卡住 UI；结果有磁盘缓存。
                 var modIndex = await Task.Run(() => ModMetadataIndex.Build(
                     instance.ModsDirectory,
-                    Path.Combine(_launcher.Root, "cache", "mod-index.json")));
+                    Path.Combine(_launcher.Root, "cache", "mod-index.json"),
+                    Path.Combine(_launcher.Root, "cache", "class-index.json")));
 
                 var report = LaunchDiagnostics.AnalyzeSession(
                     instance.Name,
