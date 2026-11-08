@@ -1766,14 +1766,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
         }
 
-        // 过滤后选中项可能被挡住：优先保持原来那个，否则退回第一行
+        // 过滤后选中项可能被挡住：优先保持原来那个，否则退回第一行。
+        // 必须走属性 setter —— 概览页的内存/窗口字段、启动按钮的可用性、
+        // 内容页签与能力判断全靠 setter 里那串刷新。直接改字段会导致
+        // 选中项变了但字段空白、启动按钮是灰的（2026-11-08 实测踩到）。
         var keep = selectedId is null
             ? null
             : VisibleInstances.FirstOrDefault(item =>
                 string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase));
 
-        _selectedInstance = keep ?? VisibleInstances.FirstOrDefault();
-        OnPropertyChanged(nameof(SelectedInstance));
+        var next = keep ?? VisibleInstances.FirstOrDefault();
+        if (!ReferenceEquals(next, _selectedInstance))
+        {
+            SelectedInstance = next;
+        }
+
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(ShowInstanceHeader));
         OnPropertyChanged(nameof(IsEmpty));
