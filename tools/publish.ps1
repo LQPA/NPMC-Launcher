@@ -102,8 +102,68 @@ if (-not (Test-Path $stagedExe)) {
     throw "发布完成但找不到 $stagedExe"
 }
 
-Get-ChildItem $staging -Force | Copy-Item -Destination $target -Recurse -Force
+# ---- 目标 exe 被占用就先关掉 ----
+# 用户在目标目录里开着启动器时，Copy-Item 会 Access denied —— 以前脚本照样打印「完成」，
+# 结果 E: 上还是旧版本（2026-11-08 实际踩到）。开发阶段允许直接结束进程，这里先礼后兵：
+# 先请求正常关闭窗口，3 秒不退再强杀，最长等 15 秒。
+$targetExe = Join-Path $target 'NPMC.Launcher.App.exe'
+
+function Test-FileLocked([string]$path) {
+    if (-not (Test-Path $path)) { return $false }
+    try {
+        $stream = [System.IO.File]::Open($path, 'Open', 'ReadWrite', 'None')
+        $stream.Close()
+        return $false
+    } catch {
+        return $true
+    }
+}
+
+if (Test-FileLocked $targetExe) {
+    $holders = @(Get-Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and [string]::Equals($_.Path, $targetExe, [StringComparison]::OrdinalIgnoreCase) })
+
+    if ($holders.Count -eq 0) {
+        Write-Host "! $targetExe 被占用，但没找到对应进程；继续尝试覆盖" -ForegroundColor Yellow
+    }
+    else {
+        foreach ($process in $holders) {
+            Write-Host "关闭占用中的启动器（PID $($process.Id)）…" -ForegroundColor Yellow
+            try { [void]$process.CloseMainWindow() } catch { }
+        }
+
+        $deadline = (Get-Date).AddSeconds(3)
+        while ((Get-Date) -lt $deadline -and (Test-FileLocked $targetExe)) { Start-Sleep -Milliseconds 200 }
+
+        if (Test-FileLocked $targetExe) {
+            foreach ($process in $holders) {
+                if ($process.HasExited) { continue }
+                Write-Host "强杀 PID $($process.Id)（开发阶段允许）" -ForegroundColor Yellow
+                try { $process.Kill() } catch { }
+            }
+
+            $deadline = (Get-Date).AddSeconds(12)
+            while ((Get-Date) -lt $deadline -and (Test-FileLocked $targetExe)) { Start-Sleep -Milliseconds 250 }
+        }
+
+        if (Test-FileLocked $targetExe) {
+            throw "$targetExe 仍被占用，无法覆盖。请手动关掉启动器后重试。"
+        }
+    }
+}
+
+try {
+    Get-ChildItem $staging -Force | Copy-Item -Destination $target -Recurse -Force
+}
+catch {
+    throw "覆盖 $target 失败：$($_.Exception.Message)`n目标目录可能还开着启动器或游戏进程，先关掉再重试。"
+}
 $exe = Join-Path $target 'NPMC.Launcher.App.exe'
+
+# 覆盖后必须核对哈希：以前被占用时复制没生效，脚本却照样打印「完成」。
+if ((Get-FileHash $stagedExe -Algorithm SHA256).Hash -ne (Get-FileHash $exe -Algorithm SHA256).Hash) {
+    throw "复制后哈希不一致：$exe 仍是旧版本（可能被占用），发布中止。"
+}
 
 # 便携启动脚本：复制到别的目录后，先抬 Medium 再启动，避免 Low 权限
 $startScript = Join-Path $repoRoot 'tools\start.cmd'
