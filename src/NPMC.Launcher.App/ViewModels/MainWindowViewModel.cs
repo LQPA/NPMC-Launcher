@@ -6099,6 +6099,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ModpackProgressPercent = 0;
             ModpackProgressIndeterminate = true;
 
+            // 装不上就别先下几十上百 MB 的本体：先确认这个 (游戏版本, 加载器版本) 组合有 profile。
+            // 实测踩过：Fabulously Optimized 14.1.2 声明 26.2 + fabric-loader 0.20.1，
+            // 以前的代码把 26.x 的 intermediary 占位符当成"不支持"，白下了 86 MB 才报错。
+            if (plan.Index.IsFabric)
+            {
+                var preflight = await new FabricLoaderInstaller(_http)
+                    .TryCheckInstallableAsync(gameVersion, plan.Index.LoaderVersion, cancellationToken);
+
+                if (preflight is not null)
+                {
+                    ModpackStatus = $"装不了：{preflight}。换一个整合包版本（游戏版本更低、加载器已发布），"
+                                    + "或等 Fabric 支持后再装。";
+                    return;
+                }
+            }
+
             // 本体下载：与版本下载同一套进度
             var bodyProgress = new Progress<MinecraftInstallProgress>(p =>
             {

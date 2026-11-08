@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Text.Json;
 using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Mods;
@@ -86,13 +86,28 @@ public sealed class FabricLoaderInstaller
         return ParseLoaderVersions(json);
     }
 
-    /// <summary>解析 loader 列表，只保留真正有 intermediary 映射的项。</summary>
+    /// <summary>
+    /// 解析 loader 列表。
+    ///
+    /// 有两类「intermediary 不写真实版本」的情况，不能混为一谈：
+    ///   a. 部分条目是占位符 0.0.0（例如某些预览版还没发布映射）——此时列表里**有**真实映射的条目，
+    ///      只保留那些，避免用户选中装不起来的组合；
+    ///   b. 该游戏版本的条目**全部**是 0.0.0（26.x 就是这样：26.1.2 / 26.2 / 26.3 / 26.4-快照
+    ///      的 255 条全是 0.0.0，但 /versions/loader/26.2/0.20.1/profile/json 正常返回）——
+    ///      这说明这个接口对该版本族不提供映射信息，而不是"不支持"。
+    ///      此时必须放行，否则 26.x 的 Fabric 会被整体判死（2026-11-08 实际踩到：
+    ///      整合包 Fabulously Optimized 14.1.2 声明 26.2 + fabric-loader 0.20.1，
+    ///      却报「Fabric 没有适用于 26.2 的加载器版本」）。
+    ///
+    /// 真正「这个组合装不装得上」由 <see cref="InstallAsync"/> 里请求 profile/json 来定夺。
+    /// </summary>
     public static IReadOnlyList<FabricLoaderVersion> ParseLoaderVersions(string json)
     {
         using var document = JsonDocument.Parse(json);
-        var versions = new List<FabricLoaderVersion>();
+        var mapped = new List<FabricLoaderVersion>();
+        var all = new List<FabricLoaderVersion>();
 
-        if (document.RootElement.ValueKind != JsonValueKind.Array) return versions;
+        if (document.RootElement.ValueKind != JsonValueKind.Array) return mapped;
 
         foreach (var element in document.RootElement.EnumerateArray())
         {
@@ -105,16 +120,19 @@ public sealed class FabricLoaderInstaller
 
             if (string.IsNullOrWhiteSpace(version)) continue;
 
-            // 没有中介层映射 = 这个游戏版本装不上 Fabric
-            if (!HasIntermediary(element, out _)) continue;
-
             var stable = loader.TryGetProperty("stable", out var stableElement)
                          && stableElement.ValueKind == JsonValueKind.True;
 
-            versions.Add(new FabricLoaderVersion(version!, stable));
+            all.Add(new FabricLoaderVersion(version!, stable));
+
+            if (HasIntermediary(element, out _))
+            {
+                mapped.Add(new FabricLoaderVersion(version!, stable));
+            }
         }
 
-        return versions;
+        // 一条真实映射都没有 = 该接口这个版本族不提供映射信息，按全量返回（见上面的注释 b）
+        return mapped.Count > 0 ? mapped : all;
     }
 
     /// <summary>判断条目是否带真实的中介层映射（0.0.0 是占位符）。</summary>
@@ -135,6 +153,40 @@ public sealed class FabricLoaderInstaller
 
 
     /// <summary>
+    /// 装之前的预检：这个 (游戏版本, 加载器版本) 组合到底装不装得上。
+    /// 返回 null 表示可以装；否则返回一句可以直接展示给用户的原因。
+    ///
+    /// 存在的意义：整合包安装会先下载几十~上百 MB 的游戏本体，
+    /// 装不上就应该在下载前说清楚，而不是下完才报错。
+    /// </summary>
+    public async Task<string?> TryCheckInstallableAsync(
+        string gameVersion,
+        string? loaderVersion,
+        CancellationToken cancellationToken = default)
+    {
+        if (loaderVersion is null)
+        {
+            var versions = await GetLoaderVersionsAsync(gameVersion, cancellationToken).ConfigureAwait(false);
+            return versions.Count == 0
+                ? $"Fabric 没有适用于 {gameVersion} 的加载器版本"
+                : null;
+        }
+
+        var profileUrl = $"{LoaderMetadata}/{Uri.EscapeDataString(gameVersion)}/"
+                         + $"{Uri.EscapeDataString(loaderVersion)}/profile/json";
+        try
+        {
+            await _http.GetStringAsync(profileUrl, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            return $"Fabric 加载器 {loaderVersion} 没有 {gameVersion} 的 profile"
+                   + $"（HTTP {ex.StatusCode:D}），这个组合装不起来";
+        }
+    }
+
+    /// <summary>
     /// 安装加载器：写入 profile JSON 并下载它声明的库。
     /// </summary>
     /// <param name="loaderVersion">为空则取最新的 stable 版本。</param>
@@ -146,18 +198,38 @@ public sealed class FabricLoaderInstaller
         CancellationToken cancellationToken = default)
     {
         var versions = await GetLoaderVersionsAsync(gameVersion, cancellationToken).ConfigureAwait(false);
-        if (versions.Count == 0)
-            throw new InvalidOperationException($"Fabric 没有适用于 {gameVersion} 的加载器版本");
 
-        var chosen = loaderVersion is null
-            ? versions.FirstOrDefault(version => version.Stable) ?? versions[0]
-            : versions.FirstOrDefault(version => version.Version == loaderVersion)
-              ?? throw new InvalidOperationException($"Fabric 加载器 {loaderVersion} 不适用于 {gameVersion}");
+        FabricLoaderVersion? chosen;
+        if (loaderVersion is null)
+        {
+            if (versions.Count == 0)
+                throw new InvalidOperationException($"Fabric 没有适用于 {gameVersion} 的加载器版本");
+
+            chosen = versions.FirstOrDefault(version => version.Stable) ?? versions[0];
+        }
+        else
+        {
+            // 钉了版本就信它：列表里查不到（例如 26.x 的 intermediary 全是占位符，或整合包钉了一个
+            // 比 meta 列表更新的构建）不等于装不上 —— 真正的判据是下面 profile/json 能否取到。
+            chosen = versions.FirstOrDefault(version => version.Version == loaderVersion)
+                     ?? new FabricLoaderVersion(loaderVersion, Stable: true);
+        }
 
         var profileUrl = $"{LoaderMetadata}/{Uri.EscapeDataString(gameVersion)}/"
                          + $"{Uri.EscapeDataString(chosen.Version)}/profile/json";
 
-        var profileJson = await _http.GetStringAsync(profileUrl, cancellationToken).ConfigureAwait(false);
+        string profileJson;
+        try
+        {
+            profileJson = await _http.GetStringAsync(profileUrl, cancellationToken).ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new InvalidOperationException(
+                $"Fabric 加载器 {chosen.Version} 没有 {gameVersion} 的 profile（HTTP {ex.StatusCode:D}），"
+                + "这个组合装不起来：换一个加载器版本，或换一个游戏版本更低的整合包版本。",
+                ex);
+        }
 
         using var document = JsonDocument.Parse(profileJson);
         var root = document.RootElement;

@@ -77,4 +77,25 @@ public class FabricLoaderVersionParsingTests
     {
         Assert.Empty(FabricLoaderInstaller.ParseLoaderVersions("[]"));
     }
+    /// <summary>
+    /// 26.x 的接口会把该游戏版本所有条目的 intermediary 都写成占位符 0.0.0，
+    /// 但 /versions/loader/26.2/0.20.1/profile/json 正常返回 —— 说明这个接口对 26.x
+    /// 不提供映射信息，而不是"装不上"。全部是占位符时必须放行，否则 26.x 的 Fabric
+    /// 会被整体判死（2026-11-08 实测：Fabulously Optimized 14.1.2 报「没有适用于 26.2 的加载器」）。
+    /// </summary>
+    [Fact]
+    public void Keeps_all_entries_when_every_intermediary_is_the_placeholder()
+    {
+        const string response = """
+        [
+          { "loader": { "version": "0.20.1", "stable": true }, "intermediary": { "version": "0.0.0" }, "launcherMeta": {} },
+          { "loader": { "version": "0.20.0", "stable": true }, "intermediary": { "version": "0.0.0" }, "launcherMeta": {} }
+        ]
+        """;
+
+        var versions = FabricLoaderInstaller.ParseLoaderVersions(response);
+
+        Assert.Equal(2, versions.Count);
+        Assert.Equal("0.20.1", versions[0].Version);
+    }
 }
