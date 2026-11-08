@@ -4944,7 +4944,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// 这样用户知道「有这个功能但暂时不能用」，也不会误入一个半成品页面。
     /// 恢复开发时把这里改成 true 即可，不需要改任何界面或命令。
     /// </summary>
-    public const bool P2PFeatureEnabled = false;
+    public static readonly bool P2PFeatureEnabled = false;
 
     public bool IsP2PEnabled => P2PFeatureEnabled;
 
