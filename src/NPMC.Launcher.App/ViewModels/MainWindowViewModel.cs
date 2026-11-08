@@ -170,7 +170,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ShowInstancesCommand = new RelayCommand(() => Navigate(NavPage.Instances));
         ShowDownloadsCommand = new RelayCommand(() => Navigate(NavPage.Downloads));
         ShowSettingsCommand = new RelayCommand(() => Navigate(NavPage.Settings));
-        ShowP2PCommand = new RelayCommand(() => Navigate(NavPage.P2P));
+        // 联机入口保留但不可用：CanExecute 恒为 false，按钮因此是灰的
+        ShowP2PCommand = new RelayCommand(() => Navigate(NavPage.P2P), () => P2PFeatureEnabled);
         ResetSettingsCommand = new AsyncRelayCommand(ResetSettingsAsync);
         OpenSettingsFolderCommand = new AsyncRelayCommand(OpenSettingsFolder, () => true, OnOpenError);
         InstallRuntimeCommand = new AsyncRelayCommand(InstallRuntimeAsync, () => CanInstallRuntime);
@@ -1145,6 +1146,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// </summary>
     private PreparedLaunch InjectP2PAgentArguments(PreparedLaunch prepared)
     {
+        // 联机模块关闭时连注入也一并停掉：否则上一次留下的 p2p/agent.json
+        // 会让普通启动莫名带上 javaagent（残留 token 也是隐患）。
+        if (!P2PFeatureEnabled) return prepared;
+
         var contextPath = Path.Combine(_launcher.Root, "p2p", "agent.json");
         var activeRoomPath = Path.Combine(_launcher.Root, "p2p", "active-room.txt");
 
@@ -4932,11 +4937,31 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string LaunchDiagnosisAccent =>
         _launchDiagnosis?.Severity == LaunchDiagnosisSeverity.Error ? "#E06C75" : "#E0A94A";
 
+    /// <summary>
+    /// 联机（P2P）模块是否开放。
+    ///
+    /// 开发已暂停，但代码与界面都保留：入口在导航栏里可见、置灰、点了没反应，
+    /// 这样用户知道「有这个功能但暂时不能用」，也不会误入一个半成品页面。
+    /// 恢复开发时把这里改成 true 即可，不需要改任何界面或命令。
+    /// </summary>
+    public const bool P2PFeatureEnabled = false;
+
+    public bool IsP2PEnabled => P2PFeatureEnabled;
+
+    public string P2PToolTip => P2PFeatureEnabled ? "联机大厅" : "联机模块开发中，暂未开放";
+
     public bool IsP2PPage => _navPage == NavPage.P2P;
 
     public string P2PNavBackground => IsP2PPage ? "#2B3A55" : "Transparent";
 
-    public string P2PNavForeground => IsP2PPage ? "#DCE4F5" : "#949CA9";
+    public string P2PNavForeground => !P2PFeatureEnabled
+        ? "#5A616B"
+        : IsP2PPage ? "#DCE4F5" : "#949CA9";
+
+    /// <summary>导航栏「P2P」小徽标的配色：模块关闭时一并置灰，避免看着像"可用"。</summary>
+    public string P2PBadgeBackground => P2PFeatureEnabled ? "#2E6F52" : "#2A2E35";
+
+    public string P2PBadgeForeground => P2PFeatureEnabled ? "#DDF5E8" : "#6B7280";
 
     /// <summary>当前是否在实例页（实例的标题与内容页签只在这个页面显示）。</summary>
     public bool IsInstancePage => _navPage == NavPage.Instances;
@@ -5548,6 +5573,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void Navigate(NavPage page)
     {
+        // 联机模块开发暂停：入口保留（可见但置灰），任何路径都不许真的切进去
+        if (page == NavPage.P2P && !P2PFeatureEnabled) return;
+
         if (_navPage == page) return;
 
         _navPage = page;

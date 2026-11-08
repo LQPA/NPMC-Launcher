@@ -94,12 +94,14 @@
           </Button>
 
           <Button Command="{Binding ShowP2PCommand}"
+                  IsEnabled="{Binding IsP2PEnabled}"
+                  ToolTip.Tip="{Binding P2PToolTip}"
                   HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                   Background="{Binding P2PNavBackground}" BorderThickness="0" Padding="12,9">
             <Grid ColumnDefinitions="*,Auto">
               <TextBlock Text="联机" FontSize="13" Foreground="{Binding P2PNavForeground}" />
-              <Border Grid.Column="1" Background="#2E6F52" CornerRadius="3" Padding="5,1">
-                <TextBlock Text="P2P" FontSize="9" Foreground="#DDF5E8" />
+              <Border Grid.Column="1" Background="{Binding P2PBadgeBackground}" CornerRadius="3" Padding="5,1">
+                <TextBlock Text="P2P" FontSize="9" Foreground="{Binding P2PBadgeForeground}" />
               </Border>
             </Grid>
           </Button>

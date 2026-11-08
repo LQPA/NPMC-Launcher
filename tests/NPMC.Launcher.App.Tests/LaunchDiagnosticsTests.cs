@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using NPMC.Launcher.App.Diagnostics;
 using NPMC.Launcher.App.Mods;
+using NPMC.Launcher.App.ViewModels;
 using Xunit;
 
 namespace NPMC.Launcher.App.Tests;
@@ -237,6 +238,17 @@ public class LaunchDiagnosticsTests
         Assert.True(index.Contains("minecraft"));
         Assert.True(index.Contains("forge"));
         Assert.False(index.Contains("embeddium"));
+    }
+
+    /// <summary>
+    /// 联机模块开发暂停：入口保留在导航栏里，但置灰、点了没反应。
+    /// 这条断言把「暂不开放」钉在代码里 —— 要放开时得同时改这里，
+    /// 免得顺手一改就悄悄上线。
+    /// </summary>
+    [Fact]
+    public void P2PEntranceStaysDisabledWhileDevelopmentIsPaused()
+    {
+        Assert.False(MainWindowViewModel.P2PFeatureEnabled);
     }
 
     private static string CreateTempModsDirectory()
