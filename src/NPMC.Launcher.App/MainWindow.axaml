@@ -1592,19 +1592,39 @@
             DragDrop.AllowDrop="True"
             DragDrop.DragOver="OnModpackDragOver"
             DragDrop.Drop="OnModpackDrop">
-        <StackPanel Grid.Row="0" Spacing="4">
-          <TextBlock Text="整合包" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
-          <TextBlock Text="在线搜索，或把 .mrpack / CurseForge 整合包 .zip 拖到本页任意位置安装"
-                     FontSize="12" Foreground="#949CA9" />
-          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-            <TextBlock Text="安装方式" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
-            <ComboBox SelectedIndex="{Binding ModpackModeIndex, Mode=TwoWay}"
-                      Width="120" FontSize="12">
-              <ComboBoxItem Content="在线搜索" />
-              <ComboBoxItem Content="本地文件" />
-            </ComboBox>
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Spacing="4">
+            <TextBlock Text="整合包" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
+            <TextBlock Text="在线搜索，或把 .mrpack / CurseForge 整合包 .zip 拖到本页任意位置安装"
+                       FontSize="12" Foreground="#949CA9" />
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+              <TextBlock Text="安装方式" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
+              <ComboBox SelectedIndex="{Binding ModpackModeIndex, Mode=TwoWay}"
+                        Width="120" FontSize="12">
+                <ComboBoxItem Content="在线搜索" />
+                <ComboBoxItem Content="本地文件" />
+              </ComboBox>
+            </StackPanel>
           </StackPanel>
-        </StackPanel>
+
+          <!-- 状态放在标题右侧：不用滚到底就能看到进度，滚动区也少一张卡片 -->
+          <Border Grid.Column="1" Width="360" Margin="16,0,0,0" VerticalAlignment="Top"
+                  Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                  CornerRadius="8" Padding="12,10">
+            <StackPanel Spacing="4">
+              <TextBlock Text="状态" FontSize="11" Foreground="#949CA9" />
+              <TextBlock Text="{Binding ModpackStatus}" FontSize="11" Foreground="#B4BCC8"
+                         TextWrapping="Wrap" MaxHeight="64" ToolTip.Tip="{Binding ModpackStatus}" />
+              <TextBlock Text="{Binding ModpackProgress}" FontSize="11" Foreground="#7BC47F"
+                         TextWrapping="Wrap" MaxHeight="44" />
+
+              <ProgressBar Value="{Binding ModpackProgressPercent}" Minimum="0" Maximum="100"
+                           IsIndeterminate="{Binding ModpackProgressIndeterminate}"
+                           IsVisible="{Binding IsModpackBusy}"
+                           Height="6" Margin="0,4,0,0" />
+            </StackPanel>
+          </Border>
+        </Grid>
 
         <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
           <StackPanel Spacing="14">
@@ -1716,21 +1736,6 @@
               </StackPanel>
             </Border>
 
-            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
-                    CornerRadius="8" Padding="16">
-              <StackPanel Spacing="6">
-                <TextBlock Text="状态" FontSize="12" Foreground="#B4BCC8" />
-                <TextBlock Text="{Binding ModpackStatus}" FontSize="11" Foreground="#B4BCC8"
-                           TextWrapping="Wrap" />
-                <TextBlock Text="{Binding ModpackProgress}" FontSize="11" Foreground="#7BC47F"
-                           TextWrapping="Wrap" />
-
-                <ProgressBar Value="{Binding ModpackProgressPercent}" Minimum="0" Maximum="100"
-                             IsIndeterminate="{Binding ModpackProgressIndeterminate}"
-                             IsVisible="{Binding IsModpackBusy}"
-                             Height="6" Margin="0,6,0,0" />
-              </StackPanel>
-            </Border>
             <!-- 作者禁止 API 下载的模组：浏览器下载 + SHA1 校验导入 -->
             <Border Background="#2A2618" BorderBrush="#6B5A2E" BorderThickness="1"
                     CornerRadius="8" Padding="16" IsVisible="{Binding HasBlockedMods}">
