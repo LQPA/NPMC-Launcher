@@ -2837,7 +2837,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var problems = catalog.Validate();
 
             var status = Instances.Count == 0
-                ? "还没有实例。可用 npmc instance create 创建（界面创建在后续阶段接入）。"
+                ? "还没有实例：去「下载」页选版本并「下载并创建实例」，或把整合包拖到下载页。"
                 : problems.Count > 0
                     ? $"共 {Instances.Count} 个实例，其中 {problems.Count} 项数据有问题"
                     : $"共 {Instances.Count} 个实例";
@@ -4591,7 +4591,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     offset: offset,
                     sortField: sort.CurseForgeSortField);
 
-                _searchHasNextPage = hits.Count >= SearchPageSize;
+                // 多取 1 条来判断"还有没有下一页"：恰好整页时若用 >=，
+                // 「下一页」会亮着，点进去却是一页空白（2026-10-31 已知问题）。
+                _searchHasNextPage = hits.Count > SearchPageSize;
                 if (hits.Count > SearchPageSize) hits = hits.Take(SearchPageSize).ToList();
 
                 var pageSegment = kind == ContentKind.ResourcePack ? "texture-packs" : "mc-mods";
@@ -4620,7 +4622,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     categories: modrinthCategories,
                     secondaryCategory: secondary);
 
-                _searchHasNextPage = hits.Count >= SearchPageSize;
+                // 同上：用"多取的那 1 条"判断是否真的有下一页
+                _searchHasNextPage = hits.Count > SearchPageSize;
                 if (hits.Count > SearchPageSize) hits = hits.Take(SearchPageSize).ToList();
 
                 foreach (var hit in hits)

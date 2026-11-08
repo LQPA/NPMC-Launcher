@@ -187,9 +187,13 @@
                     Spacing="8" Margin="24" IsVisible="{Binding IsEmpty}">
           <TextBlock Text="还没有实例" FontSize="14" Foreground="#B4BCC8"
                      HorizontalAlignment="Center" />
-          <TextBlock Text="npmc instance create 原版生存 --version 1.20.1"
+          <TextBlock Text="去「下载」页选择一个游戏版本，点「下载并创建实例」即可；也可以直接拖入整合包。"
                      FontSize="11" Foreground="#949CA9" HorizontalAlignment="Center"
-                     TextWrapping="Wrap" />
+                     TextWrapping="Wrap" TextAlignment="Center" MaxWidth="280" />
+          <Button Content="去下载页" Command="{Binding ShowDownloadsCommand}"
+                  FontSize="12" Height="30" Padding="16,0" HorizontalAlignment="Center"
+                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                  Margin="0,4,0,0" />
         </StackPanel>
       </Grid>
 
