@@ -125,7 +125,8 @@
             <TextBox Text="{Binding InstanceSearchText, Mode=TwoWay}"
                      FontSize="12" Height="28" Padding="8,0"
                      VerticalContentAlignment="Center"
-                     Watermark="搜索实例 / 版本号" />
+                     KeyDown="OnInstanceSearchKeyDown"
+                     Watermark="搜索实例 / 版本号（Esc 清空）" />
             <CheckBox Grid.Column="1" Content="只显示收藏" FontSize="12" Margin="8,0,0,0"
                       VerticalAlignment="Center"
                       IsChecked="{Binding ShowFavoritesOnly, Mode=TwoWay}" />

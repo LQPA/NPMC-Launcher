@@ -120,6 +120,20 @@ public partial class MainWindow : Window
 
         e.Handled = true;
     }
+    /// <summary>
+    /// 实例搜索框：Esc 清空。
+    /// 清空后把焦点交回列表，键盘选实例不用再点一下鼠标。
+    /// </summary>
+    private void OnInstanceSearchKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || sender is not TextBox box) return;
+
+        box.Text = string.Empty;
+        if (Vm is { } vm) vm.InstanceSearchText = string.Empty;
+        InstanceList?.Focus();
+
+        e.Handled = true;
+    }
     /// <summary>指针下面的那一行（用可视树里的 ListBoxItem 命中，比按行高估算可靠）。</summary>
     private InstanceListItem? FindInstanceAt(Point position)
     {
