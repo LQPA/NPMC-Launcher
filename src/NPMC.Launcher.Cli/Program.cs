@@ -1,5 +1,9 @@
 using System.Diagnostics;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
@@ -23,6 +27,11 @@ using NPMC.Launcher.Infrastructure.Skins;
 using NPMC.Launcher.Infrastructure.Network;
 using NPMC.Launcher.Infrastructure.Runtime;
 using NPMC.Launcher.Infrastructure.Storage;
+using NPMC.P2P.DeviceIdentity.Identity;
+using NPMC.P2P.DeviceIdentity.NamedPipe;
+using NPMC.P2P.DeviceIdentity.Tpm;
+using NPMC.P2P.Contracts;
+using NPMC.P2P.Contracts.Signing;
 
 namespace NPMC.Launcher.Cli;
 
@@ -53,6 +62,7 @@ internal static class Program
                 "net"      => await NetAsync(args[1..]),
                 "mods"     => await ModsAsync(args[1..]),
                 "loader"   => await LoaderAsync(args[1..]),
+                "p2p"      => await P2PAsync(args[1..]),
                 _          => Unknown(args[0]),
             };
         }
@@ -367,10 +377,22 @@ internal static class Program
         var logConfig = version.Logging?.Client?.File is { } f ? paths.LogConfigFile(f.Id) : null;
         var settings = instance?.Settings ?? new InstanceSettings();
 
-        // 账号解析：实例指定 → 全局默认 → 第一个；没有账号时退回离线探针名
+        // 账号解析：--account 指定 → 实例指定 → 全局默认 → 第一个；没有账号时退回离线探针名
         var accounts = new AccountCatalog(await new JsonAccountStore(launcher).LoadAsync());
-        var accountId = settings.AccountId ?? launcherSettings.DefaultAccountId;
-        var account = accounts.Find(accountId) ?? accounts.Accounts.FirstOrDefault();
+        PlayerAccount? account;
+        var accountSelector = Opt(args, "--account");
+        if (!string.IsNullOrWhiteSpace(accountSelector))
+        {
+            account = accounts.Find(accountSelector)
+                      ?? accounts.Accounts.FirstOrDefault(a =>
+                          string.Equals(a.Username, accountSelector, StringComparison.OrdinalIgnoreCase))
+                      ?? throw new InvalidOperationException($"找不到账号 '{accountSelector}'。");
+        }
+        else
+        {
+            var accountId = settings.AccountId ?? launcherSettings.DefaultAccountId;
+            account = accounts.Find(accountId) ?? accounts.Accounts.FirstOrDefault();
+        }
 
         if (account is not null) Info($"账号     {account.Username} ({account.KindText})");
 
@@ -410,6 +432,23 @@ internal static class Program
             logConfigFile: logConfig,
             gameDirectory: layout?.GameDirectory);
 
+        // 仅用于 P2P / 联机验证：把快速进入参数透传给 Minecraft。
+        var extraGameArguments = new List<string>();
+        if (Opt(args, "--server") is { Length: > 0 } serverAddress)
+        {
+            extraGameArguments.Add("--quickPlayMultiplayer");
+            extraGameArguments.Add(serverAddress);
+        }
+
+        if (Opt(args, "--world") is { Length: > 0 } worldName)
+        {
+            extraGameArguments.Add("--quickPlaySingleplayer");
+            extraGameArguments.Add(worldName);
+        }
+
+        if (extraGameArguments.Count > 0)
+            plan = plan with { GameArguments = plan.GameArguments.Concat(extraGameArguments).ToList() };
+
         // 离线皮肤：账号选了皮肤且 authlib 支持时挂 javaagent（不改实例、不装模组）
         var skinAgent = SkinAgentProvider.TryCreateArgument(launcher, version, account, paths.ClientJar(rootVersionId));
 
@@ -427,6 +466,51 @@ internal static class Program
         if (settings.ExtraJvmArguments.Count > 0)
             plan = plan with { JvmArguments = plan.JvmArguments.Concat(settings.ExtraJvmArguments).ToList() };
 
+        // 仅用于联机/P2P 验证：允许额外注入 JVM 参数（例如测试用的 -javaagent）。
+        foreach (var extraJvmArgument in GetAll(args, "--jvm-arg"))
+            plan = plan with { JvmArguments = plan.JvmArguments.Concat(new[] { extraJvmArgument }).ToList() };
+
+        // 主机侧：自动注入 loopback Agent（可选离线 Agent），不再手工传 -javaagent。
+        if (Has(args, "--p2p-host"))
+        {
+            var loopbackAgent = Opt(args, "--p2p-loopback-agent")
+                                ?? Path.Combine(AppContext.BaseDirectory, "agent", "nmpc-loopback-agent.jar");
+            if (!File.Exists(loopbackAgent))
+            {
+                throw new InvalidOperationException(
+                    $"--p2p-host 需要 --p2p-loopback-agent 指向 nmpc-loopback-agent.jar：{loopbackAgent}");
+            }
+
+            plan = plan with
+            {
+                JvmArguments = plan.JvmArguments.Concat(new[]
+                {
+                    $"-javaagent:{Path.GetFullPath(loopbackAgent)}",
+                }).ToList(),
+            };
+
+            if (Opt(args, "--p2p-offline-agent") is { Length: > 0 } offlineAgent)
+            {
+                if (!File.Exists(offlineAgent))
+                {
+                    throw new InvalidOperationException($"找不到离线 Agent：{offlineAgent}");
+                }
+
+                plan = plan with
+                {
+                    JvmArguments = plan.JvmArguments.Concat(new[]
+                    {
+                        $"-javaagent:{Path.GetFullPath(offlineAgent)}",
+                    }).ToList(),
+                };
+            }
+
+            Section("P2P 主机");
+            Info($"Loopback  {Path.GetFullPath(loopbackAgent)}");
+            if (Opt(args, "--p2p-offline-agent") is { Length: > 0 } offline)
+                Info($"离线模式  {Path.GetFullPath(offline)}");
+        }
+
         if (!File.Exists(plan.JavaPath))
         {
             Error($"找不到 Java: {plan.JavaPath}");
@@ -441,6 +525,50 @@ internal static class Program
         }
 
         Directory.CreateDirectory(paths.NativesDir(rootVersionId));
+
+        IdentityPipeServer? p2pPipe = null;
+        TpmDeviceKey? p2pKey = null;
+        if (Has(args, "--p2p-auth"))
+        {
+            var agentPath = Opt(args, "--p2p-agent");
+            if (string.IsNullOrWhiteSpace(agentPath) || !File.Exists(agentPath))
+                throw new InvalidOperationException("--p2p-auth 需要 --p2p-agent 指向 nmpc-p2p-agent.jar");
+
+            var roomId = Opt(args, "--p2p-room")
+                         ?? throw new InvalidOperationException("--p2p-auth 需要 --p2p-room");
+            var nodeId = Opt(args, "--p2p-node")
+                         ?? throw new InvalidOperationException("--p2p-auth 需要 --p2p-node");
+            var profileId = Opt(args, "--p2p-profile")
+                            ?? throw new InvalidOperationException("--p2p-auth 需要 --p2p-profile");
+            var sessionId = Opt(args, "--p2p-session")
+                            ?? throw new InvalidOperationException("--p2p-auth 需要 --p2p-session");
+
+            p2pKey = TpmDeviceKey.OpenOrCreate(Opt(args, "--p2p-key") ?? TpmLocalCheck.DefaultKeyName);
+            var binding = GameSessionBinding.Create(roomId, nodeId, profileId, sessionId);
+            p2pPipe = new IdentityPipeServer(
+                new PipeServerOptions
+                {
+                    Binding = binding,
+                    RequireLauncherParent = true,
+                    MaxSignaturesPerMinute = 60,
+                },
+                new TpmAuthChallengeSigner(p2pKey));
+
+            p2pPipe.Start();
+
+            plan = plan with
+            {
+                JvmArguments = plan.JvmArguments.Concat(new[]
+                {
+                    $"-javaagent:{Path.GetFullPath(agentPath)}=pipe={p2pPipe.PipeName};token={binding.SessionToken}",
+                }).ToList(),
+            };
+
+            Section("P2P 认证");
+            Info($"绑定  {binding.RoomId}/{binding.NodeId}/{binding.ProfileId}/{binding.GameSessionId}");
+            Info($"设备  {p2pKey.DeviceId}");
+            Info($"管道  {p2pPipe.PipeName}");
+        }
 
         Section("启动");
         Info($"java  {plan.JavaPath}");
@@ -459,17 +587,25 @@ internal static class Program
         };
         foreach (var a in plan.ToProcessArguments()) psi.ArgumentList.Add(a);
 
-        using var process = Process.Start(psi) ?? throw new InvalidOperationException("无法启动 java 进程");
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) Console.WriteLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) Console.Error.WriteLine(e.Data); };
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        await process.WaitForExitAsync();
+        try
+        {
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException("无法启动 java 进程");
+            process.OutputDataReceived += (_, e) => { if (e.Data is not null) Console.WriteLine(e.Data); };
+            process.ErrorDataReceived += (_, e) => { if (e.Data is not null) Console.Error.WriteLine(e.Data); };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            await process.WaitForExitAsync();
 
-        if (process.ExitCode == 0) Success("游戏正常退出（退出码 0）");
-        else Error($"游戏退出码 {process.ExitCode}");
+            if (process.ExitCode == 0) Success("游戏正常退出（退出码 0）");
+            else Error($"游戏退出码 {process.ExitCode}");
 
-        return process.ExitCode;
+            return process.ExitCode;
+        }
+        finally
+        {
+            if (p2pPipe is not null) await p2pPipe.DisposeAsync();
+            p2pKey?.Dispose();
+        }
     }
 
     // ------------------------------------------------------------- instance
@@ -2301,6 +2437,15 @@ internal static class Program
         return null;
     }
 
+    private static IReadOnlyList<string> GetAll(string[] args, string name)
+    {
+        var values = new List<string>();
+        for (var i = 0; i < args.Length - 1; i++)
+            if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
+                values.Add(args[i + 1]);
+        return values;
+    }
+
     private static int OptInt(string[] args, string name, int fallback) =>
         int.TryParse(Opt(args, name), out var v) ? v : fallback;
 
@@ -2333,6 +2478,246 @@ internal static class Program
         return 1;
     }
 
+    // ---------------------------------------------------------------- p2p
+
+    private static async Task<int> P2PAsync(string[] args)
+    {
+        if (args.Length > 0 && string.Equals(args[0], "device-id", StringComparison.OrdinalIgnoreCase))
+        {
+            return P2PDeviceId(args[1..]);
+        }
+
+        if (args.Length > 0 && string.Equals(args[0], "agent-host", StringComparison.OrdinalIgnoreCase))
+        {
+            return await P2PAgentHostAsync(args[1..]);
+        }
+
+        if (args.Length == 0 || !string.Equals(args[0], "enroll", StringComparison.OrdinalIgnoreCase))
+        {
+            Error("p2p 需要子命令：enroll / device-id / agent-host");
+            return 1;
+        }
+
+        return await P2PEnrollAsync(args[1..]);
+    }
+
+    private static async Task<int> P2PAgentHostAsync(string[] args)
+    {
+        var root = Opt(args, "--root") ?? ".data";
+        var output = Opt(args, "--out") ?? Path.Combine(root, "p2p", "agent.json");
+        var room = Opt(args, "--room") ?? "room-auth";
+        var node = Opt(args, "--node") ?? "node-auth";
+        var profile = Opt(args, "--profile") ?? "profile-auth";
+        var session = Opt(args, "--session") ?? "session-auth";
+        var agent = Opt(args, "--agent");
+        var keyName = Opt(args, "--key") ?? TpmLocalCheck.DefaultKeyName;
+
+        if (string.IsNullOrWhiteSpace(agent) || !File.Exists(agent))
+        {
+            Error("p2p agent-host 需要 --agent <nmpc-p2p-agent.jar>");
+            return 1;
+        }
+
+        try
+        {
+            using var key = TpmDeviceKey.OpenOrCreate(keyName);
+            // 管道名/token 由房间和设备确定性生成：agent-host 重启后，
+            // 已经启动的游戏仍能连回同名管道，不会因为 token 轮换变成 not_understood。
+            var tokenBytes = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                $"nmpc-agent|{room}|{node}|{profile}|{session}|{key.DeviceId}"));
+            var token = Base64Url.Encode(tokenBytes);
+            var pipeName = "nmpc-p2p-" + Convert.ToHexString(SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes($"pipe|{room}|{key.DeviceId}")))[..16].ToLowerInvariant();
+            var binding = GameSessionBinding.CreateWithToken(room, node, profile, session, token);
+            await using var pipe = new IdentityPipeServer(
+                new PipeServerOptions
+                {
+                    Binding = binding,
+                    PipeName = pipeName,
+                    RequireLauncherParent = false,
+                    MaxSignaturesPerMinute = 120,
+                },
+                new TpmAuthChallengeSigner(key));
+
+            pipe.Start();
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["pipe"] = pipe.PipeName,
+                ["token"] = binding.SessionToken,
+                ["agent"] = Path.GetFullPath(agent),
+                ["loopback"] = Opt(args, "--loopback") is { Length: > 0 } loopback
+                    ? Path.GetFullPath(loopback)
+                    : null,
+                ["offline"] = Opt(args, "--offline") is { Length: > 0 } offline
+                    ? Path.GetFullPath(offline)
+                    : null,
+                ["room"] = room,
+                ["node"] = node,
+                ["profile"] = profile,
+                ["session"] = session,
+                ["device_id"] = key.DeviceId,
+                ["created_at"] = DateTimeOffset.UtcNow,
+            };
+
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+            await File.WriteAllTextAsync(
+                output,
+                JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+            Console.WriteLine($"agent-host ready pipe={pipe.PipeName} device={key.DeviceId}");
+
+            await Task.Delay(Timeout.Infinite);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Error($"agent-host 失败：{ex.GetBaseException().Message}");
+            return 1;
+        }
+    }
+
+    private static int P2PDeviceId(string[] args)
+    {
+        var keyName = Opt(args, "--key") ?? TpmLocalCheck.DefaultKeyName;
+        var output = Opt(args, "--out");
+
+        try
+        {
+            using var key = TpmDeviceKey.Open(keyName);
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+                File.WriteAllText(output, key.DeviceId);
+            }
+            else
+            {
+                Console.WriteLine(key.DeviceId);
+            }
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Error($"读取本机 TPM 设备身份失败：{ex.GetBaseException().Message}");
+            return 2;
+        }
+    }
+
+    private static async Task<int> P2PEnrollAsync(string[] args)
+    {
+        var server = Opt(args, "--server");
+        if (string.IsNullOrWhiteSpace(server))
+        {
+            Error("p2p enroll 需要 --server https://[ipv6]:8443");
+            return 1;
+        }
+
+        var thumbprint = Opt(args, "--thumbprint");
+        var keyName = Opt(args, "--key") ?? TpmLocalCheck.DefaultKeyName;
+        var root = Opt(args, "--root") ?? ".data";
+        var output = Opt(args, "--out") ?? Path.Combine(root, "p2p", "session.json");
+        var termsVersion = Opt(args, "--terms") ?? "1";
+
+        var handler = new HttpClientHandler();
+        if (!string.IsNullOrWhiteSpace(thumbprint))
+        {
+            handler.ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
+            {
+                if (certificate is not null &&
+                    string.Equals(certificate.GetCertHashString(), thumbprint, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                return errors == System.Net.Security.SslPolicyErrors.None;
+            };
+        }
+
+        using var http = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(10),
+        };
+
+        try
+        {
+            var challengeJson = await http.GetStringAsync(server.TrimEnd('/') + "/api/v1/enroll/challenge");
+            using var challengeDocument = JsonDocument.Parse(challengeJson);
+            var challenge = challengeDocument.RootElement.GetProperty("challenge").GetString();
+            if (string.IsNullOrWhiteSpace(challenge))
+            {
+                Error("服务器没有返回 challenge");
+                return 1;
+            }
+
+            using var key = TpmDeviceKey.OpenOrCreate(keyName);
+            var payload = new AuthChallengePayload(
+                challenge,
+                Base64Url.Encode(RandomNumberGenerator.GetBytes(32)),
+                key.DeviceId,
+                "enroll-session",
+                "enroll-node",
+                "enroll-profile",
+                "enroll-room",
+                Base64Url.Encode(RandomNumberGenerator.GetBytes(32)),
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+            var payloadBytes = payload.ToUtf8Bytes();
+            var signature = key.Sign(payloadBytes);
+
+            var request = new Dictionary<string, object?>
+            {
+                ["device_id"] = key.DeviceId,
+                ["public_key"] = Base64Url.Encode(key.SubjectPublicKeyInfo),
+                ["challenge"] = challenge,
+                ["signed_payload"] = Base64Url.Encode(payloadBytes),
+                ["signature"] = Base64Url.Encode(signature),
+            };
+
+            using var response = await http.PostAsJsonAsync(
+                server.TrimEnd('/') + "/api/v1/enroll",
+                request);
+            var responseText = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                Error($"注册失败：{(int)response.StatusCode} {responseText}");
+                return 1;
+            }
+
+            using var responseDocument = JsonDocument.Parse(responseText);
+            var rootElement = responseDocument.RootElement;
+            var token = rootElement.GetProperty("token").GetString();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                Error("服务器没有返回 token");
+                return 1;
+            }
+
+            var session = new
+            {
+                server_url = server.TrimEnd('/'),
+                thumbprint,
+                device_id = key.DeviceId,
+                token,
+                expires_at = rootElement.TryGetProperty("expires_at", out var expires) ? expires.ToString() : null,
+                terms_version = termsVersion,
+                created_at = DateTimeOffset.UtcNow,
+            };
+
+            var fullOutput = Path.GetFullPath(output);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullOutput)!);
+            await File.WriteAllTextAsync(
+                fullOutput,
+                JsonSerializer.Serialize(session, new JsonSerializerOptions { WriteIndented = true }));
+            Console.WriteLine(JsonSerializer.Serialize(session));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Error($"p2p enroll 失败：{ex.Message}");
+            return 1;
+        }
+    }
+
     private static void PrintHelp()
     {
         Console.WriteLine("""
@@ -2348,6 +2733,8 @@ internal static class Program
               npmc runtime <组件名>  [--root <目录>] [--platform windows-x64] [--concurrency 12]
                                      安装 Mojang 官方 Java 运行时到 <root>\runtime\<组件名>\
               npmc launch  <版本>    [--root <目录>] [--memory <MB>] [--instance <Id>]
+                                      [--account <用户名|Id>] [--server <地址:端口>] [--world <存档名>]
+                                      [--jvm-arg <参数>]（可重复）
                                      组装参数并启动游戏；给 --instance 时用实例的目录与设置
 
             实例管理:

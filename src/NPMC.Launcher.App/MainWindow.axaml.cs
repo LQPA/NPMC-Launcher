@@ -480,6 +480,20 @@ public partial class MainWindow : Window
 
     private void OnCloseClick(object? sender, RoutedEventArgs e) => Close();
 
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        try
+        {
+            P2PPageView?.StopAllForShutdown();
+        }
+        catch
+        {
+            // 退出清理不能反过来阻止窗口关闭
+        }
+
+        base.OnClosing(e);
+    }
+
     private void ToggleMaximize()
     {
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;

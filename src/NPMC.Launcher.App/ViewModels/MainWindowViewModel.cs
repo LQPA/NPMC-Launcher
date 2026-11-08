@@ -7,6 +7,7 @@ using Avalonia.Media.Imaging;
 using System.Windows.Input;
 using Avalonia.Threading;
 using NPMC.Launcher.App.Diagnostics;
+using NPMC.Launcher.App.Mods;
 using NPMC.Launcher.Core.Accounts;
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
@@ -39,7 +40,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly DispatcherTimer _logTimer;
     private DispatcherTimer? _memoryTraceTimer;
 
-    // Modrinth / CurseForge 查询与文件下载共用同一个 HttpClient（连接池复用，UA 统一）。
+    // Modrinth / CurseForge 查询与文件下载共用同一份 HttpClient（连接池复用，UA 统一）。
     // 代理与超时只能在建客户端时设定，所以这里先同步读一次 settings.json。
     private readonly HttpClient _http;
     private readonly HttpFileDownloader _downloader;
@@ -60,17 +61,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool _isBusy;
     private int _contentScanVersion;
     private string _exportStatus = "";
+    private LaunchDiagnosisReport? _launchDiagnosis;
+    private LaunchLogSession? _lastLaunchLog;
 
     public MainWindowViewModel(LauncherPaths launcher)
     {
         _launcher = launcher;
 
-        // 启动时读一次全局设置：代理 / 超时只在这时能生效，界面上的其它项也先按文件里的值显示
+        // 启动时读一次全局设置：代理 / 超时只在这时能生效，界面上的其它项也先按文件里的值显示。
         _startupSettings = new JsonSettingsStore(launcher).Load();
         _http = HttpFileDownloader.CreateClient(_startupSettings);
         _loaderDiskCache = new LoaderAvailabilityCache(launcher.Root);
         ApplySettingsToFields(_startupSettings);
         _settingsLoaded = true;
+
+        try
+        {
+            // 上一次启动器异常退出可能留下旧 agent.json，不能让新游戏误用旧 token。
+            File.Delete(Path.Combine(P2PContextDirectory, "agent.json"));
+            File.Delete(Path.Combine(P2PContextDirectory, "active-room.txt"));
+        }
+        catch
+        {
+        }
 
         ContentTabs = new ObservableCollection<ContentTabItem>
         {
@@ -101,16 +114,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _categoryCache = new SearchCategoryCache(Path.Combine(_launcher.Root, "cache"));
         _translation = new TranslationClient(_http, Path.Combine(_launcher.Root, "cache", "translations"));
 
-        // 导出规则文件：启动时读一次（不存在就写一份默认的），导出页直接显示规则条数
+        // 导出规则文件：启动时读一次（不存在就写一份默认的），导出页直接显示规则条数。
         LoadExportRules();
 
-        // 分类筛选的默认值（模组那 14 项）；切到资源包/光影时再换成对应的标签
+        // 分类筛选的默认值（模组类 14 项）；切到资源包/光影时再换成对应的标签。
         ApplyCategories(ContentKind.Mod, null);
 
-        // NPMC_MEMORY_TRACE=1 时把关键节点的内存快照写进 <root>\logs\memory.log
+        // NPMC_MEMORY_TRACE=1 时把关键节点的内存快照写入 <root>\logs\memory.log
         MemoryTrace.Configure(launcher.Root);
 
-        // 排查真实鼠标操作时，关键节点太少；开启 trace 时再加每秒一条时间线。
+        // 排查真实鼠标操作时，关键节点太少；开启 trace 时再加每秒一条时间线线。
         if (MemoryTrace.IsEnabled)
         {
             _memoryTraceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -157,6 +170,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ShowInstancesCommand = new RelayCommand(() => Navigate(NavPage.Instances));
         ShowDownloadsCommand = new RelayCommand(() => Navigate(NavPage.Downloads));
         ShowSettingsCommand = new RelayCommand(() => Navigate(NavPage.Settings));
+        ShowP2PCommand = new RelayCommand(() => Navigate(NavPage.P2P));
         ResetSettingsCommand = new AsyncRelayCommand(ResetSettingsAsync);
         OpenSettingsFolderCommand = new AsyncRelayCommand(OpenSettingsFolder, () => true, OnOpenError);
         InstallRuntimeCommand = new AsyncRelayCommand(InstallRuntimeAsync, () => CanInstallRuntime);
@@ -195,8 +209,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
             () => IsInstallingModpack);
 
         RefreshLogCommand = new AsyncRelayCommand(RefreshLogAsync, () => SelectedInstance is not null);
+        DismissLaunchDiagnosisCommand = new RelayCommand(ClearLaunchDiagnosis);
+        OpenLaunchDiagnosisLogCommand = new RelayCommand(OpenLaunchDiagnosisLog);
+        OpenLaunchDiagnosisModsCommand = new RelayCommand(OpenLaunchDiagnosisMods);
+        OpenLaunchLogCommand = new RelayCommand(OpenLaunchLog);
+        ExportLaunchLogCommand = new RelayCommand(ExportLaunchLog);
 
         LaunchGameCommand = new AsyncRelayCommand(LaunchGameAsync,
+            () => SelectedInstance is not null && !IsSelectedInstanceRunning, OnOpenError);
+        DetailedDiagnosisCommand = new AsyncRelayCommand(DiagnoseLaunchAsync,
             () => SelectedInstance is not null && !IsSelectedInstanceRunning, OnOpenError);
     }
 
@@ -208,7 +229,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>任意实例正在运行（全局行为，例如状态栏/日志轮询用）。</summary>
     public bool IsGameRunning => _running.Count > 0;
 
-    /// <summary>选中的实例是否在运行：启动/改名/删除/复制只看这一项。</summary>
+    /// <summary>选中的实例是否在运行：启动 改名/删除/复制只看这一项。</summary>
     public bool IsSelectedInstanceRunning => SelectedInstance is { } item && _running.Contains(item.Model.Id);
 
     public string LaunchButtonText => IsSelectedInstanceRunning ? "运行中…" : "启动游戏";
@@ -229,10 +250,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 启动前确保该版本所需的 Java 存在。
     ///
-    /// 先告诉用户"需要哪个 Java、本机没有"，再带着进度下载 —— 而不是让人对着
+    /// 先告诉用户 需要哪个 Java、本机没有 ，再带着进度下载 —— 而不是让人对着
     /// "缺少 Java 运行时"一句话不知道下一步该做什么。
     /// </summary>
-    /// <returns>出错时的说明；成功（或本来就有）返回 null。</returns>
+    /// <returns>出错时的说明；成功（或本来就有）返回 null。/returns>
     private async Task<string?> EnsureJavaForVersionAsync(VersionJson version)
     {
         var component = version.JavaVersion?.Component is { Length: > 0 } value
@@ -244,7 +265,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (File.Exists(exe)) return null;
 
-        Status = $"该版本需要 Java {major}（{component}），本机未找到 —— 即将下载";
+        Status = $"该版本需要 Java {major}（{component}），本机未找到 — 即将下载";
 
         try
         {
@@ -260,7 +281,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 if (percent == lastPercent) return;
                 lastPercent = percent;
 
-                Status = $"正在下载 Java {major}（{component}）…  {percent}%"
+                Status = $"正在下载 Java {major}（{component}）… {percent}%"
                          + $"  {report.BytesDownloaded / 1024d / 1024d:N0} MB";
             });
 
@@ -285,11 +306,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 官方安装器（Forge / NeoForge 1.13+）要用的 Java。
     ///
-    /// 安装阶段没 Java 是硬阻塞，所以这里：
-    ///   1. 先找该版本声明的运行时 / 同主版本的系统 Java；
+    /// 安装阶段缺 Java 是硬阻塞，所以这里：
+    ///   1. 先找该版本声明的运行时 / 同主版本的系统 Java。
     ///   2. 找不到就自动补装；
-    ///   3. 补装也失败时，错误信息直接指到「设置 → 预下载 Java 运行时」，
-    ///      别只丢一句"缺少 Java"。
+    ///   3. 补装也失败时，错误信息直接指到「设置」→「预下载 Java 运行时」，
+    ///      别只丢一句 缺少 Java"。
     /// </summary>
     private async Task<string> EnsureLoaderJavaAsync(VersionJson version, string loaderName)
     {
@@ -310,15 +331,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         throw new InvalidOperationException(
             $"{loaderName} 的官方安装器需要 Java {requiredMajor}（{component}）："
             + $"{problem ?? "找不到可用的 java.exe"}。"
-            + "请先在「设置 → 预下载 Java 运行时」里装好对应运行时，再重新下载安装。");
+            + "请先在「设置」→「预下载 Java 运行时」里装好对应运行时，再重新下载安装。");
     }
 
-    // ---- 改名与排序 ----
+    // ---- 改名与排序----
 
     private bool _isRenaming;
     private string _renameText = "";
 
-    /// <summary>概览页标题是否处于"改名"编辑态。</summary>
+    /// <summary>概览页标题是否处于 改名"编辑态"</summary>
     public bool IsRenaming
     {
         get => _isRenaming;
@@ -462,7 +483,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>
     /// 拖动排序：把 <paramref name="movedId"/> 挪到 <paramref name="targetId"/> 的位置。
-    /// 用 ObservableCollection.Move 而不是 Clear+Add —— 后者会让 ListBox 丢掉选中项。
+    /// 用 ObservableCollection.Move 而不用 Clear+Add —— 后者会让 ListBox 丢掉选中项。
     /// </summary>
     public void MoveInstance(string movedId, string targetId)
     {
@@ -531,7 +552,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             DeleteInstanceText = "再次点击确认删除";
             Status = $"将删除实例「{instance.Name}」及其目录 {instance.GameDirectory}（不可恢复）。再点一次确认。";
 
-            // 8 秒内没再点就自动取消，避免按钮一直处于"确认"状态
+            // 8 秒内没再点就自动取消，避免按钮一直处于 确认"状态
             _ = Task.Delay(TimeSpan.FromSeconds(8)).ContinueWith(_ =>
             {
                 if (!_deleteConfirmPending) return;
@@ -645,7 +666,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>导出格式：完整 ZIP（含存档）或 Modrinth 整合包（.mrpack）。</summary>
+    /// <summary>导出格式：完整 ZIP（含存档）或 Modrinth 整合包（.mrpack）</summary>
     public ObservableCollection<string> ExportFormats { get; } = new()
     {
         "完整 ZIP（含存档与配置）",
@@ -679,13 +700,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         1 => "生成 Modrinth 整合包：能在 Modrinth 找到的文件只写下载地址（包很小），"
              + "勾选的内容原样打包进 overrides。导入时需要联网。",
-        2 => "生成 CurseForge 整合包：按指纹把文件换成 projectID/fileID，写入 manifest.json；"
-             + "认不出来的文件进 overrides。需要 CurseForge API key。",
-        _ => "把当前实例的 mods / config / resourcepacks / shaderpacks / saves 等打包成 ZIP；"
+        2 => "生成 CurseForge 整合包：按指纹把文件换成 projectID/fileID，写 manifest.json。"
+             + "认不出来的文件进 overrides。需 CurseForge API key。",
+        _ => "把当前实例的 mods / config / resourcepacks / shaderpacks / saves 等打包成 ZIP。"
              + "不会包含 logs 和 crash-reports。",
     };
 
-    // ---- 整合包内容选择（照着「整合包制作」的表单）----
+    // ---- 整合包内容选择（照着「整合包制作」的表单）---
 
     private string _exportPackName = "";
     private string _exportPackVersion = "1.0.0";
@@ -746,6 +767,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>规则文件：与设置同目录，用户可编辑；不存在时进入导出页会自动写一份默认规则。</summary>
     public string ExportRulesPath => Path.Combine(_launcher.Root, "export-rules.txt");
 
+    /// <summary>联机 Agent Host 与实例启动共用的 p2p 数据目录。</summary>
+    public string P2PContextDirectory => Path.Combine(_launcher.Root, "p2p");
+
     private IReadOnlyList<string> _exportRuleLines = Array.Empty<string>();
 
     public int ExportRuleCount => ExportRules.Split(_exportRuleLines).Rules.Count;
@@ -794,7 +818,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 把「投影/地图」这类目录快速加进规则文件（等价于手写一行 `schematics/`）。
+    /// 把「投影地图」这类目录快速加进规则文件（等价于手写一行 `schematics/`）。
     /// 路径必须是实例目录内的相对路径；直接写文件而不是存内存，用户之后可以自己改。
     /// </summary>
     private void AddExportExtraPath()
@@ -831,7 +855,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             if (lines.Any(line => string.Equals(line.Trim(), rule, StringComparison.OrdinalIgnoreCase)))
             {
-                ExportStatus = $"规则里已经有 {rule} 了";
+                ExportStatus = $"规则里已经有 {rule} 条。";
                 return;
             }
 
@@ -867,7 +891,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ExportStatus = $"打不开规则文件：{ex.GetBaseException().Message}";
         }
     }
-    /// <summary>一行摘要，说明这次会导出什么（勾选/规则变化时刷新）。</summary>
+    /// <summary>一行摘要，说明这次会导出什么（勾选规则变化时刷新）。</summary>
     public string ExportSelectionHint
     {
         get
@@ -887,9 +911,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     downloads.Add($"{CountFiles(instance.ShaderPacksDirectory, "*.zip", "*.zip.disabled")} 个光影");
 
                 return (downloads.Count == 0
-                           ? "只生成下载清单，但什么都没勾选"
+                           ? "只生成下载清单，但什么都没勾选。"
                            : "只生成下载清单：" + string.Join("、", downloads))
-                       + "；规则里的文件与无法识别的文件都不会打包（导入后没有配置）。";
+                       + "；规则里的文件与无法识别的文件都不会打包（导入后没有配置）";
             }
 
             var parts = new List<string>();
@@ -904,11 +928,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (parts.Count == 0) return "什么都没勾选：导出的整合包里不会有任何内容。";
 
             return "将导出：" + string.Join("、", parts)
-                   + $"；另按 {ExportRuleCount} 条规则打包配置，认不出的文件也放进 overrides";
+                   + $"；另有 {ExportRuleCount} 条规则打包配置，认不出的文件也放进 overrides";
         }
     }
 
-    /// <summary>统计某目录下的文件（跳过 mods/.trash 回收站；支持 *.ext 与 *.ext.disabled）。</summary>
+    /// <summary>统计某目录下的文件（跳过 mods/.trash 回收站；支持 *.ext 和 *.ext.disabled）。</summary>
     private static int CountFiles(string directory, params string[] patterns)
     {
         try
@@ -933,7 +957,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>进入导出页 / 切换实例时把表单填成当前实例的默认值。</summary>
+    /// <summary>进入导出页/ 切换实例时把表单填成当前实例的默认值。</summary>
     private void RefreshExportForm(bool force = false)
     {
         if (SelectedInstance is { } instance && (force || string.IsNullOrWhiteSpace(_exportPackName)))
@@ -943,16 +967,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 导出为 Modrinth 整合包（.mrpack）。
+    /// 导出与 Modrinth 整合包（.mrpack）。
     ///
-    /// 能被 Modrinth 按哈希认出来的文件只写下载地址（包很小）；认不出来的进 overrides，
+    /// 能被 Modrinth 按哈希认出来的文件只写下载地址（包很小）；认不出来的进 overrides。
     /// 否则导入方会缺文件。依赖写当前实例的游戏版本与加载器版本。
     /// </summary>
     public async Task ExportMrpackAsync(string targetPath)
     {
         if (SelectedInstance is not { } instance) return;
 
-        // 规则文件可能刚被用户改过（甚至没进过导出页就直接导出）：每次导出前重读一遍
+        // 规则文件可能刚被用户改过（甚至没进过导出页就直接导出）：每次导出前重读一次
         LoadExportRules();
 
         ExportStatus = $"正在导出「{instance.Name}」…";
@@ -982,7 +1006,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 targetPath,
                 string.IsNullOrWhiteSpace(ExportPackName) ? instance.Name : ExportPackName.Trim(),
                 string.IsNullOrWhiteSpace(ExportPackVersion) ? "1.0.0" : ExportPackVersion.Trim(),
-                $"由 NPMC Launcher 导出（{DateTimeOffset.Now:yyyy-MM-dd HH:mm}）",
+                $"用 NPMC Launcher 导出（{DateTimeOffset.Now:yyyy-MM-dd HH:mm}）",
                 gameVersion,
                 loader?.Key,
                 loader?.Version,
@@ -1005,7 +1029,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 导出 CurseForge 格式整合包（manifest.json + overrides）。需要 CF API key：
+    /// 导出 CurseForge 格式整合包（manifest.json + overrides）。需要 CF API key。
     /// manifest 只认 (projectID, fileID)，文件要先算 MurmurHash2 指纹再查 CF。
     /// </summary>
     public async Task ExportCurseForgeAsync(string targetPath)
@@ -1115,13 +1139,205 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private async Task LaunchGameAsync()
+    /// <summary>
+    /// 联机页激活房间后会启动 Agent Host 并写 p2p/agent.json。
+    /// 正常实例启动时在这里追加 javaagent，用户仍然从实例页启动自己的版本。
+    /// </summary>
+    private PreparedLaunch InjectP2PAgentArguments(PreparedLaunch prepared)
+    {
+        var contextPath = Path.Combine(_launcher.Root, "p2p", "agent.json");
+        var activeRoomPath = Path.Combine(_launcher.Root, "p2p", "active-room.txt");
+
+        if (!File.Exists(contextPath) && File.Exists(activeRoomPath))
+        {
+            // 已经加入房间但 agent-host 尚未写完上下文：短暂等待。
+            // 避免用户立刻启动游戏时注入上次残留的旧 token。
+            for (var i = 0; i < 30 && !File.Exists(contextPath); i++)
+            {
+                Thread.Sleep(100);
+            }
+
+            if (!File.Exists(contextPath))
+            {
+                return prepared with
+                {
+                    Problems = prepared.Problems
+                        .Concat(new[] { "联机 Agent 尚未就绪，请稍后重试启动" })
+                        .ToList(),
+                };
+            }
+        }
+
+        if (!File.Exists(contextPath))
+        {
+            return prepared;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(contextPath));
+            var root = document.RootElement;
+            var agent = root.TryGetProperty("agent", out var agentElement) ? agentElement.GetString() : null;
+            var pipe = root.TryGetProperty("pipe", out var pipeElement) ? pipeElement.GetString() : null;
+            var token = root.TryGetProperty("token", out var tokenElement) ? tokenElement.GetString() : null;
+            if (string.IsNullOrWhiteSpace(agent) || !File.Exists(agent) ||
+                string.IsNullOrWhiteSpace(pipe) || string.IsNullOrWhiteSpace(token))
+            {
+                return prepared;
+            }
+
+            var extra = new List<string>
+            {
+                $"-javaagent:{Path.GetFullPath(agent)}=pipe={pipe};token={token}",
+            };
+
+            foreach (var name in new[] { "loopback", "offline" })
+            {
+                if (root.TryGetProperty(name, out var element) &&
+                    element.GetString() is { Length: > 0 } path &&
+                    File.Exists(path))
+                {
+                    extra.Add($"-javaagent:{Path.GetFullPath(path)}");
+                }
+            }
+
+            LauncherLog.Write(_launcher.Root, $"P2P 启动注入 {extra.Count} 个 Agent（管道 {pipe}）");
+            return prepared with
+            {
+                Plan = prepared.Plan with
+                {
+                    JvmArguments = prepared.Plan.JvmArguments.Concat(extra).ToList(),
+                },
+            };
+        }
+        catch (Exception ex)
+        {
+            LauncherLog.Write(_launcher.Root, $"读取 P2P Agent 上下文失败：{ex.GetBaseException().Message}");
+            return prepared;
+        }
+    }
+
+    private void ShowLaunchDiagnosis(LaunchDiagnosisReport report)
+    {
+        _launchDiagnosis = report;
+        OnPropertyChanged(nameof(HasLaunchDiagnosis));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisEvidence));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisLog));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisMods));
+        OnPropertyChanged(nameof(LaunchDiagnosisTitle));
+        OnPropertyChanged(nameof(LaunchDiagnosisSummary));
+        OnPropertyChanged(nameof(LaunchDiagnosisSuggestion));
+        OnPropertyChanged(nameof(LaunchDiagnosisEvidence));
+        OnPropertyChanged(nameof(LaunchDiagnosisAccent));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisSymptoms));
+        OnPropertyChanged(nameof(LaunchDiagnosisSymptoms));
+        OnPropertyChanged(nameof(LaunchDiagnosisInvolvedMods));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisInvolvedMods));
+    }
+
+    private void ClearLaunchDiagnosis()
+    {
+        if (_launchDiagnosis is null)
+        {
+            return;
+        }
+
+        _launchDiagnosis = null;
+        OnPropertyChanged(nameof(HasLaunchDiagnosis));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisEvidence));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisLog));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisMods));
+        OnPropertyChanged(nameof(LaunchDiagnosisTitle));
+        OnPropertyChanged(nameof(LaunchDiagnosisSummary));
+        OnPropertyChanged(nameof(LaunchDiagnosisSuggestion));
+        OnPropertyChanged(nameof(LaunchDiagnosisEvidence));
+        OnPropertyChanged(nameof(LaunchDiagnosisAccent));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisSymptoms));
+        OnPropertyChanged(nameof(LaunchDiagnosisSymptoms));
+        OnPropertyChanged(nameof(LaunchDiagnosisInvolvedMods));
+        OnPropertyChanged(nameof(HasLaunchDiagnosisInvolvedMods));
+    }
+
+    private void OpenLaunchDiagnosisLog()
+    {
+        var path = _launchDiagnosis?.CrashReportPath
+                   ?? _launchDiagnosis?.LogPath
+                   ?? SelectedInstance?.GameDirectory;
+        OpenDiagnosisPath(path);
+    }
+
+    private void OpenLaunchDiagnosisMods()
+    {
+        OpenDiagnosisPath(SelectedInstance?.ModsDirectory);
+    }
+
+    private void RememberLaunchLog(LaunchLogSession session)
+    {
+        _lastLaunchLog = session;
+        OnPropertyChanged(nameof(HasLaunchLog));
+        OnPropertyChanged(nameof(LaunchLogPath));
+    }
+
+    private void OpenLaunchLog()
+    {
+        OpenDiagnosisPath(_lastLaunchLog?.DirectoryPath);
+    }
+
+    private void ExportLaunchLog()
+    {
+        if (_lastLaunchLog is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var zip = _lastLaunchLog.ExportZip();
+            Status = $"本次日志已导出：{zip}";
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{zip}\"")
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            Status = $"导出本次日志失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    private void OpenDiagnosisPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        try
+        {
+            if (File.Exists(path) || Directory.Exists(path))
+            {
+                Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            Status = $"打开路径失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+
+    private Task LaunchGameAsync() => LaunchGameCoreAsync(detailedDiagnostics: false);
+
+    private Task DiagnoseLaunchAsync() => LaunchGameCoreAsync(detailedDiagnostics: true);
+
+    private async Task LaunchGameCoreAsync(bool detailedDiagnostics)
     {
         var instance = SelectedInstance;
         if (instance is null) return;
 
         var versionId = instance.VersionId;
         Status = $"正在准备启动 {instance.Name}…";
+        ClearLaunchDiagnosis();
 
         PreparedLaunch prepared;
         try
@@ -1133,6 +1349,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (version is null)
             {
                 Status = $"版本 {versionId} 尚未安装（缺少 version json）。先运行 npmc install {versionId}";
+                ShowLaunchDiagnosis(LaunchDiagnostics.ForPreparation(
+                    "游戏版本未安装",
+                    $"当前实例需要版本 {versionId}，但本地缺少版本 JSON。",
+                    "先在下载页安装该版本，或把实例切换到已安装的版本。"));
                 return;
             }
 
@@ -1143,6 +1363,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (javaProblem is not null)
             {
                 Status = javaProblem;
+                ShowLaunchDiagnosis(LaunchDiagnostics.ForPreparation(
+                    "Java 运行时问题",
+                    javaProblem,
+                    "在设置页预下载对应 Java，或检查实例指定的 Java 路径。"));
                 return;
             }
 
@@ -1159,16 +1383,45 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             prepared = GameLauncher.Prepare(
                 _launcher, instance.Model, version, launcherSettings, account, accessToken);
+            prepared = InjectP2PAgentArguments(prepared);
+
+            if (detailedDiagnostics)
+            {
+                var diagnosticArgs = new[]
+                {
+                    "-Dmixin.debug=true",
+                    "-Dmixin.debug.verbose=true",
+                    "-Dmixin.debug.export=true",
+                    "-Dmixin.checks.interfaces=true",
+                    "-Dforge.logging.mixin.debug=true",
+                };
+                prepared = prepared with
+                {
+                    Plan = prepared.Plan with
+                    {
+                        JvmArguments = prepared.Plan.JvmArguments.Concat(diagnosticArgs).ToList(),
+                    },
+                };
+                LauncherLog.Write(_launcher.Root, "详细诊断启动：已启用 Mixin verbose/export");
+            }
         }
         catch (Exception ex)
         {
             Status = $"准备启动失败：{ex.GetBaseException().Message}";
+            ShowLaunchDiagnosis(LaunchDiagnostics.ForPreparation(
+                "启动准备失败",
+                ex.GetBaseException().Message,
+                "查看启动器日志；如果是文件/权限错误，检查实例目录是否可写。"));
             return;
         }
 
         if (!prepared.CanLaunch)
         {
             Status = string.Join("；", prepared.Problems);
+            ShowLaunchDiagnosis(LaunchDiagnostics.ForPreparation(
+                "启动条件不满足",
+                string.Join("；", prepared.Problems),
+                "按上面的原因处理后再启动。"));
             return;
         }
 
@@ -1187,6 +1440,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SyncRunningState();
 
         Process process;
+        var launchStartedAt = DateTimeOffset.UtcNow;
+        var logSession = LaunchLogSession.Create(
+            _launcher.Root,
+            instance.Name,
+            instance.VersionId,
+            instance.GameDirectory,
+            prepared.Plan.JavaPath,
+            launchStartedAt,
+            detailedDiagnostics);
         try
         {
             process = GameLauncher.Start(prepared, instance.Model.Settings.CustomTitle);
@@ -1196,19 +1458,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _running.Remove(instanceId);
             SyncRunningState();
             Status = $"启动失败：{ex.GetBaseException().Message}";
+            ShowLaunchDiagnosis(LaunchDiagnostics.ForPreparation(
+                "启动失败",
+                ex.GetBaseException().Message,
+                "检查 Java 路径、实例目录权限和版本文件是否完整。"));
             LauncherLog.Write(_launcher.Root, $"启动失败 {instance.Id} → {ex.GetBaseException().Message}");
             return;
         }
 
-        Status = $"游戏已启动（PID {process.Id}）  日志 {prepared.LatestLog}";
+        Status = $"游戏已启动（PID {process.Id}  日志 {prepared.LatestLog}";
 
-        // 这里必须**立刻返回**：如果在这里 await 到游戏退出，AsyncRelayCommand 会一直
+        // 这里必须**立刻返回**：如果在这里 await 到游戏退出，AsyncRelayCommand 会一直 
         // 处于"执行中"的禁用状态，界面上就再也点不动启动按钮，也就没法启动第二个实例。
-        _ = AwaitGameExitAsync(process, instanceId, instance);
+        _ = AwaitGameExitAsync(process, instanceId, instance, logSession);
     }
 
-    /// <summary>后台等待某个实例结束：更新状态栏并清掉它的"运行中"标记。</summary>
-    private async Task AwaitGameExitAsync(Process process, string instanceId, InstanceListItem instance)
+    /// <summary>后台等待某个实例结束：更新状态栏并清掉它的 运行中 标记。</summary>
+    private async Task AwaitGameExitAsync(
+        Process process,
+        string instanceId,
+        InstanceListItem instance,
+        LaunchLogSession logSession)
     {
         try
         {
@@ -1218,7 +1488,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             if (process.ExitCode == 0)
             {
+                ClearLaunchDiagnosis();
                 Status = $"游戏已正常退出（{instance.Name}）";
+                logSession.Capture(instance.GameDirectory, 0, "正常退出");
+                RememberLaunchLog(logSession);
             }
             else
             {
@@ -1229,6 +1502,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     : "：" + stderrTail.Replace("\r", "").Replace("\n", " ");
 
                 Status = $"游戏异常退出，退出码 {process.ExitCode}{reason}";
+                logSession.Capture(instance.GameDirectory, process.ExitCode, null);
+
+                // 诊断要能区分“缺前置”和“模组自己加载失败”，就必须知道 mods 里到底有什么。
+                // 建索引要读几百个 jar 的元数据，放在线程池里做，别卡住 UI；结果有磁盘缓存。
+                var modIndex = await Task.Run(() => ModMetadataIndex.Build(
+                    instance.ModsDirectory,
+                    Path.Combine(_launcher.Root, "cache", "mod-index.json")));
+
+                var report = LaunchDiagnostics.AnalyzeSession(
+                    instance.Name,
+                    process.ExitCode,
+                    logSession,
+                    modIndex);
+                var crashLog = logSession.WriteCrashLog(report);
+                report = report with { CrashReportPath = crashLog };
+                var diagnosisText =
+                    $"{report.Title}\n{report.Summary}\n" +
+                    (report.HasSymptoms ? $"\n次生症状：\n{report.SymptomsText}\n" : string.Empty) +
+                    (report.InvolvedMods.Count > 0 ? $"\n{report.InvolvedModsText}\n" : string.Empty) +
+                    $"\n证据：\n{report.Evidence}\n\n建议：\n{report.Suggestion}";
+                logSession.SetDiagnosis(diagnosisText);
+                ShowLaunchDiagnosis(report);
+                RememberLaunchLog(logSession);
                 LauncherLog.Write(_launcher.Root,
                     $"启动失败（实例 {instance.Name}，退出码 {process.ExitCode}）：{stderrTail}");
             }
@@ -1238,6 +1534,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             Status = $"等待游戏退出失败：{ex.GetBaseException().Message}";
+            try
+            {
+                logSession.Capture(instance.GameDirectory, -1, Status);
+                RememberLaunchLog(logSession);
+            }
+            catch
+            {
+            }
         }
         finally
         {
@@ -1267,8 +1571,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 当前进程的完整性级别。
     ///
-    /// 直接显示在标题栏下方：Low（S-1-16-4096）时系统不允许调起资源管理器，
-    /// 有了这行，用户一眼就能确认"是环境受限"还是"功能坏了"，
+    /// 直接显示在标题栏下方：Low（S-1-16-4096）时系统不允许调起资源管理器。
+    /// 有了这行，用户一眼就能确认 是环境受限 还是"功能坏了"。
     /// 也能区分窗口是从哪个终端启动的。
     /// </summary>
     public string IntegrityText => $"权限 {ProcessContext.Describe()}";
@@ -1285,13 +1589,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var previous = _selectedInstance;
             if (!SetProperty(ref _selectedInstance, value)) return;
 
+            ClearLaunchDiagnosis();
+
             MemoryTrace.Write("switch:before-release", $"from={previous?.Id ?? "-"} to={value?.Id ?? "-"}");
 
             OnPropertyChanged(nameof(HasSelection));
             OnPropertyChanged(nameof(ShowInstanceHeader));
             RaisePaneVisibilityChanged();
 
-            // 概览页的可编辑字段都从 SelectedInstance 取值，切换实例时必须重读
+            // 概览页的可编辑字段都从 SelectedInstance 取值，切换实例时必须重算
             OnPropertyChanged(nameof(MemoryMb));
             OnPropertyChanged(nameof(AutoMemory));
             OnPropertyChanged(nameof(MemoryAutoHint));
@@ -1302,18 +1608,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(IsSelectedInstanceRunning));
             OnPropertyChanged(nameof(LaunchButtonText));
 
-            // 导出表单也属于"跟着实例走"：包名与内容摘要必须换成新实例的，
-            // 否则会拿上一个实例的名字去导出（用户实测：495 个 Mod 的摘要留在 6 个 Mod 的实例上）
+            // 导出表单也属于"跟着实例走"：包名与内容摘要必须换成新实例的。
+            // 否则会拿上一个实例的名字去导出（用户实测： 95 个 Mod 的摘要留在 6 个 Mod 的实例上）
             RefreshExportForm(force: true);
 
             RaiseFolderVisibilityChanged();
             RaiseCommandStates();
             UpdateLogTimer();
 
-            // 搜索结果绑定在"实例的游戏版本/加载器"上，换实例后它们已不成立
+            // 搜索结果绑定在 实例的游戏版本 加载器上，换实例后它们已不成立
             ResetSearchState();
 
-            // 存档列表跟着实例走：换实例时先丢掉"正在管理的世界"，再按新实例重新枚举，
+            // 存档列表跟着实例走：换实例时先丢掉"正在管理的世界"，再按新实例重新枚举。
             // 否则会保留上一个实例的世界（点进去还会打开别人的存档目录）。
             if (IsDataPackTab)
             {
@@ -1324,7 +1630,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             // 页签上的数量（模组/资源包/光影/存档）必须跟实例走。
             // 以前只有 RefreshContentAsync 会刷新数量，停在「日志」页换实例时
-            // 数字就留在上一个实例上（明明 2 个资源包，页签写 3）。
+            // 数字就留在上一个实例上（明明 2 个资源包，页签写 3）个
             _ = RefreshCountsAsync(value);
 
             if (IsLogTab) _ = RefreshLogAsync();
@@ -1344,7 +1650,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 MemoryTrace.Write("switch:after-release", $"instance={value.Id}");
             }
 
-            // 先同步清空 Java 那一行再异步填充：否则会短暂显示上一个实例的 Java（"慢一拍"）
+            // 先同步清空 Java 那一行再异步填充：否则会短暂显示上一个实例的 Java（慢一拍）
             _javaChoicesReady = false;
             JavaChoices.Clear();
             _selectedJavaChoice = null;
@@ -1400,7 +1706,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool IsManagingDataPacks => DataPackWorld is not null;
 
-    /// <summary>存档页签的"世界列表"视图（还没进入某个世界时）。</summary>
+    /// <summary>存档页签的 世界列表"视图（还没进入某个世界时）。</summary>
     public bool ShowWorldPicker => IsDataPackTab && !IsManagingDataPacks;
 
     public ICommand ManageDataPacksCommand { get; }
@@ -1413,13 +1719,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         DataPackWorld = world;
 
-        // 换世界 = 换安装目标：上一轮的搜索结果与待确认计划都不再适用
+        // 换世界= 换安装目标：上一轮的搜索结果与待确认计划都不再适用
         IsContentDownloadMode = false;
         ResetSearchState();
 
         RaiseWorldViewChanged();
 
-        Status = $"正在管理「{world.Name}」的数据包";
+        Status = $"正在管理「{world.Name}」的数据包…";
         await RefreshContentAsync();
     }
 
@@ -1453,7 +1759,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 面板 / 操作行 / 空提示的可见性。
+    /// 面板 / 操作条/ 空提示的可见性。
     ///
     /// 这些都是派生属性（`=>` 现算），XAML 只在收到通知时才会重新求值。
     /// 因此**任何**输入变化（页面、选中实例、页签、数据包视图）都必须走这里，
@@ -1477,7 +1783,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool IsDataPackTab => SelectedTab.ContentKind == ContentKind.DataPack;
 
-    /// <summary>重新枚举世界，并给每一行挂上操作（打开目录 / 数据包 / 删除）。</summary>
+    /// <summary>重新枚举世界，并给每一行挂上操作（打开目录 / 数据包// 删除）。</summary>
     private void LoadWorlds()
     {
         Worlds.Clear();
@@ -1517,8 +1823,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 存档页签上的数字。
     ///
-    /// 没进世界时是"世界数"（这一页列的就是世界），进了世界才是"该世界的数据包数"。
-    /// 以前这个数字只在扫描成功时才被赋值，所以"先看过某个世界的数据包、再切到没有存档的实例"
+    /// 没进世界时是"世界数"（这一页列的就是世界），进了世界才是 该世界的数据包数"。
+    /// 以前这个数字只在扫描成功时才被赋值，所以 先看过某个世界的数据包、再切到没有存档的实例
     /// 会把上一个实例的数字留在页签上（实例明明 0 个存档，页签却写「存档 1」）。
     /// </summary>
     private void UpdateDataPackTabCount()
@@ -1529,13 +1835,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         tab.Count = SelectedInstance is null
             ? 0
             : DataPackWorld is null
-                // 用实例自己的存档数：停在「日志」页换实例时 Worlds 还没加载，
+                // 用实例自己的存档数：停在「日志」页换实例时 Worlds 还没加载、
                 // 读 Worlds.Count 会把页签数字清成 0。
                 ? SelectedInstance.SaveCount
                 : Content.Count;
     }
 
-    /// <summary>世界行上的「打开目录」：打开世界本身（里面才是 datapacks/、region/、level.dat）。</summary>
+    /// <summary>世界行上的「打开目录」：打开世界本身（里面才有 datapacks/、region/、level.dat）。</summary>
     private async void OpenWorldFolder(WorldItem world)
         => await OpenDirectoryAsync(world.Directory);
 
@@ -1544,14 +1850,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (!world.CanManageDataPacks)
         {
-            Status = $"「{world.Name}」的游戏版本没有数据包功能（1.13 起才有）。";
+            Status = $"「{world.Name}」的游戏版本没有数据包功能（1.13 起才有）";
             return;
         }
 
         DataPackWorld = world;
         RaiseWorldViewChanged();
 
-        Status = $"正在管理「{world.Name}」的数据包";
+        Status = $"正在管理「{world.Name}」的数据包…";
         await RefreshContentAsync();
     }
 
@@ -1602,7 +1908,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 内容类型对应的实际目录。
     ///
-    /// 数据包是 <c>saves/&lt;世界&gt;/datapacks</c>，所以这里要落到当前选中的世界上；
+    /// 数据包是 <c>saves/&lt;世界&gt;/datapacks</c>，所以这里要落到当前选中的世界上。
     /// 其余类型就是实例目录下的固定子目录。
     /// </summary>
     private string? ResolveContentDirectory(ContentKind kind)
@@ -1651,12 +1957,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch
         {
-            // 目录读不了就当没有
+            // 目录读不了就当没有 
         }
 
         _detectedLoaders = loaders;
         _hasModLoader = loaders.Count > 0;
-        // OptiFine 独立版同样会读 shaderpacks，所以不再强制"必须有加载器";
+        // OptiFine 独立版同样会读 shaderpacks，所以不再强调 必须有加载器";
         _hasShaderSupport = hasShaderProvider;
         OnPropertyChanged(nameof(HasModLoader));
         OnPropertyChanged(nameof(DetectedLoadersText));
@@ -1667,7 +1973,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         ApplyTabAvailability();
         RaiseFolderVisibilityChanged();
-        RaiseCommandStates();   // 入口的 CanExecute 也依赖能力，必须一并刷新
+        RaiseCommandStates();   // 入口的 CanExecute 也依赖能力，必须一并刷新。
     }
 
     private void ApplyTabAvailability()
@@ -1685,7 +1991,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 ContentKind.ShaderPack => (
                     _hasShaderSupport,
-                    "该实例缺少光影支持（Iris 或 OptiFine），原版客户端不会读取 shaderpacks。"
+                    "该实例缺少光影支持（Iris 或 OptiFine），原版客户端不会读 shaderpacks。"
                     + "安装 Iris 后即可使用。"),
 
                 ContentKind.DataPack => (
@@ -1708,7 +2014,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool IsEmpty => Instances.Count == 0;
 
-    // 除了目录存在，还要"该实例真的用得上"：没有加载器不给「打开 mods」，没有 Iris/OptiFine 不给「打开光影」。
+    // 除了目录存在，还要 该实例真的用得上"：没有加载器不给「打开 mods」，没有 Iris/OptiFine 不给「打开光影」。
     // 只有目录真实存在才显示入口：用户没装光影就不该看到一个点了也只会新建空文件夹的按钮。
 
     public bool HasModsDirectory =>
@@ -1720,7 +2026,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool HasShaderPacksDirectory =>
         SelectedInstance is not null && HasShaderSupport && Directory.Exists(SelectedInstance.ShaderPacksDirectory);
 
-    // ---- 实例设置（概览页直接编辑）----
+    // ---- 实例设置（概览页直接编辑）---
 
     private const int MinimalMemoryMb = 512;
     private const int MaximalMemoryMb = 65536;
@@ -1744,7 +2050,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         new("3840 × 2160", 3840, 2160),
     };
 
-    /// <summary>内存（MB）。用 decimal? 是为了直接绑定 NumericUpDown.Value，省掉转换器。</summary>
+    /// <summary>内存（MB）。用 decimal? 是为了直接绑到 NumericUpDown.Value，省掉转换器。</summary>
     public decimal? MemoryMb
     {
         get => SelectedInstance?.MemoryMb;
@@ -1831,7 +2137,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         get => _selectedPreset;
         set
         {
-            // 下拉在实例切换时会被清空（赋 null），那不算用户操作
+            // 下拉在实例切换时会被清空（赋 null），那不算用户操作。
             if (!SetProperty(ref _selectedPreset, value) || value is null) return;
             if (SelectedInstance is not { } item) return;
 
@@ -1932,7 +2238,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (SelectedInstance is not { } item) return;
 
-            // splashes.txt 是逐行列表；这里只取第一行，避免用户输入换行后游戏随机挑到一半
+            // splashes.txt 是逐行列表；这里只取第一行，避免用户输入换行后游戏随机挑到一条
             var text = (value ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
             if (string.Equals(text, item.Model.Settings.SplashText ?? "", StringComparison.Ordinal)) return;
 
@@ -1960,8 +2266,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// 立刻落盘。
     ///
     /// 不做防抖定时器：文件只有几 KB，逐次写入的代价可以忽略；
-    /// 而定时器会带来"改完立刻关窗口就丢设置"的问题，得不偿失。
-    /// 并发写入用一个信号量串行化，且**写入时重新读取当前值**，
+    /// 而定时器会带来 改完立刻关窗口就丢设置 的问题，得不偿失。
+    /// 并发写入用一个信号量串行化，「*写入时重新读取当前值***。
     /// 这样即使多次保存交错，最后落盘的一定是最新状态。
     /// </summary>
     private void ScheduleInstanceSave() => _ = SaveInstanceSettingsAsync();
@@ -1994,10 +2300,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>供诊断/测试用：等待一次落盘完成（正常界面路径是即发即忘）。</summary>
+    /// <summary>供诊断测试用：等待一次落盘完成（正常界面路径是即发即忘）。</summary>
     public Task SaveSettingsNowAsync() => SaveInstanceSettingsAsync();
 
-    // ---- 页签与内容 ----
+    // ---- 页签与内容----
 
     public ObservableCollection<ContentTabItem> ContentTabs { get; }
 
@@ -2041,7 +2347,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 进导出页时把表单填成当前实例的默认值（名称、勾选摘要）
             if (value.Kind == DetailTabKind.Export) RefreshExportForm();
 
-            // 分类清单跟着内容类型走：模组是内置 14 项，资源包/光影是 Modrinth 标签
+            // 分类清单跟着内容类型走：模组是内容类 14 项，资源包/光影用 Modrinth 标签
             if (value.ContentKind is { } contentType && contentType.SupportsDownload())
                 _ = EnsureCategoriesForKindAsync(contentType);
             else if (_searchCategoryIndex != 0)
@@ -2053,7 +2359,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
             else if (DataPackWorld is not null)
             {
-                // 离开存档页签：清掉"正在管理的世界"，否则"返回存档"头部会留在别的页签上
+                // 离开存档页签：清掉"正在管理的世界"，否则返回存档"头部会留在别的页签上
                 DataPackWorld = null;
                 Content.Clear();
             }
@@ -2068,12 +2374,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 ResetSearchState();
 
-                // CurseForge 没有光影分类，切到光影时把来源切回 Modrinth
+                // CurseForge 没有光影分类，切到光影时把来源切到 Modrinth
                 if (value.ContentKind is { } tabKind && tabKind.CurseForgeClassId() is null)
                     SearchSourceIndex = 0;
             }
 
-            // 回到内容页签：上一轮的结果还在就恢复下载模式 —— 那批结果只在这个模式里有入口，
+            // 回到内容页签：上一轮的结果还在就恢复下载模式 —— 那批结果只在这个模式里有入口。
             // 不恢复等于把它们藏起来了（页签上没有任何按钮能再打开它们）。
             if (IsContentList
                 && SearchResults.Count > 0
@@ -2097,7 +2403,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool ShowExport => IsInstancePage && HasSelection && IsExportTab;
 
-    /// <summary>当前是否在模组页签（"检查更新"只对模组有意义）。</summary>
+    /// <summary>当前是否在模组页签（"检查更新" 只对模组有意义）。</summary>
     public bool IsModsTab => SelectedTab.ContentKind == ContentKind.Mod;
 
     public bool ShowOverview => IsInstancePage && HasSelection && IsOverview;
@@ -2116,7 +2422,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<ContentEntryItem> Content { get; } = new();
 
     /// <summary>
-    /// 列表里高亮选中的项（ListBox 多选）。批量启用/禁用/升级：
+    /// 列表里高亮选中的项（ListBox 多选）。批量启用/禁用/升级。
     /// 有选中时只作用于选中项，没有选中时作用于全部。
     /// </summary>
     private readonly List<ContentEntryItem> _selectedContent = new();
@@ -2125,9 +2431,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool HasContentSelection => ContentSelectionCount > 0;
 
-    public string ContentSelectionText => HasContentSelection ? $"已选 {ContentSelectionCount} 项" : "";
+    public string ContentSelectionText => HasContentSelection ? $"已选 {ContentSelectionCount} 页" : "";
 
-    /// <summary>由窗口的 SelectionChanged 同步（避免在 VM 里依赖 Avalonia 控件）。</summary>
+    /// <summary>由窗口的 SelectionChanged 同步（避免在 VM 里依赖Avalonia 控件）。</summary>
     public void SetSelectedContent(IEnumerable<ContentEntryItem> items)
     {
         _selectedContent.Clear();
@@ -2140,8 +2446,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 内容页签的后台图标/识别任务。正常界面不等它；诊断（--exercise-memory）
-    /// 需要等它跑完才能拿到"图标全加载完"的那一刻。
+    /// 内容页签的后台图标 识别任务。正常界面不等它；诊断（--exercise-memory）
+    /// 需要等它跑完才能拿到 图标全加载完"的那一刻。
     /// 用列表是因为折叠/筛选会连续触发多次刷新，不能只等最后一次。
     /// </summary>
     private readonly List<Task> _contentMetadataTasks = new();
@@ -2194,7 +2500,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 列表为空时显示什么。
     ///
-    /// 关键区分：文件夹里**有文件**、只是被筛选/折叠挡住时，不能说"文件夹是空的" ——
+    /// 关键区分：文件夹里 *有文件*、只是被筛选/折叠挡住时，不能说 文件夹是空的" —— 
     /// 用户会以为文件丢了（数据包页输入搜索词后显示"这个世界还没有数据包"就是这个坑）。
     /// </summary>
     public string ContentEmptyHint
@@ -2203,14 +2509,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             var kindName = SelectedTab.ContentKind?.DisplayName() ?? "内容";
 
-            // 有筛选词时先说"没匹配"，哪怕文件夹本来就是空的 ——
+            // 有筛选词时先报 "没匹配"，哪怕文件夹本来就是空的 —— 
             // 否则用户输入完搜索词却被告知"文件夹是空的"，会以为文件丢了。
             if (!string.IsNullOrWhiteSpace(_contentFilterQuery))
             {
                 return _contentFileTotal > 0
                     ? $"没有匹配「{_contentFilterQuery.Trim()}」的{kindName}"
                       + $"（共 {_contentFileTotal} 个）；清空筛选框就能看到全部。"
-                    : $"没有匹配「{_contentFilterQuery.Trim()}」的{kindName}；"
+                    : $"没有匹配「{_contentFilterQuery.Trim()}」的{kindName}。"
                       + "这里还没有任何文件，清空筛选框可以去下载。";
             }
 
@@ -2219,7 +2525,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 // 有文件却全被挡住：模组页最常见的是"隐藏整合包自带模组"
                 return SelectedTab.ContentKind == ContentKind.Mod
                     ? $"已折叠 {_contentFileTotal} 个整合包自带模组；取消勾选「隐藏整合包自带模组」即可看到。"
-                    : $"共 {_contentFileTotal} 个{kindName}，但当前都被过滤掉了（检查筛选条件）。";
+                    : $"有 {_contentFileTotal} 个{kindName}，但当前都被过滤掉了（检查筛选条件）。";
             }
 
             return SelectedTab.ContentKind switch
@@ -2233,10 +2539,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>本次扫描在筛选前找到的文件总数（判定"空"与"被筛掉"用）。</summary>
+    /// <summary>本次扫描在筛选前找到的文件总数（判断 是 否被筛选 用）。</summary>
     private int _contentFileTotal;
 
-    // ---- 状态 ----
+    // ---- 状态----
 
     public bool IsBusy
     {
@@ -2280,7 +2586,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var store = new JsonInstanceStore(_launcher);
             var catalog = new InstanceCatalog(await store.LoadAsync());
 
-            // 用户在资源管理器里改了实例文件夹名 → 按目录里的标记把 Id / 显示名同步回来
+            // 用户在资源管理器里改了实例文件夹时，按目录里的标记把 Id / 显示名同步回去
             var reconcile = InstanceReconciler.Reconcile(_launcher, catalog);
 
             if (reconcile.Renamed.Count > 0)
@@ -2347,7 +2653,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (instance is null || kind is not { } resolvedKind || directory is null)
         {
-            // 注意：这里**不**递增版本号。
+            // 注意：这里**不*递增版本号；
             // 否则"切页签到存档（还没进入世界）"的这次刷新会把稍后那次
             // 真正带世界的扫描结果判为过期并丢弃，列表就永远是空的。
             Content.Clear();
@@ -2360,7 +2666,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        // 只有"确实要扫描"时才取版本号：最后一次有效扫描获胜
+        // 只有"确实要扫描"时才取版本号：最后一次有效扫描获。
         var version = ++_contentScanVersion;
 
         IReadOnlyList<ContentEntry> entries;
@@ -2389,11 +2695,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             SetSelectedContent(Array.Empty<ContentEntryItem>());
             UpdateCount = 0;   // 列表重建后旧的升级标记已失效
 
-            // 资源包 / 光影同样支持本地筛选：和模组页一致的"筛当前 X"手感，
+            // 资源包 / 光影同样支持本地筛选：和模组页一致的"筛当选 X"手感。
             // 否则列表上的搜索框对它们就是摆设。
             var query = _contentFilterQuery.Trim();
 
-            // 记住筛选前的总数：为空时要用它区分"文件夹是空的"和"筛选后没有结果"
+            // 记住筛选前的总数：为空时要用它区分 "文件夹是空的"和"筛选后没有结果"
             _contentFileTotal = entries.Count;
 
             foreach (var entry in entries)
@@ -2414,7 +2720,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         UpdateDataPackTabCount();
 
-        // 徽标/R·B·A/图标都不依赖"检查更新"：先用缓存，再后台识别一次。
+        // 徽标/R·B·A/图标都不依赖"检查更新：先用缓存，再后台识别一次。
         // 资源包与光影同样适用 —— 它们也能按哈希被认领，只是不按加载器过滤。
         if (Content.Count > 0)
             TrackContentMetadata(LoadContentMetadataAsync(instance, resolvedKind, Content.ToList()));
@@ -2436,7 +2742,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 continue;
             }
 
-            // 数据包按世界算，数字由 UpdateDataPackTabCount 统一维护：
+            // 数据包按世界算，数字由UpdateDataPackTabCount 统一维护。
             // 这里再扫一遍只会把"上一个世界的数字"留在页签上。
             if (kind.IsPerWorld()) continue;
 
@@ -2470,7 +2776,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             // 就地更新这一行：绝不重建集合，否则 ListBox 会丢失选中项（高亮乱跳）
             item.ApplyEntry(updated);
-            Status = wasEnabled ? $"已禁用 {updated.Name}" : $"已启用 {updated.Name}";
+            Status = wasEnabled ? $"已禁用「{updated.Name}" : $"已启用「{updated.Name}";
         }
         catch (Exception ex)
         {
@@ -2505,6 +2811,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         await RefreshCountsAsync(instance);
+        await RefreshContentAsync();
         RaiseCommandStates();
     }
 
@@ -2560,11 +2867,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     public ICommand RefreshLogCommand { get; }
+    public ICommand DismissLaunchDiagnosisCommand { get; }
+    public ICommand OpenLaunchDiagnosisLogCommand { get; }
+    public ICommand OpenLaunchDiagnosisModsCommand { get; }
+    public ICommand OpenLaunchLogCommand { get; }
+    public ICommand ExportLaunchLogCommand { get; }
+    public ICommand DetailedDiagnosisCommand { get; }
 
     /// <summary>
     /// 读取 logs/latest.log 的尾部。
     ///
-    /// 为什么不读进程 stdout：客户端配置的 log4j（client-1.12.xml）会把日志按 XML 写到 stdout，
+    /// 为什么不读进程 stdout：客户端配置的 log4j（client-1.12.xml）会把日志按 XML 写到 stdout。
     /// 人读不了；而 latest.log 是纯文本，且游戏运行中会持续追加。
     /// 打开时必须带 FileShare.ReadWrite —— 游戏正在写这个文件。
     /// </summary>
@@ -2692,7 +3005,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 检查 mods 目录里的模组是否有新版本。
     ///
-    /// 流程：本地 SHA1 → 批量反查 Modrinth → 按实例的游戏版本与加载器取版本列表
+    /// 流程：本地 SHA1 → 批量反查 Modrinth → 按实例的游戏版本与加载器取版本列表。
     /// → 判定 → 把结果就地贴到对应的行上（不重建列表）。
     /// </summary>
     private async Task CheckModUpdatesAsync()
@@ -2726,21 +3039,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             if (modpack is not null && checkItems.Count == 0)
             {
-                // 只清"可升级"标记：识别徽标是哈希算出来的，跟更不更新没关系（清了会变 `?`）
+                // 只清"可升级"标记：识别徽标是哈希算出来的，跟更不更新没关系（清了会变 `?`。
                 foreach (var item in items) item.SetUpdate(null);
 
                 UpdateCount = 0;
-                Status = "整合包实例：整合包内模组不做单独更新检查（只检查手动添加的模组）";
+                Status = "整合包实例：整合包内模组不做单独更新检查（只检查手动添加的模组）。";
                 LauncherLog.Write(_launcher.Root,
                     $"检查更新 {instance.Id}：整合包实例，跳过 {items.Count} 个自带模组");
                 return;
             }
 
-            Status = $"正在检查 {checkItems.Count} 个模组"
+            Status = $"正在检查 {checkItems.Count} 个模组…"
                      + (packNames.Count > 0 ? $"（已跳过 {items.Count - checkItems.Count} 个整合包自带模组）" : "")
                      + $"（Modrinth{( _updateService.CurseForgeEnabled ? " + CurseForge" : "") }）…";
 
-            // 查询要用**游戏版本号**（1.20.1），不是加载器 profile 名（fabric-loader-...）
+            // 查询要用**游戏版本（*1.20.1），不是加载器 profile 名（fabric-loader-...）
             var gameVersion = await ResolveGameVersionAsync(instance);
 
             // 加载器：不按加载器过滤会把 Fabric 版本推给 Forge 整合包
@@ -2755,10 +3068,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 includePrerelease: _settingsIncludePrereleaseUpdates);
 
             // 整合包自带的文件明确清掉"可升级"标记，避免旧检查结果残留；
-            // 但**不能**清识别徽标 —— 那是哈希识别的结果，会变成 `?`
+            // ***不能**清识别徽标—— 那是哈希识别的结果，会变。`?`
             foreach (var item in items.Except(checkItems)) item.SetUpdate(null);
 
-            // 就地贴到行上，不重建列表（升级提示 + 识别来源）
+            // 就地贴到行上，不重建列表（升级提级 + 识别来源）
             var byPath = report.LocalMods.ToDictionary(local => local.Path, StringComparer.OrdinalIgnoreCase);
 
             foreach (var item in checkItems)
@@ -2777,8 +3090,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _ = SaveMetadataAsync(checkItems, report);
 
             LauncherLog.Write(_launcher.Root,
-                $"检查更新 {instance.Id}：文件 {checkItems.Count}，Modrinth {report.ModrinthMatches}，"
-                + $"CurseForge {report.CurseForgeMatches}，可升级 {report.Updates.Count}，"
+                $"检查更新 {instance.Id}：文件 {checkItems.Count}，Modrinth {report.ModrinthMatches}、"
+                + $"CurseForge {report.CurseForgeMatches}，可升级 {report.Updates.Count}、"
                 + $"加载器 [{(loaders.Count == 0 ? "原版" : string.Join(",", loaders))}]"
                 + (report.CurseForgeNote is { } note ? $"，CF 说明 {note}" : ""));
         }
@@ -2799,13 +3112,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 把检查结果组织成一句人能读的话。
     ///
-    /// 三个数字必须分开说清楚："已识别"（平台能认出这是哪个项目的哪个版本）、
-    /// "可升级"、以及"未识别"（两个平台都查不到，通常是自制或未上传的模组）。
-    /// 早先只报"都已是当前版本"，会把"认不出来"错说成"已是最新"。
+    /// 三个数字必须分开说清楚："已识别"（平台能认出这是哪个项目的哪个版本）。
+    /// "可升级"、以及 未识别"（两个平台都查不到，通常是自制或未上传的模组）。
+    /// 早先只报"都已是当前版本"，会把认不出来"错说成"已是最新"。
     /// </summary>
     private static string DescribeReport(int fileCount, ModUpdateReport report, bool includePrerelease)
     {
-        // 状态栏只有一行，用 · 分隔并把"已识别"的两个来源压在括号里，尽量不触发省略号
+        // 状态栏只有一行，用 · 分隔并把"已识别"的两个来源压在括号里，尽量不触发省略。
         var upgrades = includePrerelease
             ? $"{report.Updates.Count} 可升级（含测试版）"
             : $"{report.Updates.Count} 可升级";
@@ -2823,8 +3136,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 升级单个模组：下载新版 → 旧版移入 .trash → 刷新列表。
-    /// 注意新版文件名通常与旧版不同（版本号在文件名里），所以是"新增 + 移除旧"，
+    /// 升级单个模组：下载新版 → 旧版移入 .trash ，刷新列表。
+    /// 注意新版文件名通常与旧版不同（版本号在文件名里），所以是"新增 + 移除+"。
     /// 不是覆盖。下载失败时不会动任何现有文件。
     /// </summary>
     private async Task UpgradeModAsync(ContentEntryItem item)
@@ -2865,7 +3178,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 一键升级所有标记为可升级的模组：逐个下载新版本 → 删旧版 → 最后统一刷新列表。
+    /// 一键升级所有标记为可升级的模组：逐个下载新版 → → 删旧、，最后统一刷新列表。
     /// 失败不会中断后续项，结束时汇总多少个成功、多少个失败。
     /// </summary>
     private async Task UpgradeAllAsync()
@@ -2931,12 +3244,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Status = failures.Count == 0
                 ? $"全部升级完成：{succeeded} 个模组"
                 : $"升级完成 {succeeded} 个，失败 {failures.Count} 个："
-                  + string.Join("；", failures.Take(3))
+                  + string.Join("、", failures.Take(3))
                   + (failures.Count > 3 ? " …" : "");
         }
     }
 
-    // ---- 搜索与安装 ----
+    // ---- 搜索与安装----
 
     private string _searchQuery = "";
     private string _searchSummaryText = "";
@@ -2975,7 +3288,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>搜索分类；模组是固定 14 项，资源包/光影按 Modrinth 标签动态填（首项都是「全部」）。</summary>
+    /// <summary>搜索分类；模组是固定 14 项，资源包/光影用 Modrinth 标签动态填（首项都是「全部」）。</summary>
     public ObservableCollection<SearchCategoryOption> SearchCategories { get; } = new();
 
     /// <summary>模组分类的可多选标签（Modrinth 维度，取交集）。</summary>
@@ -3013,12 +3326,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(SearchCategoryButtonText));
     }
 
-    /// <summary>当前 SearchCategories 属于哪类项目；-1 表示还没按类型填过。</summary>
+    /// <summary>当前 SearchCategories 属于哪类项目， 1 表示还没按类型填过。</summary>
     private ContentKind? _categoryKind;
 
     private readonly SearchCategoryCache _categoryCache;
 
-    /// <summary>模组的 14 个分类：中文显示名 + Modrinth slug + CurseForge categoryId。</summary>
+    /// <summary>模组类 14 个分类：中文显示名 + Modrinth slug + CurseForge categoryId。</summary>
     private static IEnumerable<SearchCategoryOption> ModCategoryOptions()
     {
         yield return new("全部", null, null);
@@ -3034,12 +3347,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         yield return new("运输", "transportation", 414);
         yield return new("生物", "mobs", 411);
         yield return new("装饰", "decoration", 424);
-        yield return new("库 / API", "library", 421);
+        yield return new("库/ API", "library", 421);
     }
 
     /// <summary>
     /// 切成某类项目的分类列表。
-    /// 模组用内置列表；资源包/光影先用缓存（没有就先只有「全部」），再后台问 Modrinth 刷新。
+    /// 模组用内置列表；资源包/光影先用缓存（没有就先只有「全部」），再后台用 Modrinth 刷新。
     /// 资源包/光影的标签按 header 拆成两个下拉：主分类（风格/特性）+ 次要维度（分辨率/性能）。
     /// </summary>
     private void ApplyCategories(ContentKind kind, IReadOnlyList<ModrinthCategoryTag>? tags)
@@ -3089,7 +3402,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 拉不到 Modrinth 分类时的兜底：用我们中文表里已知的模组分类。
+    /// 拉不到Modrinth 分类时的兜底：用我们中文表里已知的模组分类。
     /// 这样断网/接口失败时仍然能多选，只是列表少了几个冷门分类。
     /// </summary>
     private static IReadOnlyList<ModrinthCategoryTag> FallbackModCategoryTags()
@@ -3100,7 +3413,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .ToList();
 
     /// <summary>
-    /// 用 Modrinth 官方的模组分类重建标签。**分类本身不自行发明**，
+    /// 按 Modrinth 官方的模组分类重建标签；*分类本身不自行发布***。
     /// 这里只是把 slug 换成中文名与说明；多选时搜索层会按 facet 取交集。
     /// </summary>
     private void BuildCategoryChips(IReadOnlyList<ModrinthCategoryTag> tags)
@@ -3127,7 +3440,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void OnCategoryChipChanged(SearchCategoryChip chip)
     {
-        // 标签是 Modrinth 的 facet；选了就把来源切回 Modrinth（CF 只有单分类）
+        // 标签用 Modrinth 的 facet；选了就把来源切回 Modrinth（CF 只有单分类）
         if (chip.IsSelected && SearchSourceIndex != 0) SearchSourceIndex = 0;
 
         OnPropertyChanged(nameof(SelectedModrinthCategories));
@@ -3146,7 +3459,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _searchSecondaryIndex, value)) return;
 
-            // 和主分类一样：这一维度只有 Modrinth 有，选了就切回 Modrinth
+            // 和主分类一样：这一维度只有 Modrinth 有，选了就切回Modrinth
             if (value > 0
                 && SelectedTab.ContentKind is { } kind
                 && kind != ContentKind.Mod
@@ -3170,7 +3483,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>
     /// 按 Modrinth 的 header 拆出两个维度并排序：
-    /// 主分类 = categories（风格）+ features（特性）；次要 = resolutions 或 performance impact。
+    /// 主分类 = categories（风格）+ features（特性）；次维 = resolutions 和 performance impact。
     /// </summary>
     private static IEnumerable<ModrinthCategoryTag> OrderCategories(
         IReadOnlyList<ModrinthCategoryTag> tags,
@@ -3182,7 +3495,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (!primary)
         {
-            // 分辨率按数字排（字符串排会把 16x 排在 128x 前面）；性能按 potato → high 排
+            // 分辨率按数字排（字符串排会把 16x 排在 128x 前面）；性能、 potato / high /
             return selected
                 .OrderBy(tag => tag.Header == "resolutions"
                     ? ResolutionRank(tag.Name)
@@ -3232,7 +3545,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch
         {
-            // 拉不到就用缓存/只剩「全部」，不影响搜索本身
+            // 拉不到就用缓存只剩「全部」，不影响搜索本文
         }
     }
 
@@ -3290,7 +3603,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public string CategoryFilterTip => $"按分类筛选{ContentKindName}（资源包/光影只用 Modrinth 分类）";
 
-    /// <summary>搜索来源：0 = Modrinth，1 = CurseForge。</summary>
+    /// <summary>搜索来源：1  = Modrinth，2  = CurseForge。</summary>
     public int SearchSourceIndex
     {
         get => _searchSourceIndex;
@@ -3311,7 +3624,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool IsCurseForgeKeyMissing => !IsCurseForgeSearchAvailable;
 
-    /// <summary>设置页保存 key 后重建客户端；环境变量优先级仍高于文件。</summary>
+    /// <summary>设置页保存key 后重建客户端；环境变量优先级仍高于文件。</summary>
     private void ReloadCurseForgeClient()
     {
         if (CurseForgeClient.TryResolveApiKey(out var key, out _) && key is not null)
@@ -3486,7 +3799,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private string _detailTranslation = "";
 
-    /// <summary>简介的机器翻译。为空表示"不需要 / 翻不出来"，界面据此隐藏这一块。</summary>
+    /// <summary>简介的机器翻译。为空表示"不需要 "/ 翻不出来"，界面据此隐藏这一块。</summary>
     public string DetailTranslation
     {
         get => _detailTranslation;
@@ -3522,9 +3835,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// 把简介翻成用户的语言（默认简体中文）。
     ///
     /// 三个"不做"的判据：
-    ///   - 正文已经是中文 → 不必翻
-    ///   - 目标语言是英文 → 原文就是英文，不必翻
-    ///   - 翻译端点失败 → 只显示原文（翻译是附加信息，不是必需品）
+    ///   - 正文已经是中文时，不必。
+    ///   - 目标语言是英文 时，原文就是英文，不必翻
+    ///   - 翻译端点失败 时，只显示原文（翻译是附加信息，不是必需品）
     /// </summary>
     private async Task TranslateDetailAsync(int token, string body)
     {
@@ -3577,11 +3890,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// 内容列表的图标（打开页签就显示，**不需要点"检查更新"**）。
     ///
     /// 分两步：
-    ///   1. 用记住的"文件名 → 图标地址"直接取图标（位图已在磁盘缓存里，零网络）
+    ///   1. 用记住的"文件→ → 图标地址"直接取图标（位图已在磁盘缓存里，零网络）
     ///   2. 该实例的该页签首次打开时，后台识别一次（只认领项目，不查版本），
     ///      补上徽标并记住图标地址
     ///
-    /// 模组、资源包、光影用的是同一套逻辑：哈希认领与图标都与内容类型无关，
+    /// 模组、资源包、光影用的是同一套逻辑：哈希认领与图标都与内容类型无关。
     /// 唯一的差别是**只有模组按加载器过滤**。
     /// </summary>
     private async Task LoadContentMetadataAsync(
@@ -3589,7 +3902,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ContentKind kind,
         IReadOnlyList<ContentEntryItem> items)
     {
-        // 整合包自带的模组：直接归属整合包来源，不查哈希、不加载图标（495 个图标很吃内存）
+        // 整合包自带的模组：直接归属整合包来源，不查哈希、不加载图标（95 个图标很吃内存）
         var packInfo = kind == ContentKind.Mod
             ? InstanceModpackStore.Load(instance.GameDirectory)
             : null;
@@ -3599,7 +3912,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // 只有清单里的文件才是平台托管过的；overrides/ 带进来的自制模组要保持 `?`
+        // 只有清单里的文件才是平台托管过的；overrides/ 带进来的自制模组要保留 `?`
         var packIndexNames = packInfo?.PackFiles
             .Where(file => file.FromIndex)
             .Select(file => PackFileCollector.LogicalName(file.FileName))
@@ -3611,7 +3924,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             : UpdateSource.Modrinth;
 
         // 1) 先用记住的结果：徽标、R/B/A 离线可用。
-        //    图标不在这里统一取 —— 495 行一次解码 495 个位图是内存尖峰的主因；
+        //    图标不在这里统一加载—— 495 行一次解码：495 个位图是内存尖峰的主因；
         //    改由行进入可视树时按需加载（MainWindow.OnContentRowAttached → EnsureIconAsync）。
         foreach (var item in items)
         {
@@ -3625,15 +3938,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             if (!_contentMetadata.TryGet(item.Entry.FileName, out var remembered)) continue;
 
-            // overrides/ 里的文件照样可以用"哈希识别"的结果：真在 Modrinth 上就认，
-            // 认不出来就保持 `?`（不能因为是整合包就强行打来源徽标）
+            // overrides/ 里的文件照样可以用 "哈希识别"的结果：真在 Modrinth 上就认，
+            // 认不出来就保留 `?`（不能因为是整合包就强行打来源徽标）
             if (remembered.Identified && !packIndexNames.Contains(logical))
                 item.SetIdentification(remembered.Source, remembered.Channel);
         }
 
         MemoryTrace.Write("icons-cached", $"kind={kind} items={items.Count}");
 
-        // 图标识别：整合包自带的文件也参与（只查项目/图标，不查更新），结果落盘缓存；\n        // 切换实例时会释放图标内存，下次从磁盘缓存直接加载。\n        if (items.Count == 0) return;
+        // 图标识别：整合包自带的文件也参与（只查项目与图标，不查更新），结果落盘缓存；\n        // 切换实例时会释放图标内存，下次从磁盘缓存直接加载。\n        if (items.Count == 0) return;
 
         // 2) 该实例的该页签首次打开时，后台识别一次（只认领，不查版本）
         if (!_autoIdentifiedInstances.Add($"{instance.Id}:{kind}")) return;
@@ -3681,7 +3994,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 {
                     iconUrl = project.IconUrl;
                     projectTitle = project.DisplayName;
-                    // 图标地址只落盘，不在这里解码：行可见时由 EnsureIconAsync 取
+                    // 图标地址只落盘，不在这里解码：行可见时由 EnsureIconAsync 补
                 }
 
                 // 落盘：来源与版本通道也要记住，否则重启后徽标又得重新联网识别
@@ -3695,7 +4008,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     Title = projectTitle,
                 });
 
-                // 这一行正好在屏幕上（识别结果刚回来）→ 补一次图标；其余行等滚到可见时再取
+                // 这一行正好在屏幕上（识别结果刚回来），补一次图标；其余行等滚到可见时再补
                 if (item.IsRowVisible) await EnsureIconAsync(item);
             }
 
@@ -3756,7 +4069,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 {
                     iconUrl = project.IconUrl;
                     projectTitle = project.DisplayName;
-                    // 同上：只记地址，不在这里解码 495 个图标
+                    // 同上：只记地址，不在这里解码（495 个图）
                 }
 
                 _contentMetadata.Set(item.Entry.FileName, new ContentMetadata(
@@ -3786,9 +4099,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 详情加载的序号。
     ///
-    /// 详情与翻译都是异步的：用户可能在看 A 的时候已经点了 B，
-    /// 而 A 的请求晚于 B 返回 —— 不做判断就会把 A 的内容写到 B 的界面上。
-    /// 每次发起加载都递增，只有"最后一次"才允许写回。
+    /// 详情与翻译都是异步的：用户可能在看 A 的时候已经点了 B。
+    /// 看 A 的请求晚于 B 返回 —— 不做判断就会把 A 的内容写到 B 的界面上。
+    /// 每次发起加载都递增，只用 最后一次 才允许写回。
     /// </summary>
     private int _detailToken;
 
@@ -3920,7 +4233,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         // 留着会让人以为"这个搜索在新页签里也生效"。
         SearchQuery = "";
 
-        // 让还在路上的详情/翻译结果作废：否则晚到的 DetailIcon 可能引用已被清空的缓存位图
+        // 让还在路上的详情/翻译结果作废：否则晚到的 DetailIcon 可能引用已被清空的缓存位置
         _detailToken++;
 
         SelectedSearchResult = null;
@@ -3948,7 +4261,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool CanConfirmInstall => !IsInstalling && _pendingPlan is not null;
 
     /// <summary>
-    /// 搜索。**查询为空时改为浏览热门**（按下载量排序）——
+    /// 搜索***查询为空时改为浏览热门***（按下载量排序）—— 
     /// 用户往往不知道该搜什么，先看当前版本/加载器下最常用的项目更有用。
     /// </summary>
     private async Task SearchModsAsync(bool resetPage = true)
@@ -3967,8 +4280,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 日志页签没有内容类型 —— 那里不显示搜索面板，走到这里直接退出
             if (SelectedTab.ContentKind is not { } kind) return;
 
-            // 只有模组按加载器过滤。资源包/光影的 loaders 是 "minecraft"，
-            // 按 fabric/forge 过滤会一条都搜不到。
+            // 只有模组按加载器过滤。资源包/光影不带 loaders （"minecraft"）
+            // 用 "fabric/forge 过滤会一条都搜不到"
             var loaders = kind.UsesLoaderFilter()
                 ? await DetectLoadersAsync(instance)
                 : Array.Empty<string>();
@@ -3994,7 +4307,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 modrinthCategories = new[] { categorySlug };
             }
 
-            // 第二个维度：资源包分辨率 / 光影性能；Modrinth 里它们是独立的 facet 组
+            // 第二个维度：资源包分辨率 / 光影性能；Modrinth 里它们是独立的 facet 。
             var secondary = SearchSecondaryIndex > 0
                             && SearchSecondaryIndex < SearchSecondaryCategories.Count
                 ? SearchSecondaryCategories[SearchSecondaryIndex].ModrinthCategory
@@ -4016,7 +4329,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             if (source == UpdateSource.CurseForge && kind.CurseForgeClassId() is not { } classId)
             {
-                SearchSummaryText = $"CurseForge 没有{kind.DisplayName()}分类，请把来源切回 Modrinth";
+                SearchSummaryText = $"CurseForge 没有{kind.DisplayName()}分类，请把来源切到 Modrinth";
                 Status = SearchSummaryText;
                 return;
             }
@@ -4107,10 +4420,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     : $"{source} 上没有找到适用于 {gameVersion} 的{kind.DisplayName()}"
                 : browsing
                     ? $"热门{kind.DisplayName()}（{source} · {gameVersion}"
-                      + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + " · 按下载量）"
+                      + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + " · 按下载量排序"
                     : $"找到 {SearchResults.Count} 个{kind.DisplayName()}"
                       + $"（{source} · {gameVersion}"
-                      + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + "）";
+                      + (loaders.Count > 0 ? " / " + string.Join(",", loaders) : "") + "。";
 
             if (category is not null)
                 SearchSummaryText += $" · 分类：{category.Display}";
@@ -4143,13 +4456,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         try
         {
-            // 加载器：数据包固定用 "datapack"（把同一项目的模组版排除掉），
+            // 加载器：数据包固定用 "datapack"（把同一项目的模组版排除掉）。
             // 模组按实例检测，资源包/光影不过滤。
             var loaders = kind.UsesLoaderFilter()
                 ? await DetectLoadersAsync(instance)
                 : kind.PlatformLoaders();
 
-            // 解析项目版本、装依赖，用的都是**游戏版本号**，不是加载器 profile 名
+            // 解析项目版本、装依赖，用的都用 ***游戏版本***，不是加载器 profile 名
             var gameVersion = await ResolveGameVersionAsync(instance);
             _pendingGameVersion = gameVersion;
 
@@ -4177,7 +4490,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 return;
             }
 
-            // 填充下拉时不要触发"选中即重新解析"，否则会解析两遍
+            // 填充下拉时不要触发 选中即重新解析，否则会解析两遍
             _suppressVersionReload = true;
 
             InstallVersions.Clear();
@@ -4221,8 +4534,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var versions = await _modrinth.GetProjectVersionsAsync(item.ProjectRef, gameVersion, loaders);
 
-        // 光影/资源包常见"六个文件都叫 2.02"：只有版本号重复时才补上变体名
-        // （Extreme / High / Lite…），否则模组列表会变成"版本号 · 重复说了遍的版本名"。
+        // 光影/资源包常解 六个文件都叫 2.02"：只有版本号重复时才补上变体号
+        // （Extreme / High / Lite…），否则模组列表会变成"版本可 "· 重复说了遍的版本"。
         var duplicateLabels = versions
             .GroupBy(version => version.VersionNumber, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)
@@ -4242,7 +4555,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 从 Modrinth 的版本名里剥出"变体说明"：去掉项目名、去掉版本号，剩下的才是
+    /// 从 Modrinth 的版本名里剥出 "变体说明"：去掉项目名、去掉版本号，剩下的才是
     /// Extreme / High / Lite 这类真正能区分的部分；剥完为空就返回 null。
     /// </summary>
     private static string? VariantDetail(string? name, string title, string versionNumber, string? fileName)
@@ -4328,7 +4641,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             IsPlanVisible = true;
             (ConfirmInstallCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
-            Status = $"待确认：{item.Title} {choice.Display} 共 {plan.Targets.Count} 个文件";
+            Status = $"待确认：{item.Title} {choice.Display} ， {plan.Targets.Count} 个文件";
         }
         catch (Exception ex)
         {
@@ -4353,20 +4666,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             LauncherLog.Write(_launcher.Root,
                 $"安装 {string.Join(",", plan.Targets.Select(target => target.FileName))}"
-                + $" → 新增 {outcome.Installed.Count}，跳过 {outcome.Skipped.Count}，失败 {outcome.Failed.Count}");
+                + $" 、新增 {outcome.Installed.Count}，跳过 {outcome.Skipped.Count}，失败 {outcome.Failed.Count}");
 
             IsPlanVisible = false;
             _pendingPlan = null;
             PlanLines.Clear();
 
-            // 装完**不清空**搜索结果。
+            // 装完**不清空***搜索结果。
             //
             // 用户常连着装好几个（主体、依赖，再回头装另一个），清掉列表后只剩搜索框和
             // "第 N 页"，看上去就是搜索列表自己收起来了 —— 查询词、分类、排序、页码全都
             // 还在，只有结果没了，是最难理解的一种状态。这批结果在同一个实例下依然成立
             // （同一游戏版本 + 加载器），所以原样留着，让用户接着看、接着装。
             //
-            // 顺手把"这一批文件是谁"写进识别缓存：本地列表里的 M 徽标与图标全靠它，
+            // 顺手把 这一批文件是否 写进识别缓存：本地列表里的 M 徽标与图标全靠它。
             // 不写的话新文件要等重启（后台识别一个实例一个页签只跑一次）才亮起来。
             RememberInstalledIdentity(plan, outcome);
 
@@ -4385,7 +4698,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 把刚装完的文件直接记进识别缓存：来源取这次搜索用的平台，版本通道取用户选的那个版本，
+    /// 把刚装完的文件直接记进识别缓存：来源取这次搜索用的平台，版本通道取用户选的那个版本。
     /// 图标取搜索结果里的图标地址。依赖只知道来源（它们不在搜索结果里），图标留给后台识别补。
     ///
     /// 不这么做，新装的文件在本会话里永远是"没认出来"：后台自动识别按
@@ -4413,7 +4726,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 isRoot ? channel : null,
                 isRoot ? item.IconUrl : "")
             {
-                // 刚下载的文件一定属于这次搜索到的项目：把项目 id 与标题记住，
+                // 刚下载的文件一定属于这次搜索到的项目：把项目id 与标题记住，
                 // 之后在本地列表里点图标就能直接跳回该项目的其他版本。
                 ProjectRef = item.ProjectRef,
                 Title = item.Title,
@@ -4424,7 +4737,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 从本地列表跳到"这个项目的下载界面"：点行前的图标 → 进入下载模式 → 直接把这个项目的
+    /// 从本地列表跳到 这个项目的下载界面 ：点行前的图标 即 进入下载模式 ，直接把这个项目的
     /// 版本下拉与安装计划摆出来，换版本/补依赖都不用重新搜一遍。
     ///
     /// 项目身份来自识别缓存（安装时写入，或哈希识别时写入 ProjectRef）；实在没有才退回按名字搜索。
@@ -4450,7 +4763,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(projectRef))
         {
             // 认不出是哪个平台项目：按名字搜一次，剩下的交给用户点"安装"
-            Status = $"{title} 还没识别到平台项目，先按名字搜索…";
+            Status = $"{title} 还没识别到平台项目，先按名字搜索吧";
             await SearchModsAsync();
             return;
         }
@@ -4480,7 +4793,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 给安装结果写一句人话。
     ///
-    /// 关键是把"一个都没下、全被跳过"说清楚：那通常是下拉里选的版本和已安装的是同一个，
+    /// 关键是把"一个都没下、全被跳过 "说清楚：那通常是下拉里选的版本和已安装的是同一个，
     /// 只报"新增 0，跳过 1"很容易被当成 bug（用户就遇到过 —— 看着像静默失败，其实是版本没变）。
     /// </summary>
     private static string DescribeInstallOutcome(InstallOutcome outcome, InstallPlan plan)
@@ -4488,17 +4801,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (outcome.Installed.Count == 0 && outcome.Failed.Count == 0 && outcome.Skipped.Count > 0)
         {
             var names = string.Join("、", outcome.Skipped.Select(target => target.FileName).Take(2));
-            var more = outcome.Skipped.Count > 2 ? " 等" : "";
+            var more = outcome.Skipped.Count > 2 ? " …" : "";
 
             return plan.Targets.Count == 1
-                ? $"没有下载：{names}{more} 已经在 mods 里了 —— 选的版本和已装的是同一个？"
-                : $"没有下载：{outcome.Skipped.Count} 个文件都已存在（{names}{more}）—— 换一个版本再试";
+                ? $"没有下载：{names}{more} 已经在 mods 里了 —你 选的版本和已装的是同一个？"
+                : $"没有下载：{outcome.Skipped.Count} 个文件都已存在（{names}{more}）—请 换一个版本再试";
         }
 
         if (outcome.Installed.Count == 0 && outcome.Failed.Count > 0)
         {
             var (target, error) = outcome.Failed[0];
-            return $"安装失败：{target.FileName} — {error}"
+            return $"安装失败：{target.FileName} → {error}"
                    + (outcome.Failed.Count > 1 ? $"（共 {outcome.Failed.Count} 个失败）" : "");
         }
 
@@ -4529,12 +4842,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public Task PrepareInstallForDiagnosticsAsync(ModSearchResultItem item) => BeginInstallAsync(item);
 
     /// <summary>
-    /// 供诊断用：走与界面「确认安装」完全相同的链路（**会真的下载**）。
-    /// 用来验证"装完之后搜索结果还在"——这条曾经断在 ConfirmInstallAsync 里。
+    /// 供诊断用：走与界面「确认安装」完全相同的链路（***会真的下载***）。
+    /// 用来验证"装完之后搜索结果还在"——这条曾经断在 ConfirmInstallAsync 里）
     /// </summary>
     public Task ConfirmInstallForDiagnosticsAsync() => ConfirmInstallAsync();
 
-    /// <summary>供诊断用：选中第 N 个可用版本并等待计划重新解析完成。</summary>
+    /// <summary>供诊断用：选中前 N 个可用版本并等待计划重新解析完成。</summary>
     public async Task SelectInstallVersionForDiagnosticsAsync(int index)
     {
         if (index < 0 || index >= InstallVersions.Count) return;
@@ -4558,7 +4871,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 实例的**游戏版本号**（如 1.20.1），沿 inheritsFrom 解析。
+    /// 实例的 ***游戏版本***（如 1.20.1），用 inheritsFrom 解析。
     /// 直接用实例的 VersionId 去问 Modrinth 是不行的 —— 那可能是 fabric-loader-0.20.1-1.20.1。
     /// </summary>
     private Task<string> ResolveGameVersionAsync(InstanceListItem instance)
@@ -4578,6 +4891,52 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool IsInstancesPage => _navPage == NavPage.Instances;
 
     public bool IsDownloadsPage => _navPage == NavPage.Downloads;
+
+    public bool HasLaunchDiagnosis => _launchDiagnosis is not null;
+
+    public bool HasLaunchLog => _lastLaunchLog is not null;
+
+    public string LaunchLogPath => _lastLaunchLog?.DirectoryPath ?? string.Empty;
+
+    public bool HasLaunchDiagnosisEvidence => _launchDiagnosis?.HasEvidence == true;
+
+    public bool HasLaunchDiagnosisSymptoms => _launchDiagnosis?.HasSymptoms == true;
+
+    /// <summary>次生症状（Mixin 警告之类），界面折叠显示，避免被当成病因。</summary>
+    public string LaunchDiagnosisSymptoms => _launchDiagnosis?.SymptomsText ?? string.Empty;
+
+    /// <summary>本次涉及的模组：显示名 + jar 文件名，可直接对照 mods 目录禁用。</summary>
+    public string LaunchDiagnosisInvolvedMods => _launchDiagnosis?.InvolvedModsText ?? string.Empty;
+
+    public bool HasLaunchDiagnosisInvolvedMods => _launchDiagnosis?.InvolvedMods.Count > 0;
+
+    public bool HasLaunchDiagnosisLog =>
+        !string.IsNullOrWhiteSpace(_launchDiagnosis?.CrashReportPath) ||
+        !string.IsNullOrWhiteSpace(_launchDiagnosis?.LogPath);
+
+    public bool HasLaunchDiagnosisMods =>
+        _launchDiagnosis is { } diagnosis &&
+        (diagnosis.Title.Contains("模组", StringComparison.Ordinal) ||
+         diagnosis.Title.Contains("Mixin", StringComparison.OrdinalIgnoreCase)) &&
+        SelectedInstance is { } item &&
+        Directory.Exists(item.ModsDirectory);
+
+    public string LaunchDiagnosisTitle => _launchDiagnosis?.Title ?? string.Empty;
+
+    public string LaunchDiagnosisSummary => _launchDiagnosis?.Summary ?? string.Empty;
+
+    public string LaunchDiagnosisSuggestion => _launchDiagnosis?.Suggestion ?? string.Empty;
+
+    public string LaunchDiagnosisEvidence => _launchDiagnosis?.Evidence ?? string.Empty;
+
+    public string LaunchDiagnosisAccent =>
+        _launchDiagnosis?.Severity == LaunchDiagnosisSeverity.Error ? "#E06C75" : "#E0A94A";
+
+    public bool IsP2PPage => _navPage == NavPage.P2P;
+
+    public string P2PNavBackground => IsP2PPage ? "#2B3A55" : "Transparent";
+
+    public string P2PNavForeground => IsP2PPage ? "#DCE4F5" : "#949CA9";
 
     /// <summary>当前是否在实例页（实例的标题与内容页签只在这个页面显示）。</summary>
     public bool IsInstancePage => _navPage == NavPage.Instances;
@@ -4604,7 +4963,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!SetProperty(ref _selectedDownloadVersion, value)) return;
 
             // 没选中版本（例如某类筛选结果为空）：加载器区域回到"无内容"状态，
-            // 不能留着 _checkingLoaders=true —— 那会永远卡在"正在检查…"。
+            // 不能留着 _checkingLoaders=true —— 那会永远卡在"正在检查"。
             if (value is null)
             {
                 FabricLoaderVersions.Clear();
@@ -4631,8 +4990,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
 
             // 换了游戏版本，旧加载器清单不再适用：先清空并置灰，再异步查三家。
-            // 不清 _selectedLoader：新版本也支持同一个加载器时就保持选择，
-            // 不支持的话 ApplyLoaderAvailability 会退回原版。
+            // 不清 _selectedLoader：新版本也支持同一个加载器时就保持选择。
+            // 不支持的会 ApplyLoaderAvailability 会退回原版。
             FabricLoaderVersions.Clear();
             ForgeLoaderVersions.Clear();
             NeoForgeLoaderVersions.Clear();
@@ -4654,11 +5013,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ? $"{version.TypeLabel} · 发布于 {version.ReleasedText}"
         : "请选择一个版本";
 
-    // ---- 模组加载器：原版 / Fabric / Forge / NeoForge（四选一）----
+    // ---- 模组加载器：原版 / Fabric / Forge / NeoForge（四选一）---
     //
-    // 为什么是互斥单选而不是三个独立勾选：一个实例只能挂一个加载器的 profile，
+    // 为什么是互斥单选而不是三个独立勾选：一个实例只能挂一个加载器 的 profile。
     // 勾了 Fabric 又勾 Forge 根本没有意义。当前游戏版本没有某加载器的版本时，
-    // 那一项直接置灰 —— 选都选不了，比"选了再报错"清楚。
+    // 那一项直接置灰 —— 选都选不了，而 选了再报得 清楚。
 
     private bool _instanceNameEdited;
     private bool _suppressNameEdit;
@@ -4805,7 +5164,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool ShowNeoForgeVersions => _selectedLoader == LoaderKind.NeoForge && HasNeoForgeLoaderVersions;
     public bool ShowQuiltVersions => _selectedLoader == LoaderKind.Quilt && HasQuiltLoaderVersions;
 
-    /// <summary>加载器那一行的说明：为什么某些项是灰的 / 选 Forge 系要注意 Java。</summary>
+    /// <summary>加载器那一行的说明：为什么某些项是灰色 / 的 Forge 系要注意 Java。</summary>
     public string LoaderHint => _loaderHint;
 
     public bool HasLoaderHint => !string.IsNullOrWhiteSpace(_loaderHint);
@@ -4838,14 +5197,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         // Forge / NeoForge 1.13+ 要跑官方安装器，安装阶段需要 Java
         if (_selectedLoader is LoaderKind.Forge or LoaderKind.NeoForge)
         {
-            parts.Add("Forge / NeoForge 由官方安装器安装，安装阶段需要 Java；"
+            parts.Add("Forge / NeoForge 由官方安装器安装，安装阶段需要 Java。"
                       + "本机缺少时会先自动补装，也可以在「设置」页预下载对应运行时");
         }
 
         if (_selectedLoader == LoaderKind.Quilt)
         {
-            parts.Add("Quilt 直接从 meta.quiltmc.org 取 profile，不需要 Java 安装器；"
-                      + "它兼容 Fabric 模组，加载器版本带 beta 的是预览版");
+            parts.Add("Quilt 直接从 meta.quiltmc.org 拿 profile，不需要 Java 安装器；"
+                      + "它兼容 Fabric 模组，加载器版本带 beta 的是预览版。");
         }
 
         _loaderHint = string.Join("　·　", parts);
@@ -4886,8 +5245,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 查当前游戏版本可用的加载器。三级缓存：
     ///   1. 内存（切走再切回，同一版本立刻就有）；
-    ///   2. 磁盘（&lt;root&gt;\cache\loader-versions.json，重开启动器也不用再查）；
-    ///   3. 联网（Fabric launcher meta + Forge / NeoForge 的 maven-metadata，并行查）。
+    ///   2. 磁盘（lt;root&gt;\cache\loader-versions.json，重开启动器也不用再查）；
+    ///   3. 联网（Fabric launcher meta + Forge / NeoForge  的 maven-metadata，并行查）。
     /// 「重新检查」按钮走 force=true，跳过两级缓存。
     ///
     /// 用 token 丢弃过期结果：连着切两个版本时，先发出去的那次回来也不能覆盖当前界面。
@@ -4934,7 +5293,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        // 3) 联网查
+        // 3) 联网查询
         _checkingLoaders = true;
         NotifyLoaderAvailabilityChanged();
         RefreshLoaderHint();
@@ -5012,7 +5371,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedFabricLoader = FabricLoaderVersions.FirstOrDefault(loader => loader.Stable)
                                ?? FabricLoaderVersions.FirstOrDefault();
 
-        // 默认选最新的**正式版**；没有正式版才退回最新的预发布版
+        // 默认选最新的**正式版***；没有正式版才退回最新的预发布版
         SelectedForgeLoader = ForgeLoaderVersions.FirstOrDefault(loader => loader.Channel == ReleaseChannel.Release)
                               ?? ForgeLoaderVersions.FirstOrDefault();
 
@@ -5027,7 +5386,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasNeoForgeLoaderVersions));
         OnPropertyChanged(nameof(HasQuiltLoaderVersions));
 
-        // 当前选中的加载器在这个游戏版本没有 → 退回原版，别留一个灰色的选中项
+        // 当前选中的加载器在这个游戏版本没有 ，退回原版，别留一个灰色的选中项
         if (_selectedLoader != LoaderKind.Vanilla && !IsLoaderAvailable(_selectedLoader))
             _selectedLoader = LoaderKind.Vanilla;
 
@@ -5075,8 +5434,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!SetProperty(ref _downloadInstanceName, value)) return;
 
             // 只有"非空输入"才算用户改名。
-            // TextBox 挂载时会先把它自己的空值写回来，若把那也算改名，
-            // 后续的"跟随版本"就全部失效 —— 名称会一直是空、按钮也永远灰着。
+            // TextBox 挂载时会先把它自己的空值写回来，若把那也算改名—— 
+            // 后续"跟随版本"就全部失效—— 名称会一直是空、按钮也永远灰着。
             if (!_suppressNameEdit && !string.IsNullOrWhiteSpace(value)) _instanceNameEdited = true;
 
             OnPropertyChanged(nameof(EffectiveInstanceName));
@@ -5086,10 +5445,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 版本类型过滤：0 正式版 / 1 快照版本 / 2 早期版本 / 3 愚人节版本（四选一）。
+    /// 版本类型过滤： 正式版**/ 1 快照版本 / 2 早期版本 / 3 愚人节版本（四选一）。
     ///
     /// 愚人节版本在 Mojang 的清单里就是 snapshot，只能靠已知清单认；
-    /// 2010 年前后的早期版本是 old_alpha / old_beta，单独一类。
+    /// 2010 年前后的早期版本（old_alpha / old_beta，单独一类。
     /// 清单在第一次进下载页时已经全量拉回来了，切换筛选只在本地过滤。
     /// </summary>
     public int VersionFilterIndex
@@ -5174,6 +5533,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public ICommand ShowInstancesCommand { get; }
     public ICommand ShowDownloadsCommand { get; }
+    public ICommand ShowP2PCommand { get; }
     public ICommand DownloadCommand { get; }
 
     // 名字为空或与已有实例重名时不允许开始下载 —— 先把名字改好再装
@@ -5194,11 +5554,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         OnPropertyChanged(nameof(IsInstancesPage));
         OnPropertyChanged(nameof(IsDownloadsPage));
+        OnPropertyChanged(nameof(IsP2PPage));
         OnPropertyChanged(nameof(IsInstancePage));
         OnPropertyChanged(nameof(ShowInstanceHeader));
         RaisePaneVisibilityChanged();
         OnPropertyChanged(nameof(InstancesNavBackground));
         OnPropertyChanged(nameof(DownloadsNavBackground));
+        OnPropertyChanged(nameof(P2PNavBackground));
+        OnPropertyChanged(nameof(P2PNavForeground));
         OnPropertyChanged(nameof(InstancesNavForeground));
         OnPropertyChanged(nameof(DownloadsNavForeground));
         OnPropertyChanged(nameof(IsSettingsPage));
@@ -5208,8 +5571,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(AccountsNavBackground));
         OnPropertyChanged(nameof(AccountsNavForeground));
 
-        // 下载页两个分区的可见性/高亮也依赖"在不在下载页"，必须一起通知：
-        // 只通知 IsVersionsMode 会留下"内容出来了、左侧「游戏本体」没高亮"。
+        // 下载页两个分区的可见性 高亮也依赖 "在不在下载页"，必须一起通知。
+        // 只通知 IsVersionsMode 会留下 "内容出来了、左侧「游戏本体」没高亮"。
         RaiseDownloadModeChanged();
 
         if (page == NavPage.Downloads) _ = LoadDownloadVersionsAsync();
@@ -5222,7 +5585,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// 下载页两个分区（游戏本体 / 整合包）的可见性与高亮。
     ///
     /// 这些属性都是 `=>` 现算的，输入有两个：在不在下载页、选了哪个分区。
-    /// 两处变化都要走这里 —— 否则首屏进下载页会出现"显示游戏本体、左侧没高亮"。
+    /// 两处变化都要走这里 —— 否则首屏进下载页会出现 "显示游戏本体、左侧没高亮"。
     /// </summary>
     private void RaiseDownloadModeChanged()
     {
@@ -5290,7 +5653,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         DownloadStatus = DownloadVersions.Count == 0
             ? $"「{VersionFilterText}」里没有版本（清单共 {_allVersions.Count} 个）"
-            : $"共 {DownloadVersions.Count} 个版本（{VersionFilterText}，清单 {_allVersions.Count} 个）";
+            : $"共 {DownloadVersions.Count} 个版本（{VersionFilterText}，清空后 {_allVersions.Count} 个）";
     }
 
     /// <summary>
@@ -5423,7 +5786,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             DownloadStatus = $"完成：已创建实例「{instance.Name}」（版本 {instanceVersionId}）";
             DownloadProgressText = "";
 
-            // 回到实例页并选中新建的那个；页签显式落回概览，
+            // 回到实例页并选中新建的那个；页签显式落回概览。
             // 否则新实例若不支持当前页签（比如原版打开着"模组"），会没有选中项
             await LoadAsync();
             Navigate(NavPage.Instances);
@@ -5450,7 +5813,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     ///   1 快照版本（type = snapshot，且不是愚人节）
     ///   2 早期版本（old_alpha / old_beta）
     ///   3 愚人节版本（清单里也是 snapshot，只能靠已知清单认）
-    /// 愚人节版本要从快照里排除，否则"愚人节版本"这一类会和快照重复。
+    /// 愚人节版本要从快照里排除，否则 愚人节版本 这一类会和快照重复。
     /// </summary>
     private bool AcceptVersion(VersionManifestEntry entry)
     {
@@ -5495,17 +5858,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private ModpackPlan? _modpackPlan;
     private bool _isInstallingModpack;
     private CancellationTokenSource? _modpackInstallCts;
-    private string _modpackStatus = "选择一个 .mrpack / CurseForge .zip 整合包，或直接把它拖到本页任意位置";
+    private string _modpackStatus = "选择一 .mrpack / CurseForge .zip 整合包，或直接把它拖到本页任意位置";
     private string _modpackProgress = "";
 
-    // 必须同时判断"在下载页"与"选了哪个区块"：只判断区块的话，
+    // 必须同时判断"在下载页""选了哪个区块"：只判断区块的话。
     // 这两个面板在实例页也会显示，直接压在实例详情上面。
 
     public bool IsVersionsMode => IsDownloadsPage && _downloadMode == DownloadMode.Versions;
 
     public bool IsModpacksMode => IsDownloadsPage && _downloadMode == DownloadMode.Modpacks;
 
-    /// <summary>下载页左侧版本列表只在"游戏版本"区域显示。</summary>
+    /// <summary>下载页左侧版本列表只在 "游戏版本"区域显示。</summary>
     public bool ShowVersionList => IsVersionsMode;
 
     public string VersionsModeBackground => IsVersionsMode ? "#2B3A55" : "Transparent";
@@ -5566,7 +5929,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         : $"游戏版本 {plan.Index.GameVersion} · 加载器 {plan.Index.LoaderText}"
           + $" · {plan.Index.Files.Count} 个文件（{plan.Index.ModCount} 个模组）"
           + (plan.Index.TotalBytes > 0
-              ? $" · 约 {plan.Index.TotalBytes / 1024d / 1024d:N0} MB"
+              ? $" · 共 {plan.Index.TotalBytes / 1024d / 1024d:N0} MB"
               : " · 大小未知")
           + (plan.RecommendedRamMb > 0 ? $" · 推荐内存 {plan.RecommendedRamMb} MB" : "")
           + (plan.VersionLabel.Length > 0 ? $" · 版本 {plan.VersionLabel}" : "");
@@ -5584,13 +5947,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>
     /// 载入本地整合包（文件对话框或拖入都会走这里）。
-    /// 只解析、不安装 —— 先给用户看清楚"这是什么包、要什么版本"。
+    /// 只解析、不安装 —— 先给用户看清清楚 这是什么包、要什么版本 。
     /// </summary>
     public async Task LoadModpackFileAsync(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || IsInstallingModpack) return;
 
-        // 本地选/拖文件后切到「本地安装」，让用户看到解析状态与计划
+        // 本地选拖文件后切到「本地安装」，让用户看到解析状态与计划
         ModpackModeIndex = 1;
 
         try
@@ -5630,7 +5993,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 本地整合包按格式分派：.mrpack 直接解析；CF 的 zip 只有 (projectID,fileID)，
+/// 本地整合包按格式分派：mrpack 直接解析；CF 的 zip 只有 (projectID,fileID)，
     /// 需要 API key 把文件换成下载地址，再走同一套安装流程。
     /// </summary>
     private async Task<ModpackPlan> PrepareLocalModpackAsync(string path)
@@ -5638,7 +6001,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var format = ModpackArchiveFormatDetector.Detect(path);
         var cacheDirectory = Path.Combine(_launcher.Root, "cache", "modpacks");
 
-        // 给实例标记来源：CF 本地包要标 curseforge，否则徽标/更新来源会按 Modrinth 处理
+        // 给实例标记来源：CF 本地包要标 curseforge，否则徽标更新来源会按 Modrinth 处理
         _modpackSource = format == ModpackArchiveFormat.CurseForge ? "curseforge" : "modrinth";
         _modpackProjectId = "";
 
@@ -5647,7 +6010,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!CurseForgeClient.TryResolveApiKey(out var key, out _) || key is null)
             {
                 throw new InvalidOperationException(
-                    "本地 CurseForge 整合包需要 CurseForge API key：请先在设置里填写。" +
+                    "本地 CurseForge 整合包需要 CurseForge API key：请先在设置里填写。"  +
                     "（manifest.json 里只有 projectID/fileID，没有下载地址）");
             }
 
@@ -5665,8 +6028,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         throw new InvalidDataException(
-            "无法识别的整合包：Modrinth 的 .mrpack 应包含 modrinth.index.json；" +
-            "CurseForge 整合包应包含 manifest.json（通常导出为 .zip）。");
+            "无法识别的整合包：Modrinth 的 .mrpack 应包含 modrinth.index.json。"  +
+            "CurseForge 整合包应包含 manifest.json（通常导出为 .zip）");
     }
 
     /// <summary>概览页显示缺失文件面板；从别的页签点「查看缺失」时切回去。</summary>
@@ -5760,7 +6123,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             else if (plan.Index.LoaderName is { } otherLoader
                      && otherLoader.Contains("forge", StringComparison.OrdinalIgnoreCase))
             {
-                // Forge / NeoForge：1.12 及以前解安装包即可；1.13+ 要跑官方安装器（需要 Java）
+                // Forge / NeoForge1 .12 及以前解安装包即可；1.13+ 要跑官方安装器（需要 Java）
                 var isNeoForge = otherLoader.Contains("neoforge", StringComparison.OrdinalIgnoreCase);
                 var loaderLabel = isNeoForge ? "NeoForge" : "Forge";
                 var forgeCache = Path.Combine(_launcher.Root, "cache", "forge");
@@ -5788,7 +6151,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             cancellationToken);
                     }
 
-                    // 1.13+ 的安装器是 java 程序：缺运行时会先补装，并提示可去设置页预下载
+                    // 1.13+ 的安装器是 java 程序：缺运行时会先补装，并提示可去设置页预下载 
                     var forgeJava = await EnsureLoaderJavaAsync(version, loaderLabel);
 
                     var forgeProgress = new Progress<string>(message => ModpackProgress = message);
@@ -5808,14 +6171,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         ? $"{loaderLabel} {plan.Index.LoaderVersion} 已安装（由官方安装器完成，版本 {forgeResult.VersionId}）"
                         : $"{loaderLabel} {plan.Index.LoaderVersion} 已安装（库 {forgeResult.LibrariesDownloaded} 个"
                           + (forgeResult.Failures.Count > 0 ? $"，失败 {forgeResult.Failures.Count} 个" : "")
-                          + "）";
+                          + "。";
                 }
                 catch (Exception ex)
                 {
                     // 加载器装不上时不能继续按原版建实例：模组会因为缺少加载器全部不生效，
                     // 用户看到的是"装完了但游戏里什么都没有"。
                     ModpackStatus = $"安装 {loaderLabel} 失败：{ex.GetBaseException().Message}"
-                                    + "（1.13+ 的 Forge / NeoForge 需要 Java 与官方安装器）";
+                                    + "1 .13+ 的 Forge / NeoForge 需要 Java 与官方安装器。";
                     LauncherLog.Write(_launcher.Root, $"整合包 {loaderLabel} 安装失败 → {ex.GetBaseException().Message}");
                     return;
                 }
@@ -5887,20 +6250,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             ModpackStatus = $"完成：已创建「{instance.Name}」"
                             + $"（文件 {result.FilesDownloaded} 个，跳过 {result.FilesSkipped} 个，"
-                            + $"覆盖层 {result.OverrideFiles} 个"
+                            + $"覆盖 {result.OverrideFiles} 个"
                             + (result.Failures.Count > 0 ? $"，失败 {result.Failures.Count} 个" : "")
                             + "）";
 
             LauncherLog.Write(_launcher.Root,
-                $"安装整合包 {plan.Name} → 实例 {instance.Name}：文件 {result.FilesDownloaded}，"
-                + $"覆盖层 {result.OverrideFiles}，失败 {result.Failures.Count}");
+                $"安装整合包 {plan.Name} → 实例 {instance.Name}：文件 {result.FilesDownloaded}、"
+                + $"覆盖 {result.OverrideFiles}，失败 {result.Failures.Count}");
 
-            // 实例标记：来源 + 还缺哪些被作者禁止下载的模组
+            // 实例标记：来源+ 还缺哪些被作者禁止下载的模组
             var missing = plan.Blocked
                 .Where(file => !BlockedFileMatches(layout.GameDirectory, file))
                 .ToList();
 
-            // 整合包自带文件：清单里的 + overrides/ 带进来的（模组/资源包/光影都算），
+            // 整合包自带文件：清单里的 + overrides/ 带进来的（模组 资源包/光影都算），
             // 否则它们会被当成用户自己加的内容
             var packFiles = PackFileCollector.Collect(
                 plan.Index.Files.Select(file => new PackFileEntry(Path.GetFileName(file.Path), file.Sha1)),
@@ -5912,7 +6275,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 PackFiles = packFiles,
             });
 
-            // 回到实例页并选中它
+            // 回到实例页并选中实例
             await LoadAsync();
             Navigate(NavPage.Instances);
             SelectedTab = ContentTabs[0];
@@ -5927,7 +6290,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             ModpackStatus = $"安装失败：{ex.GetBaseException().Message}";
-            LauncherLog.Write(_launcher.Root, $"安装整合包失败 → {ex.GetBaseException().Message}");
+            LauncherLog.Write(_launcher.Root, $"安装整合包失败：{ex.GetBaseException().Message}");
         }
         finally
         {
@@ -5958,7 +6321,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return candidate;
     }
 
-    // ---- 实例的 Java 选择 ----
+    // ---- 实例的Java 选择 ----
 
     private JavaChoice? _selectedJavaChoice;
     private string _javaHint = "";
@@ -5990,7 +6353,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>当前选择的说明（路径或"由版本决定"）。</summary>
+    /// <summary>当前选择的说明（路径：由版本决定 ）。</summary>
     public string JavaHint
     {
         get => _javaHint;
@@ -6004,7 +6367,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>有提示文字时才占那一行，没有就完全不占空间。</summary>
     public bool HasJavaHint => !string.IsNullOrWhiteSpace(_javaHint);
 
-    /// <summary>该实例的游戏版本需要哪个 Java（例如"需要 Java 21（java-runtime-delta）"）。</summary>
+    /// <summary>该实例的游戏版本需要哪个 Java（例如 需要 Java 21（java-runtime-delta）。</summary>
     public string JavaRequirementText
     {
         get => _javaRequirementText;
@@ -6015,7 +6378,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>把"路径 + 版本需求 + 不匹配警告"合成一行提示。</summary>
+    /// <summary>把 路径 + 版本需要 + 不匹配警告 合成一行提示。</summary>
     private void UpdateJavaHint(JavaChoice? choice)
     {
         var parts = new List<string>();
@@ -6023,9 +6386,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (choice?.Path is { Length: > 0 } path) parts.Add(path);
         if (JavaRequirementText.Length > 0) parts.Add(JavaRequirementText);
 
-        // 选中的 Java 比游戏要求的低 —— 启动会失败，必须提示
+        // 选中的 Java 比游戏要求的版本 —— 启动会失败，必须提示
         if (choice is { Major: > 0 } && _requiredJavaForInstance > 0 && choice.Major < _requiredJavaForInstance)
-            parts.Add($"⚠ 这个 Java 是 {choice.Major}，低于游戏要求的 {_requiredJavaForInstance}");
+            parts.Add($"选 这个 Java 是 {choice.Major}，低于游戏要求的 {_requiredJavaForInstance}");
 
         JavaHint = parts.Count == 0
             ? "由版本元数据决定（缺了会在下载页自动补）"
@@ -6035,7 +6398,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>为某实例列出候选 Java，并选中它当前用的那个。</summary>
     /// <summary>
     /// 列出候选 Java，按用户期望的优先级分三档：
-    ///   1. 启动器目录附近（runtime/* 、jre/ 、java/）—— 最可能是"就是为这个启动器准备的"
+    ///   1. 启动器目录附近（runtime/* 、jre/ 、java/）—— 最可能的 就是为这个启动器准备的
     ///   2. 系统默认安装位置（Program Files 各厂商、PATH、JAVA_HOME）
     ///   3. 用户曾经手动指定的非常规路径
     /// </summary>
@@ -6048,7 +6411,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         int RequiredMajor);
 
     /// <summary>
-    /// 按"实例 + 运行时数量"做键：装了新运行时会自动失效，
+    /// 用 实例 + 运行时数量 做键：装了新运行时会自动失效。
     /// 而普通的实例切换直接命中缓存。
     /// </summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CachedJavaChoices> JavaChoiceCache = new(StringComparer.Ordinal);
@@ -6117,13 +6480,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 built.Add(new JavaChoice { Label = label, Path = exe, Component = component, Major = major });
             }
 
-            // 主版本要跑 java -version 才知道，启动进程有开销，统一放到线程池里做
+            // 主版本要跑 java -version 才知道，启动进程有开销，统一放到线程池里。
             var local = EnumerateLocalJava().ToList();
             var majors = await Task.Run(() => local
                 .Select(entry => JavaLocator.ReadMajorVersion(entry.Exe) ?? 0)
                 .ToList());
 
-            // ---- 1) 启动器目录 ----
+            // ---- 1) 启动器目录----
             for (var index = 0; index < local.Count; index++)
             {
                 var entry = local[index];
@@ -6153,7 +6516,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             JavaChoices.Clear();
             foreach (var choice in built) JavaChoices.Add(choice);
 
-            // 该实例的游戏版本要求哪个 Java（合并 inheritsFrom 后的元数据才有）
+            // 该实例的游戏版本要求哪个 Java（合并inheritsFrom 后的元数据才有）
             if (instance is not null)
             {
                 try
@@ -6250,7 +6613,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var current = catalog.Find(instance.Id);
             if (current is null) return;
 
-            // 没有变化就不写盘：避免下拉初始化时把记录清成空值
+            // 没有变化就不写盘：避免下拉初始化时把记录清成空。
             if (string.Equals(current.Settings.JavaPath, choice.Path, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(current.Settings.JavaComponent, choice.Component, StringComparison.OrdinalIgnoreCase))
                 return;
@@ -6276,8 +6639,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
     /// <summary>
-    /// 拖入的统一入口：同一个"存档"页签，处在世界列表时拖进来的是**世界**，
-    /// 进到某个世界的数据包页之后拖进来的是**数据包** —— 按当前层级决定语义。
+    /// 拖入的统一入口：同一个"存档"页签，处在世界列表时拖进来的是 *世界**。
+    /// 进到某个世界的数据包页之后拖进来的是**数据包*** —— 按当前层级决定语义。
     /// </summary>
     public Task ImportDroppedAsync(IReadOnlyList<string> paths)
     {
@@ -6289,7 +6652,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     // ---- 拖入"世界存档" ----
 
     /// <summary>
-    /// 把拖进存档列表的文件夹 / zip 变成世界。
+/// 把拖进存档列表的文件或 zip 变成世界
     ///
     /// 判定标准只有一条：里面有 level.dat。没有就不是世界，宁可拒绝也不要往 saves 里塞垃圾。
     /// 支持两种布局：level.dat 在根，或者包内只有一个带 level.dat 的目录。
@@ -6368,7 +6731,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (imported.Count > 0) parts.Add($"已导入 {imported.Count} 个世界（{string.Join("、", imported.Take(3))}）");
         if (problems.Count > 0) parts.Add($"跳过 {problems.Count} 个");
 
-        Status = parts.Count == 0 ? "没有可导入的存档。" : string.Join("，", parts);
+        Status = parts.Count == 0 ? "没有可导入的存档。" : string.Join("；", parts);
 
         if (problems.Count > 0)
             LauncherLog.Write(_launcher.Root, $"导入世界跳过：{string.Join("；", problems.Take(10))}");
@@ -6378,7 +6741,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await Task.CompletedTask;
     }
 
-    /// <summary>复制整个目录（世界可能很大，但存档通常在几十 MB 级）。</summary>
+    /// <summary>复制整个目录（世界可能很大，但存档通常在几百 MB 级）。</summary>
     private static void CopyDirectory(string source, string destination)
     {
         Directory.CreateDirectory(destination);
@@ -6431,7 +6794,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return $"无法解压（{ex.GetBaseException().Message}）";
         }
 
-        // 布局一：level.dat 就在根
+        // 布局一：level.dat 就在根目录
         if (File.Exists(Path.Combine(root, "level.dat"))) return null;
 
         // 布局二：包内只有一个带 level.dat 的目录
@@ -6476,7 +6839,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch
         {
-            // 清理失败不影响结论
+            // 清理失败不影响结果
         }
     }
     // ---- 拖入导入 ----
@@ -6484,7 +6847,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 把拖进来的文件导入当前页签对应的目录。
     ///
-    /// 只接受该类型该有的扩展名（模组 .jar，其余 .zip）；
+/// 只接受该类型该有的扩展名（模组 .jar，其他 .zip）；
     /// 数据包要先进到某个世界，因为它是按世界存放的。
     /// </summary>
     public async Task ImportFilesAsync(IReadOnlyList<string> paths)
@@ -6559,13 +6922,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (wrongType > 0) parts.Add($"类型不符 {wrongType} 个（需要 {expectedExtension}）");
         if (failed.Count > 0) parts.Add($"失败 {failed.Count} 个");
 
-        Status = parts.Count == 0 ? "没有可导入的文件。" : string.Join("，", parts);
+        Status = parts.Count == 0 ? "没有可导入的文件。" : string.Join("；", parts);
 
         if (failed.Count > 0)
             LauncherLog.Write(_launcher.Root, $"拖入导入失败：{string.Join("；", failed.Take(10))}");
 
         if (imported > 0)
-            LauncherLog.Write(_launcher.Root, $"拖入导入 {kind.DisplayName()}：{imported} 个 → {directory}");
+            LauncherLog.Write(_launcher.Root, $"拖入导入 {kind.DisplayName()}：{imported} 个→ {directory}");
     }
     // ---- 打开目录 ----
 
@@ -6597,7 +6960,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool SupportsDatapacks =>
         Version.TryParse(NormalizeGameVersion(_gameVersion), out var version) && version >= new Version(1, 13);
 
-    /// <summary>"1.20.1" 这类版本号直接能用；快照等无法解析的就当不支持。</summary>
+/// <summary>"1.20.1" 这类版本号直接能用；快照等无法解析的就当不支持。</summary>
     private static string NormalizeGameVersion(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return "";
@@ -6617,7 +6980,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             Directory.CreateDirectory(directory);
-            // 只去掉"根目录之外"的尾部反斜杠："C:\" 仍是 "C:\"，
+            // 只去掉 根目录之外 的尾部反斜杠；C:\" 仍是 "C:\""— 
             // 否则会变成 "C:" 或被拼成 \" 导致命令行解析错误
             target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
         }
@@ -6627,7 +6990,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        // Low 完整性下这几种方式全都会被系统拒绝，直接给出可执行的建议，
+        // Low 完整性下这几种方式全都会被系统拒绝，直接给出可执行的建议。
         // 而不是把三条失败信息堆在状态栏里让用户猜。
         if (ProcessContext.IsLowIntegrity)
         {
@@ -6691,10 +7054,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void RaiseCommandStates()
     {
         (LaunchGameCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (DetailedDiagnosisCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (CheckUpdatesCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         UpgradeAllCommand.RaiseCanExecuteChanged();
 
-        // 搜索的可用性取决于"有没有选中实例" —— 选中前按钮会一直是灰的，
+        // 搜索的可用性取决于"有没有选中实例" —— 选中前按钮会一直是灰的。
         // 所以实例变化时也必须通知它（否则空查询时「热门」永远点不动）。
         (SearchCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (DownloadCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
@@ -6715,7 +7079,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 }
 
-/// <summary>下载页可选的模组加载器。四选一：一个实例只能挂一个加载器的 profile。</summary>
+/// <summary>下载页可选的模组加载器。四选一：一个实例只能挂一个加载器 的 profile。</summary>
 public enum LoaderKind
 {
     Vanilla = 0,

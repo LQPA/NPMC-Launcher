@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using NPMC.Launcher.App.ViewModels;
 
 namespace NPMC.Launcher.App;
 
@@ -25,6 +26,12 @@ public partial class App : Application
                                    Environment.GetEnvironmentVariable(LauncherRoot.EnvironmentVariable));
             var window = new MainWindow(root, portable: !explicitRoot);
             desktop.MainWindow = window;
+
+            if (args.Any(arg => string.Equals(arg, "--p2p-test", StringComparison.OrdinalIgnoreCase)))
+            {
+                Dispatcher.UIThread.Post(() =>
+                    (window.DataContext as MainWindowViewModel)?.ShowP2PCommand.Execute(null));
+            }
 
             // 内存诊断：走真实 Avalonia 平台（否则 Bitmap 无法解码），
             // 最小化窗口后按脚本切换实例/页签，采集快照并退出。

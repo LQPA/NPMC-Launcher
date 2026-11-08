@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    P2P 协议契约层：纯 DTO / 状态机 / 规范化签名声明。
+    不依赖启动器 Core/Infrastructure，也不依赖 Windows API，方便未来服务端（Linux）复用。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

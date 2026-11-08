@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -13,6 +13,7 @@
   <ItemGroup>
     <!-- Core 通过 Infrastructure 的传递引用获得，不重复直接引用（本机 SDK 对菱形引用还原异常） -->
     <ProjectReference Include="..\NPMC.Launcher.Infrastructure\NPMC.Launcher.Infrastructure.csproj" />
+    <ProjectReference Include="..\NPMC.P2P.DeviceIdentity\NPMC.P2P.DeviceIdentity.csproj" />
   </ItemGroup>
 
 </Project>

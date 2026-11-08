@@ -60,3 +60,19 @@ desktop.ini
 
 # ---- publish staging (tools/publish.ps1) ----
 /.publish/
+
+# ---- P2P Gate 0-B Java probe build output ----
+/tools/p2p-gate0b/java/out/
+
+# ---- P2P Gate 0-A test agent build output ----
+/tools/p2p-gate0a-agent/out/
+
+# ---- P2P 联机模块（暂不发布：设计已暂停，代码不进仓库）----
+/server/
+/tools/p2p-*/
+/tools/p2p-agent/
+/tools/p2p-loopback-agent/
+/src/NPMC.P2P.Gateway/
+/tests/NPMC.P2P.Tests/
+/docs/p2p/
+/docs/P2P-HANDOFF.md

@@ -1,4 +1,4 @@
-﻿using NPMC.Launcher.Core.Models;
+using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Infrastructure.Minecraft;
 
 namespace NPMC.Launcher.App.ViewModels;
@@ -10,6 +10,7 @@ public enum NavPage
     Downloads = 1,
     Accounts = 2,
     Settings = 3,
+    P2P = 4,
 }
 
 /// <summary>下载页的两个区域。</summary>

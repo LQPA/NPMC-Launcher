@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NPMC.Launcher.App.ViewModels"
+        xmlns:local="using:NPMC.Launcher.App"
         xmlns:mc="using:NPMC.Launcher.Infrastructure.Minecraft"
         xmlns:mods="using:NPMC.Launcher.Infrastructure.Mods"
         x:Class="NPMC.Launcher.App.MainWindow"
@@ -92,11 +93,25 @@
             <TextBlock Text="设置" FontSize="13" Foreground="{Binding SettingsNavForeground}" />
           </Button>
 
+          <Button Command="{Binding ShowP2PCommand}"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                  Background="{Binding P2PNavBackground}" BorderThickness="0" Padding="12,9">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="联机" FontSize="13" Foreground="{Binding P2PNavForeground}" />
+              <Border Grid.Column="1" Background="#2E6F52" CornerRadius="3" Padding="5,1">
+                <TextBlock Text="P2P" FontSize="9" Foreground="#DDF5E8" />
+              </Border>
+            </Grid>
+          </Button>
+
           <TextBlock Margin="12,20,12,0" FontSize="11" Foreground="#6E7684"
                      TextWrapping="Wrap" LineHeight="17"
                      Text="模组/资源包/光影/存档在实例右侧页签里。离线账号在「账号」，下载源、默认账号/Java 在「设置」。" />
         </StackPanel>
       </Border>
+
+      <!-- ================= 联机 ================= -->
+      <local:P2PTestWindow x:Name="P2PPageView" Grid.Column="1" Grid.ColumnSpan="2" IsVisible="{Binding IsP2PPage}" />
 
       <!-- ================= 实例列表 ================= -->
       <Grid Grid.Column="1" Background="#1B1D23" IsVisible="{Binding IsInstancesPage}">
@@ -510,6 +525,51 @@
                     <Button Content="重新检查" Command="{Binding RecheckBlockedModsCommand}"
                             FontSize="11" Height="26" Padding="10,0"
                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <!-- 启动失败 / 异常退出诊断 -->
+              <Border Background="#2A1F22" BorderBrush="{Binding LaunchDiagnosisAccent}" BorderThickness="1"
+                      CornerRadius="8" Padding="12" IsVisible="{Binding HasLaunchDiagnosis}">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="{Binding LaunchDiagnosisTitle}" FontSize="12" FontWeight="SemiBold"
+                             Foreground="{Binding LaunchDiagnosisAccent}" />
+                  <TextBlock Text="{Binding LaunchDiagnosisSummary}" FontSize="11" Foreground="#D8DEE7"
+                             TextWrapping="Wrap" />
+                  <Border Background="#1A1C21" CornerRadius="4" Padding="8"
+                          IsVisible="{Binding HasLaunchDiagnosisEvidence}">
+                    <TextBlock Text="{Binding LaunchDiagnosisEvidence}" FontFamily="Consolas" FontSize="10"
+                               Foreground="#B4BCC8" TextWrapping="Wrap" MaxHeight="110" />
+                  </Border>
+                  <TextBlock Text="{Binding LaunchDiagnosisSuggestion}" FontSize="11" Foreground="#E0A94A"
+                             TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding LaunchDiagnosisInvolvedMods}" FontSize="10" Foreground="#8FA9C9"
+                             TextWrapping="Wrap" IsVisible="{Binding HasLaunchDiagnosisInvolvedMods}" />
+                  <Border Background="#191B20" CornerRadius="4" Padding="8"
+                          IsVisible="{Binding HasLaunchDiagnosisSymptoms}">
+                    <StackPanel Spacing="2">
+                      <TextBlock Text="次生症状（不是病因，按上面的根因处理即可）" FontSize="10"
+                                 Foreground="#7E8794" />
+                      <TextBlock Text="{Binding LaunchDiagnosisSymptoms}" FontSize="10" Foreground="#9AA3B0"
+                                 TextWrapping="Wrap" MaxHeight="88" />
+                    </StackPanel>
+                  </Border>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="查看崩溃日志" Command="{Binding OpenLaunchDiagnosisLogCommand}"
+                            IsVisible="{Binding HasLaunchDiagnosisLog}"
+                            FontSize="11" Height="26" Padding="10,0" />
+                    <Button Content="导出日志" Command="{Binding ExportLaunchLogCommand}"
+                            IsVisible="{Binding HasLaunchLog}"
+                            FontSize="11" Height="26" Padding="10,0" />
+                    <Button Content="详细诊断启动" Command="{Binding DetailedDiagnosisCommand}"
+                            ToolTip.Tip="带 Mixin verbose/export 参数重启，收集 .mixin.out 和 debug.log"
+                            FontSize="11" Height="26" Padding="10,0" />
+                    <Button Content="打开 mods" Command="{Binding OpenLaunchDiagnosisModsCommand}"
+                            IsVisible="{Binding HasLaunchDiagnosisMods}"
+                            FontSize="11" Height="26" Padding="10,0" />
+                    <Button Content="关闭诊断" Command="{Binding DismissLaunchDiagnosisCommand}"
+                            FontSize="11" Height="26" Padding="10,0" />
                   </StackPanel>
                 </StackPanel>
               </Border>

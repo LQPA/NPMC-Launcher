@@ -1,0 +1,143 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPMC.Launcher.App.P2PTestWindow"
+        Background="#1B1D23"
+        HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+
+  <Grid RowDefinitions="Auto,*,190" ColumnDefinitions="2*,*" Margin="24,20,24,16">
+    <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Spacing="6" Margin="0,0,0,14">
+      <TextBlock Text="联机" FontSize="20" FontWeight="SemiBold" Foreground="#E8EAED" />
+      <TextBlock Text="云端联机服务；设备使用本机 TPM 身份。游戏数据不经过大厅服务器。"
+                 Foreground="#9AA3AF" FontSize="11" TextWrapping="Wrap" />
+    </StackPanel>
+
+    <!-- 首次进入：条款 -->
+    <Border x:Name="TermsPanel" Grid.Row="1" Grid.Column="0"
+            Background="#23262E" CornerRadius="6" Padding="16"
+            HorizontalAlignment="Stretch" VerticalAlignment="Top">
+      <StackPanel Spacing="10">
+        <TextBlock Text="使用条款" FontSize="14" FontWeight="SemiBold" Foreground="#E8EAED" />
+        <TextBlock Text="同意后，本机会使用 TPM 设备密钥向联机服务注册，并在联机时向同房间成员共享必要的网络地址。设备身份不包含账号、邮箱或密码。"
+                   Foreground="#B9C3CE" FontSize="11" TextWrapping="Wrap" />
+        <CheckBox x:Name="TermsCheck" Content="我已阅读并同意上述条款" Foreground="#C9CED6" />
+        <Button Content="同意并进入联机" Click="OnAcceptTermsClick" HorizontalAlignment="Left" />
+      </StackPanel>
+    </Border>
+
+    <!-- 已验证/注册后的入口 -->
+    <Border x:Name="EntryPanel" Grid.Row="1" Grid.Column="0"
+            Background="#23262E" CornerRadius="6" Padding="16"
+            HorizontalAlignment="Stretch" VerticalAlignment="Top" IsVisible="False">
+      <StackPanel Spacing="10">
+        <TextBlock Text="房间" FontSize="14" FontWeight="SemiBold" Foreground="#E8EAED" />
+        <TextBlock x:Name="DeviceStatusBlock" Text="设备：检查中…" Foreground="#9AA3AF" FontSize="11" />
+        <TextBlock x:Name="DeviceIdBlock" Text="device_id: -" Foreground="#7F8A99" FontSize="10" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="创建房间" Click="OnShowCreateFormClick" />
+          <Button Content="加入房间" Click="OnShowJoinFormClick" />
+          <Button Content="刷新设备" Click="OnRefreshDeviceClick" />
+        </StackPanel>
+
+        <Border x:Name="CreateForm" IsVisible="False" Background="#1B1D23" CornerRadius="4" Padding="12">
+          <StackPanel Spacing="8">
+            <TextBlock Text="创建带密码的房间" Foreground="#E8EAED" FontSize="12" />
+            <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto">
+              <TextBlock Text="房间号（可留空）" Foreground="#C9CED6" VerticalAlignment="Center" />
+              <TextBox Grid.Column="1" x:Name="CreateRoomCodeBox" Watermark="留空自动生成，例如 1234" />
+              <TextBlock Grid.Row="1" Text="房间密码" Foreground="#C9CED6" VerticalAlignment="Center" Margin="0,6,0,0" />
+              <TextBox Grid.Row="1" Grid.Column="1" x:Name="CreatePasswordBox" PasswordChar="●" Margin="0,6,0,0" />
+            </Grid>
+            <Button Content="创建" Click="OnCreateRoomClick" HorizontalAlignment="Left" />
+          </StackPanel>
+        </Border>
+
+        <Border x:Name="JoinForm" IsVisible="False" Background="#1B1D23" CornerRadius="4" Padding="12">
+          <StackPanel Spacing="8">
+            <TextBlock Text="加入已有房间" Foreground="#E8EAED" FontSize="12" />
+            <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto">
+              <TextBlock Text="房间号" Foreground="#C9CED6" VerticalAlignment="Center" />
+              <TextBox Grid.Column="1" x:Name="JoinRoomCodeBox" />
+              <TextBlock Grid.Row="1" Text="房间密码" Foreground="#C9CED6" VerticalAlignment="Center" Margin="0,6,0,0" />
+              <TextBox Grid.Row="1" Grid.Column="1" x:Name="JoinPasswordBox" PasswordChar="●" Margin="0,6,0,0" />
+            </Grid>
+            <Button Content="加入" Click="OnJoinRoomClick" HorizontalAlignment="Left" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Border>
+
+    <!-- 已进入房间 -->
+    <Border x:Name="RoomPanel" Grid.Row="1" Grid.Column="0"
+            Background="#23262E" CornerRadius="6" Padding="16"
+            HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsVisible="False">
+      <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+        <StackPanel Grid.Row="0" Spacing="8">
+          <TextBlock Text="当前房间" FontSize="14" FontWeight="SemiBold" Foreground="#E8EAED" />
+          <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto">
+            <TextBlock Text="房间号" Foreground="#C9CED6" VerticalAlignment="Center" />
+            <TextBox Grid.Column="1" x:Name="RoomCodeBox" IsReadOnly="True" />
+            <TextBlock Grid.Row="1" Text="主机入口" Foreground="#C9CED6" VerticalAlignment="Center" Margin="0,6,0,0" />
+            <TextBox Grid.Row="1" Grid.Column="1" x:Name="EndpointBox" IsReadOnly="True" Margin="0,6,0,0" />
+          </Grid>
+          <TextBlock x:Name="RoomStatusBlock" Text="已加入房间" Foreground="#9AA3AF" FontSize="11" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Spacing="6">
+          <TextBlock Text="房间成员" Foreground="#E8EAED" FontSize="12" FontWeight="SemiBold" />
+          <ListBox x:Name="MemberList" Height="120" Background="#1B1D23" BorderThickness="0"
+                   Foreground="#C9CED6" HorizontalAlignment="Stretch" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" VerticalAlignment="Bottom" Spacing="8">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="离开房间" Click="OnLeaveRoomClick" />
+            <Button Content="停止全部" Click="OnStopAllClick" />
+            <Button Content="允许联机端口" Click="OnFixFirewallClick" />
+          </StackPanel>
+
+          <!-- 主机设置自动完成，不再显示给用户；控件保留供自动流程使用 -->
+          <Border Background="#1B1D23" CornerRadius="4" Padding="10" IsVisible="False">
+            <StackPanel Spacing="6">
+              <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto">
+                <TextBlock Text="LAN 端口" Foreground="#C9CED6" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" x:Name="LanPortBox" Text="25565" />
+                <TextBlock Grid.Row="1" Text="世界名" Foreground="#C9CED6" VerticalAlignment="Center" Margin="0,4,0,0" />
+                <TextBox Grid.Row="1" Grid.Column="1" x:Name="WorldBox" Text="New World" Margin="0,4,0,0" />
+              </Grid>
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="启动 Gateway" Click="OnStartGatewayClick" />
+                <Button Content="上报主机入口" Click="OnPublishHostClick" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- 右栏：状态 -->
+    <Border Grid.Row="1" Grid.Column="1" Background="#20232A" CornerRadius="6" Padding="16"
+            Margin="14,0,0,0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+      <StackPanel Spacing="10">
+        <TextBlock Text="联机状态" FontSize="14" FontWeight="SemiBold" Foreground="#E8EAED" />
+        <TextBlock Text="大厅连接" Foreground="#7F8A99" FontSize="10" />
+        <TextBlock Text="已连接云端联机服务" Foreground="#C9CED6" FontSize="12" />
+        <TextBlock Text="虚拟 LAN" Foreground="#7F8A99" FontSize="10" />
+        <TextBlock Text="房间内自动广播远程世界" Foreground="#C9CED6" FontSize="12" TextWrapping="Wrap" />
+        <TextBlock Text="主机入口" Foreground="#7F8A99" FontSize="10" />
+        <TextBlock Text="游戏开 LAN 后自动检测并上报" Foreground="#C9CED6" FontSize="12" TextWrapping="Wrap" />
+        <TextBlock Text="游戏启动" Foreground="#7F8A99" FontSize="10" />
+        <TextBlock Text="请从「实例」页启动你自己的游戏版本" Foreground="#C9CED6" FontSize="12" TextWrapping="Wrap" />
+        <Border Height="1" Background="#31353F" Margin="0,4" />
+        <TextBlock Text="游戏数据通过成员之间的 TCP 直连传输，不经过大厅服务器。"
+                   Foreground="#7F8A99" FontSize="10" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#15171C" CornerRadius="6" Padding="8" Margin="0,14,0,0">
+      <TextBox x:Name="LogBox" IsReadOnly="True" AcceptsReturn="True"
+               FontFamily="Consolas" FontSize="11" Background="Transparent"
+               Foreground="#B9C3CE" BorderThickness="0"
+               ScrollViewer.VerticalScrollBarVisibility="Auto" />
+    </Border>
+  </Grid>
+</UserControl>
