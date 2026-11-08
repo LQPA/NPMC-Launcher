@@ -8,7 +8,7 @@
         x:DataType="vm:MainWindowViewModel"
         Title="NPMC Launcher"
         Width="1280" Height="720"
-        MinWidth="880" MinHeight="600"
+        MinWidth="1000" MinHeight="620"
         WindowStartupLocation="CenterScreen"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="NoChrome"
