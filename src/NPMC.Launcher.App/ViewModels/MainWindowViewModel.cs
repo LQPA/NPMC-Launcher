@@ -1667,7 +1667,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         PersistFavorites();
-        RefreshVisibleInstances();
+
+        // 只有"只显示收藏"开着时，收藏状态才会改变可见集合；
+        // 平时不必刷新列表 —— 刷新会重建容器，反而搬动 hover/选中高亮。
+        if (_showFavoritesOnly)
+        {
+            RefreshVisibleInstances();
+        }
     }
 
     private void PersistFavorites() => InstanceFavoritesStore.Save(_launcher, _favoriteIds);
@@ -1710,18 +1716,54 @@ public sealed partial class MainWindowViewModel : ObservableObject
                || (item.ModpackName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
-    /// <summary>按过滤条件重建可见列表；尽量保持当前选中项。</summary>
+    /// <summary>
+    /// 按过滤条件同步可见列表；尽量保持当前选中项。
+    ///
+    /// 关键：**不能 Clear() 再整批重加**。那样等于把 ItemsSource 重置，
+    /// ListBox 的选中/hover 索引会被保留到"新列表的同一位置"，
+    /// 于是收藏最后一项时，高亮会先跳到当前实例、再闪到索引对称的那一行
+    /// （2026-11-08 实测就是这个现象）。这里改成最小 diff：
+    /// 只删该消失的、按顺序插入/移动该出现的，其余条目的容器保持不动。
+    /// </summary>
     private void RefreshVisibleInstances()
     {
         var selectedId = _selectedInstance?.Id;
         var query = InstanceSearchQuery;
 
-        VisibleInstances.Clear();
+        var desired = new List<InstanceListItem>(Instances.Count);
         foreach (var instance in Instances)
         {
             if (_showFavoritesOnly && !_favoriteIds.Contains(instance.Id)) continue;
             if (query.Length > 0 && !MatchesInstance(instance, query)) continue;
-            VisibleInstances.Add(instance);
+            desired.Add(instance);
+        }
+
+        // 内容没变就一个元素都不动（收藏/取消收藏时最常见的路径）
+        if (desired.Count != VisibleInstances.Count || !desired.SequenceEqual(VisibleInstances))
+        {
+            // 1) 删掉不再需要的
+            for (var i = VisibleInstances.Count - 1; i >= 0; i--)
+            {
+                if (!desired.Contains(VisibleInstances[i]))
+                {
+                    VisibleInstances.RemoveAt(i);
+                }
+            }
+
+            // 2) 按目标顺序插入 / 移动到正确位置
+            for (var i = 0; i < desired.Count; i++)
+            {
+                var item = desired[i];
+                var existing = VisibleInstances.IndexOf(item);
+                if (existing < 0)
+                {
+                    VisibleInstances.Insert(i, item);
+                }
+                else if (existing != i)
+                {
+                    VisibleInstances.Move(existing, i);
+                }
+            }
         }
 
         // 过滤后选中项可能被挡住：优先保持原来那个，否则退回第一行
