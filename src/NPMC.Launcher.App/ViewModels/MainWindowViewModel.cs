@@ -483,6 +483,35 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 收藏的实例固定成组排在列表最前（组内仍按用户拖出来的顺序）。
+    /// OrderByDescending 在 LINQ 里是稳定排序，所以收藏组与非收藏组内部都保持原有顺序。
+    /// </summary>
+    public static List<InstanceListItem> BuildDisplayOrder(IEnumerable<InstanceListItem> items)
+        => items.OrderByDescending(item => item.IsFavorite).ToList();
+
+    /// <summary>把 Instances 就地调整成给定顺序（逐个 Move，容器重建量最小）。</summary>
+    private void ApplyDisplayOrder(List<InstanceListItem> desired)
+    {
+        for (var i = 0; i < desired.Count; i++)
+        {
+            var current = Instances.IndexOf(desired[i]);
+            if (current >= 0 && current != i)
+            {
+                Instances.Move(current, i);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 这个实例能否拖到目标位置。
+    ///
+    /// 收藏组固定在最前，所以只有**同一组内**的拖动才有意义：
+    /// 让收藏项插到非收藏项中间会破坏"收藏置顶"，让非收藏项插进收藏组同理。
+    /// </summary>
+    public static bool CanReorder(InstanceListItem moved, InstanceListItem target)
+        => moved.IsFavorite == target.IsFavorite;
+
+    /// <summary>
     /// 拖动排序：把 <paramref name="movedId"/> 挪到 <paramref name="targetId"/> 的位置。
     /// 用 ObservableCollection.Move 而不用 Clear+Add —— 后者会让 ListBox 丢掉选中项。
     /// </summary>
@@ -490,17 +519,33 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (string.Equals(movedId, targetId, StringComparison.OrdinalIgnoreCase)) return;
 
-        var from = Instances.ToList().FindIndex(item =>
+        var moved = Instances.FirstOrDefault(item =>
             string.Equals(item.Id, movedId, StringComparison.OrdinalIgnoreCase));
-        var to = Instances.ToList().FindIndex(item =>
+        var target = Instances.FirstOrDefault(item =>
             string.Equals(item.Id, targetId, StringComparison.OrdinalIgnoreCase));
 
-        if (from < 0 || to < 0 || from == to) return;
+        if (moved is null || target is null) return;
 
-        var moved = Instances[from];
+        if (!CanReorder(moved, target))
+        {
+            Status = moved.IsFavorite
+                ? "收藏的实例固定在最前，不能拖到非收藏实例之间"
+                : "非收藏实例不能插到收藏组里";
+            return;
+        }
+
         var selectedId = _selectedInstance?.Id;
 
-        Instances.Move(from, to);
+        // 以"显示顺序"（收藏组在前）为基准移动，再把结果写回 Instances。
+        var display = BuildDisplayOrder(Instances);
+        var from = display.IndexOf(moved);
+        var to = display.IndexOf(target);
+        if (from < 0 || to < 0 || from == to) return;
+
+        display.RemoveAt(from);
+        display.Insert(to, moved);
+
+        ApplyDisplayOrder(display);
 
         // Move 会让 ListBox 重建容器，期间 SelectedItem 可能被置空 —— 那会连带把右侧详情清掉。
         // 这里把原来的选中项装回去：拖动排序不该改变"正在看哪个实例"。
@@ -1669,12 +1714,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         PersistFavorites();
 
-        // 只有"只显示收藏"开着时，收藏状态才会改变可见集合；
-        // 平时不必刷新列表 —— 刷新会重建容器，反而搬动 hover/选中高亮。
-        if (_showFavoritesOnly)
-        {
-            RefreshVisibleInstances();
-        }
+        // 收藏组固定置顶，所以收藏状态一变，显示顺序就会变（该项要挪到组首/组尾），
+        // 这里必须刷新；RefreshVisibleInstances 内部是最小 diff，不会整表重建。
+        RefreshVisibleInstances();
     }
 
     private void PersistFavorites() => InstanceFavoritesStore.Save(_launcher, _favoriteIds);
@@ -1732,7 +1774,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var query = InstanceSearchQuery;
 
         var desired = new List<InstanceListItem>(Instances.Count);
-        foreach (var instance in Instances)
+        // 收藏组永远排在最前：这样「只显示收藏」时整个可见列表就是这一组，
+        // 拖动只在组内挪，不需要考虑和非收藏项的相对位置。
+        foreach (var instance in BuildDisplayOrder(Instances))
         {
             if (_showFavoritesOnly && !_favoriteIds.Contains(instance.Id)) continue;
             if (query.Length > 0 && !MatchesInstance(instance, query)) continue;
