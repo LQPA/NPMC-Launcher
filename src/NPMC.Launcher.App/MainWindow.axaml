@@ -119,10 +119,17 @@
       <Grid Grid.Column="1" Background="#1B1D23" RowDefinitions="Auto,*"
             IsVisible="{Binding IsInstancesPage}">
 
-        <!-- 只显示收藏：实例多的时候用来缩小范围 -->
-        <StackPanel Grid.Row="0" Margin="12,10,12,2">
-          <CheckBox Content="只显示收藏" FontSize="12"
-                    IsChecked="{Binding ShowFavoritesOnly, Mode=TwoWay}" />
+        <!-- 搜索 + 只显示收藏：实例多的时候（几十个）滚列表很麻烦，按版本名直接筛 -->
+        <StackPanel Grid.Row="0" Margin="12,10,12,2" Spacing="6">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBox Text="{Binding InstanceSearchText, Mode=TwoWay}"
+                     FontSize="12" Height="28" Padding="8,0"
+                     VerticalContentAlignment="Center"
+                     Watermark="搜索实例 / 版本号" />
+            <CheckBox Grid.Column="1" Content="只显示收藏" FontSize="12" Margin="8,0,0,0"
+                      VerticalAlignment="Center"
+                      IsChecked="{Binding ShowFavoritesOnly, Mode=TwoWay}" />
+          </Grid>
         </StackPanel>
 
         <ListBox x:Name="InstanceList" Grid.Row="1"
@@ -166,12 +173,12 @@
           </ListBox.ItemTemplate>
         </ListBox>
 
-        <!-- 有实例但被「只显示收藏」全挡住时的空状态 -->
+        <!-- 有实例但被搜索 / 收藏过滤全挡住时的空状态 -->
         <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
                     Spacing="6" Margin="24" IsVisible="{Binding IsFilteredEmpty}">
-          <TextBlock Text="没有收藏的实例" FontSize="14" Foreground="#B4BCC8"
+          <TextBlock Text="{Binding FilterEmptyTitle}" FontSize="14" Foreground="#B4BCC8"
                      HorizontalAlignment="Center" />
-          <TextBlock Text="{Binding FavoritesFilterHint}" FontSize="11" Foreground="#949CA9"
+          <TextBlock Text="{Binding FilterEmptyHint}" FontSize="11" Foreground="#949CA9"
                      HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
         </StackPanel>
 

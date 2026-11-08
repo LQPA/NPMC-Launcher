@@ -1672,15 +1672,41 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void PersistFavorites() => InstanceFavoritesStore.Save(_launcher, _favoriteIds);
 
+    private string _instanceSearchText = string.Empty;
+
+    /// <summary>
+    /// 实例列表的搜索词：匹配实例名、目录 id、游戏版本号、整合包名。
+    /// 实例多的时候（几十个）滚列表很麻烦，直接按版本名筛出来最快。
+    /// </summary>
+    public string InstanceSearchText
+    {
+        get => _instanceSearchText;
+        set
+        {
+            if (!SetProperty(ref _instanceSearchText, value)) return;
+            RefreshVisibleInstances();
+        }
+    }
+
+    private static bool MatchesInstance(InstanceListItem item, string query)
+    {
+        return item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+               || item.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
+               || item.VersionId.Contains(query, StringComparison.OrdinalIgnoreCase)
+               || item.ModpackName.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>按过滤条件重建可见列表；尽量保持当前选中项。</summary>
     private void RefreshVisibleInstances()
     {
         var selectedId = _selectedInstance?.Id;
+        var query = _instanceSearchText.Trim();
 
         VisibleInstances.Clear();
         foreach (var instance in Instances)
         {
             if (_showFavoritesOnly && !_favoriteIds.Contains(instance.Id)) continue;
+            if (query.Length > 0 && !MatchesInstance(instance, query)) continue;
             VisibleInstances.Add(instance);
         }
 
@@ -1697,8 +1723,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(IsFilteredEmpty));
         OnPropertyChanged(nameof(FavoritesFilterHint));
+        OnPropertyChanged(nameof(FilterEmptyTitle));
+        OnPropertyChanged(nameof(FilterEmptyHint));
         RaisePaneVisibilityChanged();
     }
+
+    /// <summary>过滤后空状态的标题：搜索与收藏是两种不同的空，别混成一句话。</summary>
+    public string FilterEmptyTitle => _instanceSearchText.Trim().Length > 0
+        ? "没有匹配的实例"
+        : "没有收藏的实例";
+
+    public string FilterEmptyHint => _instanceSearchText.Trim().Length > 0
+        ? $"没有实例名 / 版本号 / 整合包名包含「{_instanceSearchText.Trim()}」的实例；清空搜索框可看全部"
+        : FavoritesFilterHint;
 
     public InstanceListItem? SelectedInstance
     {
