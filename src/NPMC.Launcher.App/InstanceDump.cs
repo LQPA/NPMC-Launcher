@@ -23,6 +23,7 @@ namespace NPMC.Launcher.App;
 ///
 /// 用法：
 ///   NPMC.Launcher.App.exe --dump-instances out.txt --root D:\path\to\launcher
+///   加 --no-remember 可以避免把临时根目录写进 last-root.txt（诊断时建议带上）
 /// </summary>
 internal static class InstanceDump
 {

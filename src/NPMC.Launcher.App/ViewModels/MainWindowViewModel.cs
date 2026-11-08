@@ -6328,15 +6328,48 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 装不上就别先下几十上百 MB 的本体：先确认这个 (游戏版本, 加载器版本) 组合有 profile。
             // 实测踩过：Fabulously Optimized 14.1.2 声明 26.2 + fabric-loader 0.20.1，
             // 以前的代码把 26.x 的 intermediary 占位符当成"不支持"，白下了 86 MB 才报错。
-            if (plan.Index.IsFabric)
+            // Forge / NeoForge 走官方安装器：安装包本身只有几 MB，提前拉下来即可验证，
+            // 也顺手把它复用给后面真正的安装步骤，不会重复下载。
+            var loaderName = plan.Index.LoaderName;
+            var forgeLike = loaderName?.Contains("forge", StringComparison.OrdinalIgnoreCase) == true;
+            var isNeoForgePack = loaderName?.Contains("neoforge", StringComparison.OrdinalIgnoreCase) == true;
+            ForgeInstallPlan? preparedForgePlan = null;
+
+            if (plan.Index.IsFabric || plan.Index.IsQuilt)
             {
-                var preflight = await new FabricLoaderInstaller(_http)
-                    .TryCheckInstallableAsync(gameVersion, plan.Index.LoaderVersion, cancellationToken);
+                var isFabric = plan.Index.IsFabric;
+                var label = isFabric ? "Fabric" : "Quilt";
+                var preflight = isFabric
+                    ? await new FabricLoaderInstaller(_http)
+                        .TryCheckInstallableAsync(gameVersion, plan.Index.LoaderVersion, cancellationToken)
+                    : await new QuiltLoaderInstaller(_http)
+                        .TryCheckInstallableAsync(gameVersion, plan.Index.LoaderVersion, cancellationToken);
 
                 if (preflight is not null)
                 {
-                    ModpackStatus = $"装不了：{preflight}。换一个整合包版本（游戏版本更低、加载器已发布），"
-                                    + "或等 Fabric 支持后再装。";
+                    ModpackStatus = $"装不了：{preflight}。换一个整合包版本（游戏版本更低、{label} 已发布），"
+                                    + $"或等 {label} 支持后再装。";
+                    return;
+                }
+            }
+            else if (forgeLike)
+            {
+                var label = isNeoForgePack ? "NeoForge" : "Forge";
+                var forgeCache = Path.Combine(_launcher.Root, "cache", "forge");
+
+                ModpackStatus = $"正在准备 {label} {plan.Index.LoaderVersion}…";
+                try
+                {
+                    preparedForgePlan = isNeoForgePack
+                        ? await new NeoForgeInstaller(_downloader).PrepareAsync(
+                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache, cancellationToken)
+                        : await new ForgeInstaller(_downloader).PrepareAsync(
+                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    ModpackStatus = $"装不了：{label} {plan.Index.LoaderVersion} 没有适用于 {gameVersion} 的安装包"
+                                    + $"（{ex.GetBaseException().Message}）。换一个整合包版本试试。";
                     return;
                 }
             }
@@ -6404,22 +6437,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 try
                 {
-                    ForgeInstallPlan forgePlan;
-
-                    if (isNeoForge)
-                    {
-                        var neo = new NeoForgeInstaller(_downloader);
-                        forgePlan = await neo.PrepareAsync(
-                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache,
-                            cancellationToken);
-                    }
-                    else
-                    {
-                        var forge = new ForgeInstaller(_downloader);
-                        forgePlan = await forge.PrepareAsync(
-                            gameVersion, plan.Index.LoaderVersion ?? "", forgeCache,
-                            cancellationToken);
-                    }
+                    // 预检阶段已经拉过安装包，这里直接复用；万一为空（旧路径/异常）再补一次
+                    var forgePlan = preparedForgePlan
+                        ?? (isNeoForge
+                            ? await new NeoForgeInstaller(_downloader).PrepareAsync(
+                                gameVersion, plan.Index.LoaderVersion ?? "", forgeCache, cancellationToken)
+                            : await new ForgeInstaller(_downloader).PrepareAsync(
+                                gameVersion, plan.Index.LoaderVersion ?? "", forgeCache, cancellationToken));
 
                     // 1.13+ 的安装器是 java 程序：缺运行时会先补装，并提示可去设置页预下载 
                     var forgeJava = await EnsureLoaderJavaAsync(version, loaderLabel);

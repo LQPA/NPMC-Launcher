@@ -24,6 +24,11 @@ internal static class LauncherRoot
 
     public static string Resolve(string[]? args)
     {
+        // --no-remember：诊断/测试用临时根目录时不要污染 last-root.txt。
+        // 以前跑完 --dump-instances 会把临时路径记下来，下次双击启动就去找那个临时目录，
+        // 用户看到的是空实例列表（2026-10-31 实际踩到）。
+        var remember = !(args?.Any(arg => string.Equals(arg, "--no-remember", StringComparison.OrdinalIgnoreCase)) ?? false);
+
         // 1) --root
         if (args is not null)
         {
@@ -32,7 +37,7 @@ internal static class LauncherRoot
                 if (string.Equals(args[i], "--root", StringComparison.OrdinalIgnoreCase))
                 {
                     var fromArguments = Path.GetFullPath(args[i + 1]);
-                    Remember(fromArguments);
+                    if (remember) Remember(fromArguments);
                     return fromArguments;
                 }
             }
@@ -43,7 +48,7 @@ internal static class LauncherRoot
         if (!string.IsNullOrWhiteSpace(fromEnvironment))
         {
             var fromVariable = Path.GetFullPath(fromEnvironment);
-            Remember(fromVariable);
+            if (remember) Remember(fromVariable);
             return fromVariable;
         }
 

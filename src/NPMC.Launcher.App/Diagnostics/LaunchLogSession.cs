@@ -158,6 +158,29 @@ public sealed class LaunchLogSession
         catch
         {
         }
+
+        // result.json 是更早写的（那时还不知道诊断结论），这里回填一次。
+        // 否则外部工具读 json 会看到 diagnosis: null，跟 diagnosis.txt 自相矛盾。
+        BackfillResultDiagnosis(diagnosis);
+    }
+
+    private void BackfillResultDiagnosis(string diagnosis)
+    {
+        var path = Path.Combine(DirectoryPath, "result.json");
+        try
+        {
+            if (!File.Exists(path)) return;
+
+            var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path));
+            if (node is not System.Text.Json.Nodes.JsonObject obj) return;
+
+            obj["diagnosis"] = diagnosis;
+            File.WriteAllText(path, obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            // 回填失败不影响主流程：diagnosis.txt 仍然是权威内容
+        }
     }
 
     /// <summary>为本次异常退出生成一个可直接阅读/发送的 crash.log。</summary>

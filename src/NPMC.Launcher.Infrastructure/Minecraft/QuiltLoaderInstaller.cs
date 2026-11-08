@@ -122,6 +122,28 @@ public sealed class QuiltLoaderInstaller
         return new Version(numbers[0], numbers[1], numbers[2]);
     }
 
+    /// <summary>
+    /// 装之前的预检：这个 (游戏版本, 加载器版本) 组合有没有 profile。
+    /// 返回 null 表示可以装；否则返回一句可以直接展示给用户的原因。
+    /// 与 Fabric 的预检对称，用于在下载几十 MB 游戏本体之前就失败。
+    /// </summary>
+    public async Task<string?> TryCheckInstallableAsync(
+        string gameVersion,
+        string? loaderVersion,
+        CancellationToken cancellationToken = default)
+    {
+        if (loaderVersion is null)
+        {
+            var versions = await GetLoaderVersionsAsync(gameVersion, cancellationToken).ConfigureAwait(false);
+            return versions.Count == 0
+                ? $"Quilt 没有适用于 {gameVersion} 的加载器版本"
+                : null;
+        }
+
+        return await SupportsAsync(gameVersion, loaderVersion, cancellationToken).ConfigureAwait(false)
+            ? null
+            : $"Quilt 加载器 {loaderVersion} 没有 {gameVersion} 的 profile，这个组合装不起来";
+    }
     private static string ProfileUrl(string gameVersion, string loaderVersion)
         => $"{LoaderMetadata}/{Uri.EscapeDataString(gameVersion)}/{Uri.EscapeDataString(loaderVersion)}/profile/json";
 
