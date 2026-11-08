@@ -1595,8 +1595,8 @@
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
           <StackPanel Grid.Column="0" Spacing="4">
             <TextBlock Text="整合包" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
-            <TextBlock Text="在线搜索，或把 .mrpack / CurseForge 整合包 .zip 拖到本页任意位置安装"
-                       FontSize="12" Foreground="#949CA9" />
+            <!-- 副标题已删：状态卡里已经写了「选择一个 .mrpack / CurseForge .zip 整合包，
+                 或直接把它拖到本页任意位置」，两处重复还会被右侧状态卡挤断。 -->
             <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
               <TextBlock Text="安装方式" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
               <ComboBox SelectedIndex="{Binding ModpackModeIndex, Mode=TwoWay}"
