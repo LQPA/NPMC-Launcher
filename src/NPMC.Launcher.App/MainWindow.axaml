@@ -1406,6 +1406,13 @@
           <TextBlock Text="{Binding PackModsHint}" IsVisible="{Binding CanHidePackMods}"
                      FontSize="10" Foreground="#949CA9" VerticalAlignment="Center" />
 
+          <!-- 删除 / 升级模组会进 .trash 备份，平时看不见却一直占磁盘 -->
+          <TextBlock Text="{Binding TrashText}" IsVisible="{Binding HasTrash}"
+                     FontSize="10" Foreground="#949CA9" VerticalAlignment="Center" />
+          <Button Content="清空回收站" Command="{Binding EmptyTrashCommand}"
+                  IsVisible="{Binding HasTrash}" FontSize="11" Padding="8,2"
+                  ToolTip.Tip="彻底删除当前页的内容回收站（.trash）。第一次点只是确认，再点一次才删" />
+
           <TextBlock Text="{Binding UpdateSummaryText}" IsVisible="{Binding HasUpdates}"
                      Foreground="#7BC47F" FontSize="12" VerticalAlignment="Center" Margin="4,0,0,0" />
         </StackPanel>

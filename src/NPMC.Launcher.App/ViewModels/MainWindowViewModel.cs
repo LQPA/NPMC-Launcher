@@ -143,6 +143,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             () => HasResourcePacksDirectory, OnOpenError);
         OpenShaderPacksFolderCommand = new AsyncRelayCommand(OpenShaderPacksFolder,
             () => HasShaderPacksDirectory, OnOpenError);
+        // 回收站（.trash）是删除/升级模组时的备份目录，会悄悄吃掉磁盘；
+        // 这里给一个显式入口，点两次才真删（第一次只是把按钮文案换成确认）
+        EmptyTrashCommand = new AsyncRelayCommand(EmptyTrashAsync, () => HasTrash);
         ManageDataPacksCommand = new AsyncRelayCommand(ManageDataPacksAsync,
             () => SelectedWorld is not null, OnOpenError);
         BackToWorldsCommand = new RelayCommand(BackToWorlds);
@@ -2019,6 +2022,132 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ICommand ManageDataPacksCommand { get; }
     public ICommand BackToWorldsCommand { get; }
 
+    /// <summary>清空当前内容目录下的 .trash（删除/升级模组时的备份）。需要点两次确认。</summary>
+    public ICommand EmptyTrashCommand { get; }
+
+    private string _trashText = string.Empty;
+    private bool _hasTrash;
+    private bool _trashConfirmPending;
+
+    /// <summary>回收站摘要（"回收站：3 个文件，12.4 MB"）。没有内容时为空串。</summary>
+    public string TrashText
+    {
+        get => _trashText;
+        private set => SetProperty(ref _trashText, value);
+    }
+
+    /// <summary>当前内容目录是否有回收站内容（决定是否显示清空入口）。</summary>
+    public bool HasTrash
+    {
+        get => _hasTrash;
+        private set
+        {
+            if (!SetProperty(ref _hasTrash, value)) return;
+            (EmptyTrashCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// 统计 / 刷新回收站信息。
+    /// .trash 是"删除 / 升级模组"时的兜底备份，用户平时看不到，容易一直占着磁盘。
+    /// </summary>
+    private void RefreshTrashInfo(string? directory)
+    {
+        _trashConfirmPending = false;
+
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            HasTrash = false;
+            TrashText = string.Empty;
+            return;
+        }
+
+        try
+        {
+            var trash = Path.Combine(directory, ContentScanner.TrashDirectoryName);
+            if (!Directory.Exists(trash))
+            {
+                HasTrash = false;
+                TrashText = string.Empty;
+                return;
+            }
+
+            var count = 0;
+            long bytes = 0;
+            foreach (var file in Directory.EnumerateFiles(trash, "*", SearchOption.AllDirectories))
+            {
+                count++;
+                try
+                {
+                    bytes += new FileInfo(file).Length;
+                }
+                catch
+                {
+                    // 统计不到大小的文件只影响显示
+                }
+            }
+
+            if (count == 0)
+            {
+                HasTrash = false;
+                TrashText = string.Empty;
+                return;
+            }
+
+            HasTrash = true;
+            TrashText = $"回收站：{count} 个文件，{FormatBytes(bytes)}";
+        }
+        catch
+        {
+            HasTrash = false;
+            TrashText = string.Empty;
+        }
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1024L * 1024 * 1024 => $"{bytes / 1024d / 1024d / 1024d:N1} GB",
+        >= 1024L * 1024 => $"{bytes / 1024d / 1024d:N1} MB",
+        >= 1024 => $"{bytes / 1024d:N0} KB",
+        _ => $"{bytes} B",
+    };
+
+    /// <summary>清空回收站：第一次点只切换成确认文案，第二次才真的删。</summary>
+    private async Task EmptyTrashAsync()
+    {
+        var instance = SelectedInstance;
+        var kind = SelectedTab.ContentKind;
+        if (instance is null || kind is not { } contentKind) return;
+
+        var directory = ResolveContentDirectory(contentKind);
+        if (directory is null) return;
+
+        var trash = Path.Combine(directory, ContentScanner.TrashDirectoryName);
+
+        if (!_trashConfirmPending)
+        {
+            _trashConfirmPending = true;
+            TrashText = "再点一次「清空回收站」确认彻底删除（不可恢复）";
+            return;
+        }
+
+        _trashConfirmPending = false;
+        try
+        {
+            await Task.Run(() =>
+            {
+                if (Directory.Exists(trash)) Directory.Delete(trash, recursive: true);
+            });
+            Status = "已清空回收站";
+        }
+        catch (Exception ex)
+        {
+            Status = $"清空回收站失败：{ex.Message}";
+        }
+
+        RefreshTrashInfo(directory);
+    }
+
     /// <summary>进入某个世界的数据包管理页。</summary>
     private async Task ManageDataPacksAsync()
     {
@@ -2886,14 +3015,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task LoadAsync()
     {
+        // NPMC_TIMING=1 时把各阶段耗时写进 logs/launcher.log（默认关闭）
+        var timing = new LoadTiming(_launcher.Root);
+
         IsBusy = true;
         try
         {
             var store = new JsonInstanceStore(_launcher);
             var catalog = new InstanceCatalog(await store.LoadAsync());
+            timing.Mark("读取实例清单", $"count={catalog.Instances.Count}");
 
             // 用户在资源管理器里改了实例文件夹时，按目录里的标记把 Id / 显示名同步回去
             var reconcile = InstanceReconciler.Reconcile(_launcher, catalog);
+            timing.Mark("对账实例目录", $"renamed={reconcile.Renamed.Count} missing={reconcile.MissingDirectories.Count}");
 
             if (reconcile.Renamed.Count > 0)
                 await store.SaveAsync(catalog.Instances);
@@ -2902,6 +3036,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             foreach (var instance in catalog.Instances)
                 Instances.Add(new InstanceListItem(_launcher, instance));
 
+            // 每个条目构造时都会数一遍 mods/资源包/存档
+            timing.Mark("构建实例条目", $"count={Instances.Count}（含内容计数扫描）");
+
             // 收藏是界面偏好：按 id 打回每个条目，再按过滤条件重建可见列表
             _favoriteIds.Clear();
             foreach (var id in InstanceFavoritesStore.Load(_launcher))
@@ -2909,18 +3046,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             foreach (var item in Instances)
                 item.IsFavorite = _favoriteIds.Contains(item.Id);
+            timing.Mark("读取收藏");
 
             SyncRunningState();
             OnPropertyChanged(nameof(IsEmpty));
 
             RefreshVisibleInstances();
+            timing.Mark("重建可见列表", $"visible={VisibleInstances.Count}");
 
             // 默认选中第一行；列表被过滤空时 RefreshVisibleInstances 已经把它置 null 了
             if (_selectedInstance is null)
                 SelectedInstance = VisibleInstances.FirstOrDefault();
+            timing.Mark("选定默认实例");
 
             // 账号页与实例概览的账号下拉都依赖账号列表，进实例页前先加载好
             await EnsureAccountsLoadedAsync();
+            timing.Mark("加载账号");
 
             var problems = catalog.Validate();
 
@@ -2941,7 +3082,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             Status = status;
 
+            timing.Mark("校验实例数据");
+
             await RefreshContentAsync();
+            timing.Mark("扫描选中实例的内容", $"kind={SelectedTab?.ContentKind}");
+            timing.Done();
             MemoryTrace.Write("load-done");
         }
         catch (Exception ex)
@@ -2969,6 +3114,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var directory = kind is { } contentKind ? ResolveContentDirectory(contentKind) : null;
 
+        // 回收站就挂在内容目录下，跟着这次刷新一起统计
+        RefreshTrashInfo(directory);
+
         if (instance is null || kind is not { } resolvedKind || directory is null)
         {
             // 注意：这里**不*递增版本号；
@@ -2976,6 +3124,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 真正带世界的扫描结果判为过期并丢弃，列表就永远是空的。
             Content.Clear();
             _contentFileTotal = 0;
+            RefreshTrashInfo(null);
             OnPropertyChanged(nameof(IsContentEmpty));
             OnPropertyChanged(nameof(IsContentEmptyOrNotList));
             OnPropertyChanged(nameof(ContentEmptyHint));
