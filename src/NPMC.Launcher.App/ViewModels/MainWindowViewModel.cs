@@ -4969,16 +4969,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>实例页的标题与内容页签：只有"在实例页且选中了实例"时出现。</summary>
     public bool ShowInstanceHeader => IsInstancePage && HasSelection;
 
-    /// <summary>
-    /// 左侧列表列的宽度。
-    ///
-    /// 下载页只有「游戏本体 / 整合包」两个分类按钮，固定 340 会让这一列显得又空又窄
-    /// （右侧内容却有 750+），所以下载页让它和右侧内容各占一半；实例页/账号页的列表
-    /// 仍是固定 340 —— 那些页面里列表本身就宽，再放大会显得空旷。
-    /// </summary>
-    public Avalonia.Controls.GridLength LeftListColumnWidth => IsDownloadsPage
-        ? new Avalonia.Controls.GridLength(1, Avalonia.Controls.GridUnitType.Star)
-        : new Avalonia.Controls.GridLength(340);
 
 
     public string InstancesNavBackground => IsInstancesPage ? "#2B3A55" : "Transparent";
@@ -5593,7 +5583,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         OnPropertyChanged(nameof(IsInstancesPage));
         OnPropertyChanged(nameof(IsDownloadsPage));
-        OnPropertyChanged(nameof(LeftListColumnWidth));
         OnPropertyChanged(nameof(IsP2PPage));
         OnPropertyChanged(nameof(IsInstancePage));
         OnPropertyChanged(nameof(ShowInstanceHeader));

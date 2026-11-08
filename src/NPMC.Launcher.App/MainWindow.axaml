@@ -64,13 +64,7 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="1">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="180" />
-        <!-- 左侧列表列：下载页与右侧内容各占一半；实例/账号页仍是固定的 340（见 VM 的 LeftListColumnWidth） -->
-        <ColumnDefinition Width="{Binding LeftListColumnWidth}" />
-        <ColumnDefinition Width="*" />
-      </Grid.ColumnDefinitions>
+    <Grid Grid.Row="1" ColumnDefinitions="180,340,*">
 
       <!-- ================= 左侧导航 ================= -->
       <Border Background="#1F2229" BorderBrush="#31353F" BorderThickness="0,0,1,0" Padding="12,18">
@@ -1375,21 +1369,24 @@
       </Grid>
 
       <!-- ================= 下载页：左边两个分类 ================= -->
+      <!-- 两个分类各占半页高度：这一列只有两项，原来挤在顶部两条细条，下面一大片空白 -->
       <Border Grid.Column="1" Background="#1B1D23" Padding="12,14"
               IsVisible="{Binding IsDownloadsPage}">
-        <StackPanel Spacing="4">
-          <Button Command="{Binding ShowVersionsModeCommand}" BorderThickness="0" Padding="12,9"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+        <Grid RowDefinitions="*,*" RowSpacing="8">
+          <Button Grid.Row="0" Command="{Binding ShowVersionsModeCommand}" BorderThickness="0" Padding="12"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                   Background="{Binding VersionsModeBackground}">
-            <TextBlock Text="游戏本体" FontSize="13" Foreground="{Binding VersionsModeForeground}" />
+            <TextBlock Text="游戏本体" FontSize="14" Foreground="{Binding VersionsModeForeground}" />
           </Button>
 
-          <Button Command="{Binding ShowModpacksModeCommand}" BorderThickness="0" Padding="12,9"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+          <Button Grid.Row="1" Command="{Binding ShowModpacksModeCommand}" BorderThickness="0" Padding="12"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                   Background="{Binding ModpacksModeBackground}">
-            <TextBlock Text="整合包" FontSize="13" Foreground="{Binding ModpacksModeForeground}" />
+            <TextBlock Text="整合包" FontSize="14" Foreground="{Binding ModpacksModeForeground}" />
           </Button>
-        </StackPanel>
+        </Grid>
       </Border>
 
       <!-- ================= 下载页：右边详情与操作 ================= -->
