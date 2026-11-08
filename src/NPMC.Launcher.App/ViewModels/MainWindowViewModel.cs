@@ -1677,30 +1677,44 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>
     /// 实例列表的搜索词：匹配实例名、目录 id、游戏版本号、整合包名。
     /// 实例多的时候（几十个）滚列表很麻烦，直接按版本名筛出来最快。
+    ///
+    /// 注意 setter 必须容忍 null：TextBox 在首次绑定和清空时会推 null 进来，
+    /// 之前直接存进字段再 .Trim() 就抛了 NullReferenceException，
+    /// Avalonia 会把它画成输入框上的红框提示（2026-11-08 实际踩到）。
     /// </summary>
     public string InstanceSearchText
     {
         get => _instanceSearchText;
         set
         {
-            if (!SetProperty(ref _instanceSearchText, value)) return;
+            var normalized = value ?? string.Empty;
+            if (!SetProperty(ref _instanceSearchText, normalized)) return;
             RefreshVisibleInstances();
         }
     }
 
-    private static bool MatchesInstance(InstanceListItem item, string query)
+    /// <summary>去掉首尾空白的搜索词（永远不为 null）。</summary>
+    private string InstanceSearchQuery => (_instanceSearchText ?? string.Empty).Trim();
+
+    /// <summary>
+    /// 搜索匹配：实例名 / 目录 id / 游戏版本号 / 整合包名。
+    ///
+    /// ModpackName 是 <c>string?</c>（非整合包实例为 null），这里必须容忍 null ——
+    /// 之前直接 .Contains 让一敲搜索就抛 NullReferenceException。
+    /// </summary>
+    public static bool MatchesInstance(InstanceListItem item, string query)
     {
         return item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
                || item.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
                || item.VersionId.Contains(query, StringComparison.OrdinalIgnoreCase)
-               || item.ModpackName.Contains(query, StringComparison.OrdinalIgnoreCase);
+               || (item.ModpackName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
     /// <summary>按过滤条件重建可见列表；尽量保持当前选中项。</summary>
     private void RefreshVisibleInstances()
     {
         var selectedId = _selectedInstance?.Id;
-        var query = _instanceSearchText.Trim();
+        var query = InstanceSearchQuery;
 
         VisibleInstances.Clear();
         foreach (var instance in Instances)
@@ -1729,12 +1743,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>过滤后空状态的标题：搜索与收藏是两种不同的空，别混成一句话。</summary>
-    public string FilterEmptyTitle => _instanceSearchText.Trim().Length > 0
+    public string FilterEmptyTitle => InstanceSearchQuery.Length > 0
         ? "没有匹配的实例"
         : "没有收藏的实例";
 
-    public string FilterEmptyHint => _instanceSearchText.Trim().Length > 0
-        ? $"没有实例名 / 版本号 / 整合包名包含「{_instanceSearchText.Trim()}」的实例；清空搜索框可看全部"
+    public string FilterEmptyHint => InstanceSearchQuery.Length > 0
+        ? $"没有实例名 / 版本号 / 整合包名包含「{InstanceSearchQuery}」的实例；点 Esc 或清空搜索框可看全部"
         : FavoritesFilterHint;
 
     public InstanceListItem? SelectedInstance
