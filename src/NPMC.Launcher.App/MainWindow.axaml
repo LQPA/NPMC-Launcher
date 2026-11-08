@@ -136,7 +136,7 @@
         <ListBox x:Name="InstanceList" Grid.Row="1"
                  ItemsSource="{Binding VisibleInstances}"
                  SelectedItem="{Binding SelectedInstance, Mode=TwoWay}"
-                 Background="Transparent" BorderThickness="0" Padding="8"
+                 Background="Transparent" BorderThickness="0" Padding="8,8,14,8"
                  IsVisible="{Binding !IsEmpty}">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:InstanceListItem">
