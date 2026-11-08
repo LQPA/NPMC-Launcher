@@ -55,6 +55,36 @@ public class InstanceOrderTests
         Assert.Equal(ordered.Take(2).Select(item => item.Id), favoritesOnly.Select(item => item.Id));
     }
 
+    [Fact]
+    public void Favoriting_moves_the_item_to_the_very_top_of_the_favorites_group()
+    {
+        var f1 = CreateItem("f1", favorite: true);
+        var f2 = CreateItem("f2", favorite: true);
+        var n1 = CreateItem("n1");
+        var n2 = CreateItem("n2");
+
+        // n2 刚被收藏
+        n2.IsFavorite = true;
+        var ordered = MainWindowViewModel.PinToGroupTop(new[] { f1, f2, n1, n2 }, n2);
+
+        Assert.Equal(new[] { "n2", "f1", "f2", "n1" }, ordered.Select(item => item.Id));
+    }
+
+    [Fact]
+    public void Unfavoriting_moves_the_item_to_the_top_of_the_normal_group()
+    {
+        var f1 = CreateItem("f1", favorite: true);
+        var f2 = CreateItem("f2", favorite: true);
+        var n1 = CreateItem("n1");
+        var n2 = CreateItem("n2");
+
+        // f2 刚被取消收藏 → 收藏组下方第一行，其余非收藏项保持原相对顺序
+        f2.IsFavorite = false;
+        var ordered = MainWindowViewModel.PinToGroupTop(new[] { f1, f2, n1, n2 }, f2);
+
+        Assert.Equal(new[] { "f1", "f2", "n1", "n2" }, ordered.Select(item => item.Id));
+    }
+
     private static InstanceListItem CreateItem(string id, bool favorite = false)
     {
         var root = Path.Combine(Path.GetTempPath(), "nmpc-order-tests", Guid.NewGuid().ToString("N"));

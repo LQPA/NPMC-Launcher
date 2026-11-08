@@ -1696,7 +1696,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ? "还没有收藏的实例：点实例行右边的 ☆ 收藏"
         : "当前没有收藏的实例（收藏的实例可能已被删除）";
 
-    /// <summary>收藏 / 取消收藏，并立即落盘。</summary>
+    /// <summary>
+    /// 收藏 / 取消收藏，并立即落盘。
+    ///
+    /// 位置规则（与用户确认）：收藏 → 直接顶到**收藏组最前**；
+    /// 取消收藏 → 移到**非收藏组的第一个**（也就是收藏组下方第一行）。
+    /// 组内其余项顺序不变。
+    /// </summary>
     public void ToggleFavorite(InstanceListItem item)
     {
         if (item.IsFavorite)
@@ -1714,9 +1720,46 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         PersistFavorites();
 
-        // 收藏组固定置顶，所以收藏状态一变，显示顺序就会变（该项要挪到组首/组尾），
-        // 这里必须刷新；RefreshVisibleInstances 内部是最小 diff，不会整表重建。
+        // 先按"顶到组首"重排 Instances，再刷新可见列表（内部是最小 diff，不整表重建）
+        ApplyDisplayOrder(PinToGroupTop(Instances.ToList(), item));
         RefreshVisibleInstances();
+
+        // 顺序变了要落盘，否则下次启动会回到旧位置
+        _ = PersistInstanceOrderAsync(Instances.Select(instance => instance.Id).ToList());
+    }
+
+    /// <summary>
+    /// 把 <paramref name="item"/> 顶到它所在组的最前面，其余项保持原相对顺序。
+    /// 组由 <see cref="InstanceListItem.IsFavorite"/> 决定（调用前必须已经改好）。
+    /// </summary>
+    public static List<InstanceListItem> PinToGroupTop(
+        IReadOnlyList<InstanceListItem> items,
+        InstanceListItem item)
+    {
+        var favorites = new List<InstanceListItem>();
+        var others = new List<InstanceListItem>();
+
+        foreach (var current in items)
+        {
+            if (ReferenceEquals(current, item)) continue;
+            (current.IsFavorite ? favorites : others).Add(current);
+        }
+
+        var ordered = new List<InstanceListItem>(items.Count);
+        if (item.IsFavorite)
+        {
+            ordered.Add(item);
+            ordered.AddRange(favorites);
+            ordered.AddRange(others);
+        }
+        else
+        {
+            ordered.AddRange(favorites);
+            ordered.Add(item);
+            ordered.AddRange(others);
+        }
+
+        return ordered;
     }
 
     private void PersistFavorites() => InstanceFavoritesStore.Save(_launcher, _favoriteIds);
