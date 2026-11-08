@@ -139,6 +139,8 @@ public sealed class InstanceListItem : ObservableObject
             if (!SetProperty(ref _isFavorite, value)) return;
             OnPropertyChanged(nameof(FavoriteGlyph));
             OnPropertyChanged(nameof(FavoriteTip));
+            OnPropertyChanged(nameof(FavoriteAccent));
+            OnPropertyChanged(nameof(FavoriteGlyphColor));
         }
     }
 
@@ -146,6 +148,15 @@ public sealed class InstanceListItem : ObservableObject
     public string FavoriteGlyph => _isFavorite ? "★" : "☆";
 
     public string FavoriteTip => _isFavorite ? "取消收藏" : "收藏这个实例";
+
+    /// <summary>
+    /// 收藏实例左侧的竖条颜色。列表里星标小、又常被滚动条挤到边上，
+    /// 加一条固定位置的色条，扫一眼就能认出哪些是收藏的（不需要去找那颗星）。
+    /// </summary>
+    public string FavoriteAccent => _isFavorite ? "#E0A94A" : "Transparent";
+
+    /// <summary>星标颜色：已收藏用亮橙，未收藏用低调的灰蓝，避免每行都有一点橙色噪点。</summary>
+    public string FavoriteGlyphColor => _isFavorite ? "#E0A94A" : "#5C6470";
 
     public int ModsCount { get => _modsCount; private set => SetProperty(ref _modsCount, value); }    public int ResourcePackCount { get => _resourcePackCount; private set => SetProperty(ref _resourcePackCount, value); }
     public int ShaderPackCount { get => _shaderPackCount; private set => SetProperty(ref _shaderPackCount, value); }

@@ -132,26 +132,36 @@
                  IsVisible="{Binding !IsEmpty}">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:InstanceListItem">
-              <StackPanel Spacing="3" Margin="2,5">
-                <Grid ColumnDefinitions="*,Auto,Auto">
-                  <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-                             Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
-                  <Border Grid.Column="1" Background="#1F3A2A" BorderBrush="#3E7A52" BorderThickness="1"
-                          CornerRadius="6" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center"
-                          IsVisible="{Binding IsRunning}">
-                    <TextBlock Text="运行中" FontSize="10" Foreground="#7FD08A" />
-                  </Border>
-                  <Button Grid.Column="2" Click="OnToggleFavoriteClick"
-                          Content="{Binding FavoriteGlyph}"
-                          ToolTip.Tip="{Binding FavoriteTip}"
-                          Background="Transparent" BorderThickness="0" Padding="6,0"
-                          FontSize="14" Foreground="#E0A94A" VerticalAlignment="Center" />
-                </Grid>
-                <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#B4BCC8" />
-                <TextBlock Text="{Binding ContentText}" FontSize="11" Foreground="#949CA9" />
-                <TextBlock Text="{Binding ModpackSummaryText}" FontSize="10" Foreground="#E0A94A"
-                           IsVisible="{Binding HasModpackInfo}" TextTrimming="CharacterEllipsis" />
-              </StackPanel>
+              <!-- 收藏的实例在左侧多一条橙色竖条：星标小、又容易被滚动条挡住，
+                   色条位置固定，扫一眼就能分清哪些是收藏的 -->
+              <Border BorderThickness="3,0,0,0" BorderBrush="{Binding FavoriteAccent}"
+                      CornerRadius="4" Padding="6,0,0,0">
+                <StackPanel Spacing="3" Margin="0,5">
+                  <Grid ColumnDefinitions="*,Auto,Auto">
+                    <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                               Foreground="#E8EAED" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" />
+                    <Border Grid.Column="1" Background="#1F3A2A" BorderBrush="#3E7A52" BorderThickness="1"
+                            CornerRadius="6" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center"
+                            IsVisible="{Binding IsRunning}">
+                      <TextBlock Text="运行中" FontSize="10" Foreground="#7FD08A" />
+                    </Border>
+                    <!-- 星标加大到 18px，命中区域 30x26（比图标大，更好点） -->
+                    <Button Grid.Column="2" Click="OnToggleFavoriteClick"
+                            Content="{Binding FavoriteGlyph}"
+                            ToolTip.Tip="{Binding FavoriteTip}"
+                            Background="Transparent" BorderThickness="0"
+                            Padding="2,0" Width="30" Height="26"
+                            FontSize="18" Foreground="{Binding FavoriteGlyphColor}"
+                            VerticalAlignment="Center" HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center" />
+                  </Grid>
+                  <TextBlock Text="{Binding SummaryText}" FontSize="12" Foreground="#B4BCC8" />
+                  <TextBlock Text="{Binding ContentText}" FontSize="11" Foreground="#949CA9" />
+                  <TextBlock Text="{Binding ModpackSummaryText}" FontSize="10" Foreground="#E0A94A"
+                             IsVisible="{Binding HasModpackInfo}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+              </Border>
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
