@@ -1366,25 +1366,43 @@
                           ToolTip.Tip="默认不带：整合包通常是拿去分享的，存档属于个人数据" />
               </WrapPanel>
 
-              <!-- overrides / 打包规则只对 mrpack 与 CurseForge 有意义 -->
+
+              <!-- overrides 与打包规则：只对 mrpack / CurseForge 有意义 -->
               <StackPanel Spacing="10" IsVisible="{Binding IsPackExport}">
                 <CheckBox Content="把配置等文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
                           IsChecked="{Binding ExportBundleExtra}" FontSize="11" />
+              </StackPanel>
 
-                <!-- 高级导出选项：关着时打包规则与 JVM 参数两块都隐藏、也不生效 -->
-                <CheckBox Content="高级导出选项（打包规则 / JVM 参数）"
-                          IsChecked="{Binding AdvancedExportEnabled, Mode=TwoWay}" FontSize="11"
-                          ToolTip.Tip="关着时只按上面的勾选打包；勾选后才显示并生效：自定义打包规则、实例 JVM 参数、追加 JVM 参数" />
+              <!-- 选择摘要：三种格式都显示（MMC 也按这些勾选打包） -->
+              <TextBlock Text="{Binding ExportSelectionHint}" FontSize="11" Foreground="#949CA9"
+                         TextWrapping="Wrap" MaxWidth="620" />
 
+              <!-- 高级导出选项：关着时 JVM 参数与打包规则都隐藏、也不生效。
+                   放在 IsPackExport 块之外，三种格式（mrpack / CF / MultiMC）都能用。 -->
+              <CheckBox Content="高级导出选项（打包规则 / JVM 参数）"
+                        IsChecked="{Binding AdvancedExportEnabled, Mode=TwoWay}" FontSize="11"
+                        ToolTip.Tip="关着时只按上面的勾选打包；勾选后才显示并生效：实例 JVM 参数、追加 JVM 参数，以及把配置打包进 overrides 时的打包规则" />
 
-                <!-- 哪些文件进 overrides 由规则文件决定：投影、地图这类加一行就够 -->
-                <StackPanel Spacing="6" IsEnabled="{Binding ExportBundleExtra}" IsVisible="{Binding AdvancedExportEnabled}">
-                  <!-- 语法说明不再铺在这里：export-rules.txt 的文件头写着同样的内容，
-                       这里只留标题（悬停给提示）+ 一行状态，省出垂直空间 -->
+              <!-- JVM 参数：三种格式都适用（MMC 写 instance.cfg，mrpack/CF 写 .nmpc-pack.json） -->
+              <StackPanel Spacing="6" IsVisible="{Binding AdvancedExportEnabled}">
+                <CheckBox Content="导出实例内的 JVM 参数" IsChecked="{Binding ExportIncludeInstanceJvmArgs, Mode=TwoWay}"
+                          FontSize="11"
+                          ToolTip.Tip="把实例高级选项里已有的 JVM 参数写进包（导入方会看到一次提示）" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <TextBlock Text="追加 JVM 参数" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
+                  <TextBox Text="{Binding ExportExtraJvmArgs, Mode=TwoWay}" Width="420" FontSize="12"
+                           Watermark="例如 -Xmx8G -XX:+UseG1GC（留空表示不追加）"
+                           ToolTip.Tip="额外写给导入方的参数：重复项会去重，同键参数（-Xmx/-Xms）以后面的为准，导出状态里会记录" />
+                </StackPanel>
+              </StackPanel>
+
+              <!-- 打包规则：只对 mrpack / CurseForge 有意义，且跟随高级开关 -->
+              <StackPanel Spacing="6" IsVisible="{Binding IsPackExport}"
+                        IsEnabled="{Binding AdvancedExportEnabled}">
+                <StackPanel IsVisible="{Binding AdvancedExportEnabled}" Spacing="6">
                   <TextBlock Text="打包规则（export-rules.txt）" FontSize="12" Foreground="#C9CED6" Margin="0,4,0,0"
                              ToolTip.Tip="每行一条相对实例目录的路径：config/ 表示目录，! 开头排除，支持 * ? 通配，靠后的行覆盖靠前的；===== 之后是绝对路径的额外文件（结尾 / 表示文件夹）。语法与示例都在该文件里，点「编辑规则文件」可直接改。" />
                   <TextBlock Text="{Binding ExportRulesSummary}" FontSize="11" Foreground="#C9CED6" />
-
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button Content="编辑规则文件" Command="{Binding OpenExportRulesCommand}"
                             FontSize="12" Padding="12,2" />
@@ -1396,26 +1414,7 @@
                             FontSize="12" Padding="12,2" />
                   </StackPanel>
                 </StackPanel>
-
               </StackPanel>
-
-              <!-- 选择摘要：三种格式都显示（MMC 也按这些勾选打包） -->
-              <TextBlock Text="{Binding ExportSelectionHint}" FontSize="11" Foreground="#949CA9"
-                         TextWrapping="Wrap" MaxWidth="620" />
-
-              <!-- JVM 参数：三种格式都适用（MMC 写 instance.cfg，mrpack/CF 写 .nmpc-pack.json）。
-                   提示文案与缩进沿用导出页风格，跟着「高级导出选项」开关出现。 -->
-                <StackPanel Spacing="6" IsVisible="{Binding AdvancedExportEnabled}">
-                  <CheckBox Content="导出实例内的 JVM 参数" IsChecked="{Binding ExportIncludeInstanceJvmArgs, Mode=TwoWay}"
-                            FontSize="11"
-                            ToolTip.Tip="把实例高级选项里已有的 JVM 参数写进包（导入方会看到一次提示）" />
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="追加 JVM 参数" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
-                    <TextBox Text="{Binding ExportExtraJvmArgs, Mode=TwoWay}" Width="420" FontSize="12"
-                             Watermark="例如 -Xmx8G -XX:+UseG1GC（留空表示不追加）"
-                             ToolTip.Tip="额外写给导入方的参数：重复项会去重，同键参数（-Xmx/-Xms）以后面的为准，导出状态里会记录" />
-                  </StackPanel>
-                </StackPanel>
 
               <Button Content="选择导出位置…" Click="OnExportInstanceClick"
                       FontSize="12" HorizontalAlignment="Left" Padding="14,4" />
