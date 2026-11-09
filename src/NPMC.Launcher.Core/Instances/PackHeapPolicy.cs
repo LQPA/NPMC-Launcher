@@ -43,9 +43,9 @@ public static class PackHeapPolicy
         // 当前可用内存不够也放行不了：留 1GB 给 JVM 自身与原生库
         if (availableMb > 0 && packHeapMb + 1024 > availableMb)
         {
-            var availableFallback = Math.Min(autoHeapMb, ceiling);
-            return new Decision(false, availableFallback,
-                $"整合包要求的 {packHeapMb} MB 超过当前可用内存 {availableMb} MB，改用 {availableFallback} MB");
+            var clampedValue = Math.Min(autoHeapMb, ceiling);
+            return new Decision(false, clampedValue,
+                $"整合包要求的 {packHeapMb} MB 超过当前可用内存 {availableMb} MB，已夹紧为 {clampedValue} MB");
         }
 
         if (packHeapMb <= ceiling)
@@ -53,13 +53,13 @@ public static class PackHeapPolicy
             return new Decision(true, packHeapMb, $"整合包要求的 {packHeapMb} MB 在本机可行（上限 {ceiling} MB）");
         }
 
-        // 物理内存明显不够：退回自动计算（但不能超过上限）
-        var fallback = Math.Min(autoHeapMb, ceiling);
+        // 物理内存明显不够：把 -Xmx 夹紧到上限，而不是整个丢掉
+        var clamped = Math.Min(autoHeapMb, ceiling);
 
         var reason = availableMb > 0 && packHeapMb > availableMb
-            ? $"整合包要求的 {packHeapMb} MB 超过当前可用内存 {availableMb} MB，改用 {fallback} MB"
-            : $"整合包要求的 {packHeapMb} MB 超过本机安全上限 {ceiling} MB，改用 {fallback} MB";
+            ? $"整合包要求的 {packHeapMb} MB 超过当前可用内存 {availableMb} MB，已夹紧为 {clamped} MB"
+            : $"整合包要求的 {packHeapMb} MB 超过本机安全上限 {ceiling} MB，已夹紧为 {clamped} MB";
 
-        return new Decision(false, fallback, reason);
+        return new Decision(false, clamped, reason);
     }
 }

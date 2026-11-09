@@ -184,7 +184,8 @@ public static class GameLauncher
 
             if (!decision.KeepPreset)
             {
-                extraJvmArguments.RemoveAll(IsHeapArgument);
+                // 不砍参数，只把 -Xmx/-Xms 改成夹紧后的值：作者的其它优化参数（GC、-D…）照旧生效
+                ReplaceHeapArguments(extraJvmArguments, decision.RecommendedHeapMb);
                 memory = decision.RecommendedHeapMb;
                 heapNotice = decision.Reason;
             }
@@ -611,9 +612,48 @@ public static class GameLauncher
         return megabytes is > 0 and <= 262144 ? (int)megabytes : 0;
     }
 
-    /// <summary>堆相关参数：内存不足时整体移除，避免它压过启动器算出来的值。</summary>
-    private static bool IsHeapArgument(string argument) =>
-        argument.StartsWith("-Xmx", StringComparison.OrdinalIgnoreCase)
-        || argument.StartsWith("-Xms", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// 把 -Xmx / -Xms 就地改成给定大小，其它 JVM 参数原样保留。
+    /// 夹紧时用（内存不够），不整块丢弃作者写的 GC、-D 等参数。
+    /// </summary>
+    private static void ReplaceHeapArguments(List<string> arguments, int heapMb)
+    {
+        var sawMax = false;
+        var sawInitial = false;
+
+        for (var i = arguments.Count - 1; i >= 0; i--)
+        {
+            var argument = arguments[i];
+
+            if (argument.StartsWith("-Xmx", StringComparison.OrdinalIgnoreCase))
+            {
+                if (sawMax)
+                {
+                    // 多个 -Xmx 只留最后一个（JVM 本身也是后者生效），别的清掉避免混淆
+                    arguments.RemoveAt(i);
+                    continue;
+                }
+
+                arguments[i] = $"-Xmx{heapMb}M";
+                sawMax = true;
+                continue;
+            }
+
+            if (argument.StartsWith("-Xms", StringComparison.OrdinalIgnoreCase))
+            {
+                if (sawInitial)
+                {
+                    arguments.RemoveAt(i);
+                    continue;
+                }
+
+                // 初始堆也夹紧：-Xms 高于夹紧后的上限会直接让 JVM 启动失败
+                arguments[i] = $"-Xms{Math.Min(heapMb, 512)}M";
+                sawInitial = true;
+            }
+        }
+
+        if (!sawMax) arguments.Add($"-Xmx{heapMb}M");
+    }
 
 }

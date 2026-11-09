@@ -1798,9 +1798,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        // 环境修正（例如提升 Java 的完整性标签）记进启动器日志，出问题时有据可查
+        // 环境修正（例如提升 Java 的完整性标签、夹紧了整合包的 -Xmx）记进启动器日志，
+        // 同时在界面上提示一次：用户得知道启动用的内存和整合包要求的不一样。
         foreach (var notice in prepared.Notices)
+        {
             LauncherLog.Write(_launcher.Root, notice);
+        }
+
+        var heapNotice = prepared.Notices.FirstOrDefault(notice =>
+            notice.Contains("夹紧", StringComparison.Ordinal)
+            || notice.Contains("整合包要求", StringComparison.Ordinal));
+
+        if (heapNotice is not null)
+        {
+            Status = heapNotice;
+            ShowLaunchDiagnosis(LaunchDiagnostics.ForPreparation(
+                "内存已按本机情况调整",
+                heapNotice,
+                "整合包作者写的 -Xmx 超出本机可承受范围，启动参数已夹紧；其它 JVM 参数照常生效。"
+                + "如果仍卡顿，可在实例概览里关闭「自动」并手动调小内存。"));
+        }
 
         // 同一个实例只能有一个游戏进程；不同实例互不影响（真正启动前的最后一道检查）
         var instanceId = instance.Model.Id;

@@ -26,7 +26,7 @@ public class PackHeapPolicyTests
 
         Assert.False(decision.KeepPreset);
         Assert.Equal(4096, decision.RecommendedHeapMb);
-        Assert.Contains("8192", decision.Reason);
+        Assert.Contains("夹紧", decision.Reason);
     }
 
     [Fact]
