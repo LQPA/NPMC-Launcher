@@ -6783,8 +6783,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         "识别方式：读包里的清单文件判断格式——\n"
         + "· modrinth.index.json → Modrinth 整合包（按清单逐项下载，导入时需要联网）\n"
         + "· manifest.json → CurseForge 整合包（用 API 把 projectID/fileID 换成下载地址，需要 API key）\n"
-        + "· mmc-pack.json 或 instance.cfg → MultiMC 实例包（文件全在包里，导入时直接解压，不需要联网下载模组）\n"
+        + "· mmc-pack.json 或 instance.cfg → MultiMC 实例包"
+        + "（常见于其它启动器导出实例时生成的 MMC 包；文件全在包里，导入时直接解压，不需要联网下载模组）\n"
         + "三者都没有 → 提示无法识别。\n\n"
+        + "来源：格式由包内清单决定。MMC 包通常由别的启动器导出，"
+        + "因此会带上对方的实例名、内存与窗口设置——导入时会照这些值建实例，之后可以在实例页自行调整。\n\n"
         + "用途：导入后按清单里的版本/加载器重建运行环境，再把包内文件写进一个新实例。";
     /// <summary>概览页显示缺失文件面板；从别的页签点「查看缺失」时切回去。</summary>
     public RelayCommand ShowOverviewTabCommand { get; }

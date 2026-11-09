@@ -1799,7 +1799,7 @@
                     </TextBlock>
                   </Border>
                 </StackPanel>
-                <TextBlock Text="（Modrinth .mrpack、CurseForge .zip、HMCL / Prism / MultiMC 实例包；整页都可以）" FontSize="11"
+                <TextBlock Text="（Modrinth .mrpack、CurseForge .zip，以及其它启动器导出的 MMC 实例包；整页都可以）" FontSize="11"
                            Foreground="#6E7684" HorizontalAlignment="Center" />
                 <Button Content="选择整合包文件…" Click="OnPickModpackClick"
                         HorizontalAlignment="Center" Padding="14,6" />
