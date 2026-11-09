@@ -86,3 +86,8 @@ desktop.ini
 /src/NPMC.Launcher.App/P2P/
 /src/NPMC.Launcher.App/P2PTestWindow.axaml
 /src/NPMC.Launcher.App/P2PTestWindow.axaml.cs
+
+# ---- 交接文档：面向本机会话，不公开（保持本地，仅取消跟踪）----
+/docs/HANDOFF-*.md
+/docs/handoff.md
+/docs/P2P-HANDOFF.md
