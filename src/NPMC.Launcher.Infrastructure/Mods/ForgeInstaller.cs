@@ -222,6 +222,74 @@ public sealed class ForgeInstaller
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        var succeeded = false;
+        try
+        {
+            var result = await RunOfficialInstallerAsync(paths, plan, javaPath, progress, cancellationToken)
+                .ConfigureAwait(false);
+
+            succeeded = true;
+            return result;
+        }
+        finally
+        {
+            // 官方安装器会把整个安装过程写成 <安装器文件名>.log 放在它的工作目录里。
+            // 以前工作目录是游戏根目录，于是 minecraft\ 下堆了几十个 forge/neoforge 的 .jar.log。
+            // 现在：工作目录改成我们自己的临时目录，成功后直接删；失败则归档到 logs\loader-install\
+            // 供排查（失败日志是诊断依据，不能一删了之）。
+            HandleInstallerLog(paths, plan.InstallerPath, succeeded);
+        }
+    }
+
+    /// <summary>
+    /// 处理官方安装器写下的日志：
+    ///   成功 → 删掉（只是安装过程的流水账）；
+    ///   失败 → 移到 &lt;root&gt;\logs\loader-install\ 留档，并清掉游戏根目录里的副本。
+    /// 同时兼容旧位置（游戏根目录）与当前位置（安装器临时目录）。
+    /// </summary>
+    private static void HandleInstallerLog(LauncherPaths paths, string installerPath, bool succeeded)
+    {
+        var fileName = Path.GetFileName(installerPath) + ".log";
+
+        var candidates = new[]
+        {
+            Path.Combine(paths.SharedRoot, fileName),      // 旧版本留下的位置
+            Path.Combine(paths.InstallerTemp, fileName),   // 当前工作目录
+        };
+
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                if (!File.Exists(candidate)) continue;
+
+                if (succeeded)
+                {
+                    File.Delete(candidate);
+                    continue;
+                }
+
+                var archiveDirectory = Path.Combine(paths.Root, "logs", "loader-install");
+                Directory.CreateDirectory(archiveDirectory);
+
+                var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var target = Path.Combine(archiveDirectory, $"{stamp}-{fileName}");
+                File.Move(candidate, target, overwrite: true);
+            }
+            catch
+            {
+                // 清理失败不影响安装结果
+            }
+        }
+    }
+
+    private async Task<ForgeInstallResult> RunOfficialInstallerAsync(
+        LauncherPaths paths,
+        ForgeInstallPlan plan,
+        string? javaPath,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
         var profile = plan.Profile;
         var minecraftVersion = profile.MinecraftVersion;
 
@@ -270,7 +338,9 @@ public sealed class ForgeInstaller
 
         var startInfo = new ProcessStartInfo(javaPath)
         {
-            WorkingDirectory = paths.SharedRoot,
+            // 工作目录用我们自己的临时目录：安装器会把 <安装器>.log 写在这里，
+            // 放在游戏根目录会一直堆下去（用户实测 minecraft\ 下有 20+ 个 .jar.log）
+            WorkingDirectory = installerTemp,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
