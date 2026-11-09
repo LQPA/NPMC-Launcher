@@ -1815,7 +1815,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ShowLaunchDiagnosis(LaunchDiagnostics.ForPreparation(
                 "内存已按本机情况调整",
                 heapNotice,
-                "整合包作者写的 -Xmx 超出本机可承受范围，启动参数已夹紧；其它 JVM 参数照常生效。"
+                "整合包作者写的 -Xmx 超出本机极限值，本次启动的堆内存已夹紧到极限值；其它 JVM 参数照常生效。"
                 + "如果仍卡顿，可在实例概览里关闭「自动」并手动调小内存。"));
         }
 

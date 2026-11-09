@@ -21,22 +21,23 @@ public class PackHeapPolicyTests
     [Fact]
     public void Falls_back_when_machine_is_too_small()
     {
-        // 8GB 机器装 ATM10（作者要 8G）：不可能，退回自动值
-        var decision = PackHeapPolicy.Evaluate(totalMb: 8192, availableMb: 6000, packHeapMb: 8192, autoHeapMb: 4096);
+        // 8GB 机器装 ATM10（作者要 8G）：夹紧到本机极限值 6144，而不是换成自动值 4096。
+        var decision = PackHeapPolicy.Evaluate(totalMb: 8192, availableMb: 8000, packHeapMb: 8192, autoHeapMb: 4096);
 
         Assert.False(decision.KeepPreset);
-        Assert.Equal(4096, decision.RecommendedHeapMb);
+        Assert.Equal(6144, decision.RecommendedHeapMb);   // 夹紧到本机极限值，而不是自动值 4096
         Assert.Contains("夹紧", decision.Reason);
+        Assert.Contains("极限值", decision.Reason);
     }
 
     [Fact]
-    public void Falls_back_when_available_is_lower_than_requested()
+    public void Available_memory_only_affects_explanation()
     {
         var decision = PackHeapPolicy.Evaluate(totalMb: 32768, availableMb: 4096, packHeapMb: 8192, autoHeapMb: 4096);
 
-        Assert.False(decision.KeepPreset);
-        Assert.Equal(4096, decision.RecommendedHeapMb);
-        Assert.Contains("可用内存", decision.Reason);
+        // 当前可用内存只影响说明文字，不影响夹紧值：32G 机器极限 = min(32768-2048, 24576) = 24576
+        Assert.True(decision.KeepPreset);
+        Assert.Equal(8192, decision.RecommendedHeapMb);
     }
 
     [Fact]

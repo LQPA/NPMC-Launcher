@@ -3,9 +3,11 @@ namespace NPMC.Launcher.Core.Instances;
 /// <summary>
 /// 整合包自带的堆大小（<c>-Xmx</c>）与本机内存是否匹配。
 ///
-/// 原则（2026-11-09 与用户确认）：**优先保留整合包作者给的 -Xmx** —— 作者按包的实际
-/// 内容定的值通常比通用公式更准；只有当用户的物理内存明显不够（例如 8GB 机器装 ATM10）
-/// 才强制退回自动计算，否则会直接 OOM / 卡到磁盘交换。
+/// 原则（2026-11-09 与用户确认）：
+///  - **优先保留整合包作者给的 -Xmx** —— 作者按包的实际内容定的值通常比通用公式更准；
+///  - 只有当它超过**本机极限值**（按物理内存自动算出：留 2GB 给系统、最多占 75%）
+///    才"篡改"启动参数：把 -Xmx 夹到极限值，其它 JVM 参数原样保留；
+///  - 夹紧值 = min(整合包要求, 本机极限值)，不会换成按模组数量估出来的自动值。
 /// </summary>
 public static class PackHeapPolicy
 {
@@ -17,13 +19,20 @@ public static class PackHeapPolicy
 
     public sealed record Decision(bool KeepPreset, int RecommendedHeapMb, string Reason);
 
+    /// <summary>按物理内存算出本机极限值（MB）。</summary>
+    public static int LimitationMb(int totalMb)
+    {
+        var ceiling = (int)Math.Min(totalMb - ReserveMb, totalMb * MaxShare);
+        return Math.Max(ceiling, 512);
+    }
+
     /// <summary>
-    /// 判断整合包要求的堆大小能不能照用。
+    /// 判断整合包要求的堆大小能不能照用；不能则给出夹紧后的值。
     /// </summary>
     /// <param name="totalMb">物理内存总量（MB）。</param>
-    /// <param name="availableMb">当前可用内存（MB，0 表示未知）。</param>
+    /// <param name="availableMb">当前可用内存（MB，0 表示未知；只用于说明文字）。</param>
     /// <param name="packHeapMb">整合包要求的 -Xmx（MB）。</param>
-    /// <param name="autoHeapMb">自动计算给出的值（MB），用于"照用不了"时兜底。</param>
+    /// <param name="autoHeapMb">自动计算给出的值（MB），仅在整合包没指定 -Xmx 时使用。</param>
     public static Decision Evaluate(int totalMb, int availableMb, int packHeapMb, int autoHeapMb)
     {
         if (packHeapMb <= 0)
@@ -37,29 +46,23 @@ public static class PackHeapPolicy
             return new Decision(false, Math.Min(autoHeapMb, packHeapMb), "读不到物理内存，使用自动内存");
         }
 
-        var ceiling = (int)Math.Min(totalMb - ReserveMb, totalMb * MaxShare);
-        if (ceiling < 512) ceiling = 512;
-
-        // 当前可用内存不够也放行不了：留 1GB 给 JVM 自身与原生库
-        if (availableMb > 0 && packHeapMb + 1024 > availableMb)
-        {
-            var clampedValue = Math.Min(autoHeapMb, ceiling);
-            return new Decision(false, clampedValue,
-                $"整合包要求的 {packHeapMb} MB 超过当前可用内存 {availableMb} MB，已夹紧为 {clampedValue} MB");
-        }
+        var ceiling = LimitationMb(totalMb);
 
         if (packHeapMb <= ceiling)
         {
-            return new Decision(true, packHeapMb, $"整合包要求的 {packHeapMb} MB 在本机可行（上限 {ceiling} MB）");
+            return new Decision(true, packHeapMb,
+                $"整合包要求的 {packHeapMb} MB 在本机极限值 {ceiling} MB 之内");
         }
 
-        // 物理内存明显不够：把 -Xmx 夹紧到上限，而不是整个丢掉
-        var clamped = Math.Min(autoHeapMb, ceiling);
+        // 超过极限：夹到极限值本身（不是换成自动值 —— 作者的要求通常是下限，
+        // 在能承受的范围内尽量给足）
+        var clamped = Math.Min(packHeapMb, ceiling);
 
-        var reason = availableMb > 0 && packHeapMb > availableMb
-            ? $"整合包要求的 {packHeapMb} MB 超过当前可用内存 {availableMb} MB，已夹紧为 {clamped} MB"
-            : $"整合包要求的 {packHeapMb} MB 超过本机安全上限 {ceiling} MB，已夹紧为 {clamped} MB";
+        var detail = availableMb > 0 && packHeapMb > availableMb
+            ? $"（当前可用内存 {availableMb} MB）"
+            : "";
 
-        return new Decision(false, clamped, reason);
+        return new Decision(false, clamped,
+            $"整合包要求的 {packHeapMb} MB 超过本机极限值 {ceiling} MB{detail}，已夹紧为 {clamped} MB");
     }
 }
