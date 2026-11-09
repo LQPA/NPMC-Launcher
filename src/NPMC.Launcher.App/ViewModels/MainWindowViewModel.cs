@@ -163,7 +163,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         EnableAllCommand = new AsyncRelayCommand(() => ToggleAllAsync(enable: true), () => CanBulk);
 
         CheckUpdatesCommand = new AsyncRelayCommand(CheckModUpdatesAsync, () => CanCheckUpdates);
-        UpgradeAllCommand = new AsyncRelayCommand(UpgradeAllAsync, () => CanUpgradeAll);
+        UpgradeAllCommand = new AsyncRelayCommand(UpgradeAllConfirmedAsync, () => CanUpgradeAll);
 
         SearchCommand = new AsyncRelayCommand(() => SearchModsAsync(resetPage: true), () => CanSearch);
         PreviousSearchPageCommand = new AsyncRelayCommand(
@@ -3560,7 +3560,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    public string UpgradeAllText => IsUpgradingAll ? "升级中…" : $"全部升级（{UpdateCount}）";
+    private bool _upgradeAllConfirmPending;
+
+    /// <summary>
+    /// 按钮文案：第一次点是"全部升级（N）"，再点一次才真的升。
+    /// 批量升级会真的下载新版本并删旧 jar（整合包自带的还可能破坏作者钉的版本组合），
+    /// 所以按删除实例那套"两次点击确认"处理。
+    /// </summary>
+    public string UpgradeAllText => IsUpgradingAll
+        ? "升级中…"
+        : _upgradeAllConfirmPending
+            ? $"再点一次确认升级 {UpdateCount} 个"
+            : $"全部升级（{UpdateCount}）";
 
     private bool CanUpgradeAll => UpdateCount > 0 && !IsUpgradingAll && !IsCheckingUpdates && IsModsTab;
 
@@ -3582,6 +3593,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (SelectedInstance is not { } instance || SelectedTab.ContentKind != ContentKind.Mod) return;
 
         IsCheckingUpdates = true;
+
+        // 重新检查后旧的确认态作废（数量可能变了）
+        _upgradeAllConfirmPending = false;
+        OnPropertyChanged(nameof(UpgradeAllText));
+
         try
         {
             var items = Content.ToList();
@@ -3830,6 +3846,67 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// 点全部升级却把展开时残留的 29 个也升了"这种不一致。
     /// </summary>
     private HashSet<string> _lastCheckedPaths = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// 「全部升级」的入口：第一次点只切到确认态并把影响范围写清楚（几个待升级、
+    /// 其中几个属于整合包自带），再点一次才真正执行。8 秒不动自动取消。
+    /// </summary>
+    private async Task UpgradeAllConfirmedAsync()
+    {
+        if (!_upgradeAllConfirmPending)
+        {
+            var target = SelectedInstance;
+            var scope = _selectedContent.Count > 0 ? _selectedContent.ToList() : Content.ToList();
+
+            var pending = scope
+                .Where(item => item.PendingUpdate?.Latest.DownloadUrl is { Length: > 0 })
+                .Where(item => _lastCheckedPaths.Count == 0 || _lastCheckedPaths.Contains(item.Entry.Path))
+                .ToList();
+
+            if (pending.Count == 0)
+            {
+                Status = "没有可升级的模组";
+                return;
+            }
+
+            // 数一下其中有多少是整合包自带的：升级它们可能破坏作者钉好的版本组合
+            var packCount = 0;
+            if (target is not null && InstanceModpackStore.Load(target.GameDirectory) is { } modpack)
+            {
+                var packNames = modpack.PackFiles
+                    .Select(file => PackFileCollector.LogicalName(file.FileName))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                packCount = pending.Count(item =>
+                    packNames.Contains(PackFileCollector.LogicalName(Path.GetFileName(item.Entry.Path))));
+            }
+
+            _upgradeAllConfirmPending = true;
+            OnPropertyChanged(nameof(UpgradeAllText));
+
+            Status = $"将升级 {pending.Count} 个模组"
+                     + (packCount > 0 ? $"（其中 {packCount} 个是整合包自带，升级后可能偏离作者的版本组合）" : "")
+                     + "。再点一次确认。";
+
+            // 8 秒没确认就复原，避免按钮一直停在确认态
+            _ = Task.Delay(TimeSpan.FromSeconds(8)).ContinueWith(_ =>
+            {
+                if (!_upgradeAllConfirmPending) return;
+
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    _upgradeAllConfirmPending = false;
+                    OnPropertyChanged(nameof(UpgradeAllText));
+                });
+            });
+
+            return;
+        }
+
+        _upgradeAllConfirmPending = false;
+        OnPropertyChanged(nameof(UpgradeAllText));
+
+        await UpgradeAllAsync();
+    }
     private async Task UpgradeAllAsync()
     {
         if (SelectedInstance is not { } instance || IsUpgradingAll) return;
