@@ -53,9 +53,19 @@ public sealed record InstanceModpackInfo(
 
     public bool HasMissing => Missing.Count > 0;
 
-    public string SummaryText => HasMissing
-        ? $"{SourceText} 整合包 · 缺少 {DescribeMissing()}"
-        : $"{SourceText} 整合包 · 文件完整";
+    /// <summary>
+    /// 徽标文案。
+    ///
+    /// MultiMC 包单独说"实例包（其它启动器导出）"：它不是从平台上拉下来的整合包，
+    /// 而是别的启动器把整个实例打包出来的，来源说清楚才不会让人以为能查更新。
+    /// </summary>
+    public string SummaryText => IsMultiMc
+        ? (HasMissing
+            ? $"MultiMC 实例包（其它启动器导出）· 缺少 {DescribeMissing()}"
+            : "MultiMC 实例包（其它启动器导出）· 文件完整")
+        : HasMissing
+            ? $"{SourceText} 整合包 · 缺少 {DescribeMissing()}"
+            : $"{SourceText} 整合包 · 文件完整";
 
     /// <summary>按目标目录分类型统计缺失文件（模组 / 资源包 / 光影），只列非零项。</summary>
     private string DescribeMissing()
