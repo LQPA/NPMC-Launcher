@@ -1371,10 +1371,10 @@
                 <CheckBox Content="把配置等文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
                           IsChecked="{Binding ExportBundleExtra}" FontSize="11" />
 
-                <!-- 高级导出选项：关着时规则整块隐藏、也不生效 -->
-                <CheckBox Content="高级导出选项（自定义打包规则）"
+                <!-- 高级导出选项：关着时打包规则与 JVM 参数两块都隐藏、也不生效 -->
+                <CheckBox Content="高级导出选项（打包规则 / JVM 参数）"
                           IsChecked="{Binding AdvancedExportEnabled, Mode=TwoWay}" FontSize="11"
-                          ToolTip.Tip="关着时只按上面的勾选打包；勾选后才使用下面的规则文件补齐 config 等文件" />
+                          ToolTip.Tip="关着时只按上面的勾选打包；勾选后才显示并生效：自定义打包规则、实例 JVM 参数、追加 JVM 参数" />
 
 
                 <!-- 哪些文件进 overrides 由规则文件决定：投影、地图这类加一行就够 -->

@@ -1288,7 +1288,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return "将导出：" + string.Join("、", parts)
                    + (AdvancedExportEnabled
                        ? $"；另有 {ExportRuleCount} 条规则打包配置，认不出的文件也放进 overrides"
-                       : "；未启用高级导出选项，按规则补的配置不会打包");
+                       : "；未启用高级导出选项，规则补的配置与 JVM 参数都不会写进包");
         }
     }
 
