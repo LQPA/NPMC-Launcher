@@ -1,6 +1,8 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using System.Text;
+using NPMC.Launcher.Core.Modpacks;
 using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Infrastructure.Hashing;
 using NPMC.Launcher.Infrastructure.Modrinth;
@@ -51,6 +53,9 @@ public sealed record MrpackExportOptions
     /// 结尾带分隔符表示文件夹。
     /// </summary>
     public IReadOnlyList<string> ExternalPaths { get; init; } = Array.Empty<string>();
+
+    /// <summary>写进包根 .nmpc-pack.json 的 JVM 参数（含"导出实例参数 + 作者追加"合并后的结果）。</summary>
+    public IReadOnlyList<string> JvmArguments { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>
@@ -139,6 +144,17 @@ public sealed class MrpackExporter
         using (var archive = ZipFile.Open(targetPath, ZipArchiveMode.Create))
         {
             bytes = WriteIndex(archive, name, packVersion, summary, minecraftVersion, loaderKey, loaderVersion, entries);
+
+            if (options.JvmArguments.Count > 0)
+            {
+                var extras = JsonSerializer.Serialize(
+                    new { jvmArgs = options.JvmArguments },
+                    new JsonSerializerOptions { WriteIndented = true });
+
+                var entry = archive.CreateEntry(ModpackExtras.PackExtrasEntry);
+                using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
+                writer.Write(extras);
+            }
 
             foreach (var relative in overrides)
             {

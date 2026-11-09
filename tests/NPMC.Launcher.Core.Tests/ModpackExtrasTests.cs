@@ -122,6 +122,22 @@ public class ModpackExtrasTests
             ModpackExtras.BuildQuickPlayArguments("host", "1.20.1"));
     }
 
+    [Fact]
+    public void Merges_jvm_arguments_dedupes_and_keeps_the_latter()
+    {
+        var merged = JvmArgumentMerger.Merge(
+            new[] { "-Xmx4G", "-Dfoo=1", "-XX:+UseG1GC" },
+            new[] { "-Xmx8G", "-Dfoo=1" });
+
+        // 顺序保持原样（追加的覆盖项落在后面），但只保留一个 -Xmx 且是追加的那个
+        Assert.DoesNotContain("-Xmx4G", merged.Arguments);
+        Assert.Contains("-Xmx8G", merged.Arguments);
+        Assert.Contains("-XX:+UseG1GC", merged.Arguments);
+        Assert.Single(merged.Arguments, argument => argument.StartsWith("-Dfoo", StringComparison.Ordinal));
+        Assert.Equal(1, merged.DuplicatesRemoved);
+        Assert.Equal(1, merged.Overridden);
+        Assert.Contains(merged.Notes, note => note.Contains("-Xmx8G"));
+    }
     private static void WriteZip(string path, Dictionary<string, string> entries)
     {
         using var archive = ZipFile.Open(path, ZipArchiveMode.Create);

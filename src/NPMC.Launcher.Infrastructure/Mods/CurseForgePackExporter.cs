@@ -1,3 +1,4 @@
+using NPMC.Launcher.Core.Modpacks;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -146,6 +147,19 @@ public sealed class CurseForgePackExporter
                 var data = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(manifest);
                 stream.Write(data, 0, data.Length);
                 bytes = data.Length;
+            }
+
+            // 包内预设参数：与 mrpack 用同一个约定文件（.nmpc-pack.json）
+            if (options.JvmArguments.Count > 0)
+            {
+                var extras = System.Text.Json.JsonSerializer.Serialize(
+                    new { jvmArgs = options.JvmArguments },
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+
+                var extrasEntry = archive.CreateEntry(ModpackExtras.PackExtrasEntry, CompressionLevel.Optimal);
+                using var extrasStream = extrasEntry.Open();
+                var extrasBytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(extras);
+                extrasStream.Write(extrasBytes, 0, extrasBytes.Length);
             }
 
             var packed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -1070,6 +1070,51 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private IReadOnlyList<string> _exportRuleLines = Array.Empty<string>();
 
+    private bool _exportIncludeInstanceJvmArgs = true;
+    private string _exportExtraJvmArgs = "";
+
+    /// <summary>导出时是否带上实例自己的 JVM 参数（高级选项里那串）。</summary>
+    public bool ExportIncludeInstanceJvmArgs
+    {
+        get => _exportIncludeInstanceJvmArgs;
+        set
+        {
+            if (!SetProperty(ref _exportIncludeInstanceJvmArgs, value)) return;
+            OnPropertyChanged(nameof(ExportSelectionHint));
+        }
+    }
+
+    /// <summary>作者额外追加的 JVM 参数（一行文本，允许为空）。</summary>
+    public string ExportExtraJvmArgs
+    {
+        get => _exportExtraJvmArgs;
+        set
+        {
+            if (!SetProperty(ref _exportExtraJvmArgs, value ?? "")) return;
+            OnPropertyChanged(nameof(ExportSelectionHint));
+        }
+    }
+
+    /// <summary>
+    /// 合并"实例自带 + 追加"的 JVM 参数。重复项去掉，同键参数（-Xmx/-Xms）后者生效。
+    /// 不做阻塞式校验：用这类功能的用户清楚自己在填什么，合并结果写进导出状态里。
+    /// </summary>
+    private IReadOnlyList<string> ResolveExportJvmArguments(InstanceListItem instance)
+    {
+        IReadOnlyList<string> instanceArgs = ExportIncludeInstanceJvmArgs
+            ? instance.Model.Settings.ExtraJvmArguments
+            : Array.Empty<string>();
+
+        var merged = JvmArgumentMerger.Merge(instanceArgs, JvmArgumentMerger.Parse(ExportExtraJvmArgs));
+
+        if (merged.DuplicatesRemoved > 0 || merged.Overridden > 0)
+        {
+            ExportStatus = $"JVM 参数已合并：去重 {merged.DuplicatesRemoved} 项"
+                           + (merged.Overridden > 0 ? $"，覆盖 {merged.Overridden} 项（后者生效）" : "");
+        }
+
+        return merged.Arguments;
+    }
     private bool _advancedExportEnabled;
 
     /// <summary>
@@ -1314,6 +1359,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 BundleExtra = ExportBundleExtra,
                 Rules = AdvancedExportEnabled ? ExportRules.Split(_exportRuleLines).Rules : Array.Empty<string>(),
                 ExternalPaths = AdvancedExportEnabled ? ExportRules.Split(_exportRuleLines).External : Array.Empty<string>(),
+                JvmArguments = ResolveExportJvmArguments(instance),
             };
 
             var result = await exporter.ExportAsync(
@@ -1378,6 +1424,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 BundleExtra = ExportBundleExtra,
                 Rules = AdvancedExportEnabled ? ExportRules.Split(_exportRuleLines).Rules : Array.Empty<string>(),
                 ExternalPaths = AdvancedExportEnabled ? ExportRules.Split(_exportRuleLines).External : Array.Empty<string>(),
+                JvmArguments = ResolveExportJvmArguments(instance),
             };
 
             var result = await exporter.ExportAsync(
@@ -1436,7 +1483,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 IncludeMods: ExportIncludeMods,
                 IncludeResourcePacks: ExportIncludeResourcePacks,
                 IncludeShaderPacks: ExportIncludeShaderPacks,
-                JvmArguments: instance.Model.Settings.ExtraJvmArguments,
+                JvmArguments: ResolveExportJvmArguments(instance),
                 QuickPlayServer: ExtractQuickPlayServer(instance.Model.Settings.ExtraGameArguments));
 
             var progress = new Progress<(int Done, int Total, string Path)>(p =>
