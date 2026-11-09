@@ -1070,6 +1070,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private IReadOnlyList<string> _exportRuleLines = Array.Empty<string>();
 
+    private bool _advancedExportEnabled;
+
+    /// <summary>
+    /// 「高级导出选项」总开关：关着时打包规则整块隐藏、也**不生效**
+    /// （导出只按上面勾选的内容打包，不额外按规则补 config 之类）。
+    /// </summary>
+    public bool AdvancedExportEnabled
+    {
+        get => _advancedExportEnabled;
+        set
+        {
+            if (!SetProperty(ref _advancedExportEnabled, value)) return;
+            OnPropertyChanged(nameof(ExportSelectionHint));
+        }
+    }
     public int ExportRuleCount => ExportRules.Split(_exportRuleLines).Rules.Count;
 
     public int ExportExternalCount => ExportRules.Split(_exportRuleLines).External.Count;
@@ -1226,7 +1241,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (parts.Count == 0) return "什么都没勾选：导出的整合包里不会有任何内容。";
 
             return "将导出：" + string.Join("、", parts)
-                   + $"；另有 {ExportRuleCount} 条规则打包配置，认不出的文件也放进 overrides";
+                   + (AdvancedExportEnabled
+                       ? $"；另有 {ExportRuleCount} 条规则打包配置，认不出的文件也放进 overrides"
+                       : "；未启用高级导出选项，按规则补的配置不会打包");
         }
     }
 
@@ -1295,8 +1312,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 IncludeResourcePacks = ExportIncludeResourcePacks,
                 IncludeShaderPacks = ExportIncludeShaderPacks,
                 BundleExtra = ExportBundleExtra,
-                Rules = ExportRules.Split(_exportRuleLines).Rules,
-                ExternalPaths = ExportRules.Split(_exportRuleLines).External,
+                Rules = AdvancedExportEnabled ? ExportRules.Split(_exportRuleLines).Rules : Array.Empty<string>(),
+                ExternalPaths = AdvancedExportEnabled ? ExportRules.Split(_exportRuleLines).External : Array.Empty<string>(),
             };
 
             var result = await exporter.ExportAsync(
@@ -1359,8 +1376,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 IncludeResourcePacks = ExportIncludeResourcePacks,
                 IncludeShaderPacks = ExportIncludeShaderPacks,
                 BundleExtra = ExportBundleExtra,
-                Rules = ExportRules.Split(_exportRuleLines).Rules,
-                ExternalPaths = ExportRules.Split(_exportRuleLines).External,
+                Rules = AdvancedExportEnabled ? ExportRules.Split(_exportRuleLines).Rules : Array.Empty<string>(),
+                ExternalPaths = AdvancedExportEnabled ? ExportRules.Split(_exportRuleLines).External : Array.Empty<string>(),
             };
 
             var result = await exporter.ExportAsync(

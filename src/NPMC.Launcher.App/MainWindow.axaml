@@ -1371,8 +1371,13 @@
                 <CheckBox Content="把配置等文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
                           IsChecked="{Binding ExportBundleExtra}" FontSize="11" />
 
+                <!-- 高级导出选项：关着时规则整块隐藏、也不生效 -->
+                <CheckBox Content="高级导出选项（自定义打包规则）"
+                          IsChecked="{Binding AdvancedExportEnabled, Mode=TwoWay}" FontSize="11"
+                          ToolTip.Tip="关着时只按上面的勾选打包；勾选后才使用下面的规则文件补齐 config 等文件" />
+
                 <!-- 哪些文件进 overrides 由规则文件决定：投影、地图这类加一行就够 -->
-                <StackPanel Spacing="6" IsEnabled="{Binding ExportBundleExtra}">
+                <StackPanel Spacing="6" IsEnabled="{Binding ExportBundleExtra}" IsVisible="{Binding AdvancedExportEnabled}">
                   <!-- 语法说明不再铺在这里：export-rules.txt 的文件头写着同样的内容，
                        这里只留标题（悬停给提示）+ 一行状态，省出垂直空间 -->
                   <TextBlock Text="打包规则（export-rules.txt）" FontSize="12" Foreground="#C9CED6" Margin="0,4,0,0"
