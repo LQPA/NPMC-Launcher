@@ -246,7 +246,7 @@ public partial class MainWindow : Window
                 FileTypeFilter = new[]
                 {
                     new FilePickerFileType("Modrinth 整合包") { Patterns = new[] { "*.mrpack" } },
-                    new FilePickerFileType("压缩包") { Patterns = new[] { "*.zip" } },
+                    new FilePickerFileType("整合包压缩包（CurseForge / MultiMC / HMCL）") { Patterns = new[] { "*.zip" } },
                 },
             });
 
@@ -417,7 +417,7 @@ public partial class MainWindow : Window
             : DragDropEffects.None;
     }
 
-    /// <summary>拖入文件：取第一个 .mrpack。</summary>
+    /// <summary>拖入文件：取第一个整合包（.mrpack / CF zip / MultiMC 系列 zip）。</summary>
     private async void OnModpackDrop(object? sender, DragEventArgs e)
     {
         if (DataContext is not MainWindowViewModel viewModel) return;
@@ -431,7 +431,9 @@ public partial class MainWindow : Window
 
         if (string.IsNullOrWhiteSpace(path))
         {
-            viewModel.ReportModpackFailure("拖入的文件不是 .mrpack，也不是 CurseForge 整合包 .zip");
+            viewModel.ReportModpackFailure(
+                "拖入的文件不是整合包：需要 Modrinth .mrpack、CurseForge .zip，" +
+                "或 HMCL / Prism / MultiMC 导出的 .zip");
         }
         else
         {

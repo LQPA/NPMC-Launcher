@@ -6495,8 +6495,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var format = ModpackArchiveFormatDetector.Detect(path);
         var cacheDirectory = Path.Combine(_launcher.Root, "cache", "modpacks");
 
-        // 给实例标记来源：CF 本地包要标 curseforge，否则徽标更新来源会按 Modrinth 处理
-        _modpackSource = format == ModpackArchiveFormat.CurseForge ? "curseforge" : "modrinth";
+        // 给实例标记来源：CF 包标 curseforge、MultiMC 系列标 multimc，其余才是 Modrinth。
+        // 标错会让概览徽标显示成"Modrinth 整合包"（2026-11-09 用户实测踩到）
+        _modpackSource = format switch
+        {
+            ModpackArchiveFormat.CurseForge => "curseforge",
+            ModpackArchiveFormat.MultiMc => "multimc",
+            _ => "modrinth",
+        };
         _modpackProjectId = "";
 
         if (format == ModpackArchiveFormat.CurseForge)

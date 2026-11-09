@@ -38,7 +38,18 @@ public sealed record InstanceModpackInfo(
     public bool IsCurseForge =>
         string.Equals(Source, "curseforge", StringComparison.OrdinalIgnoreCase);
 
-    public string SourceText => IsCurseForge ? "CurseForge" : "Modrinth";
+    /// <summary>MultiMC / Prism / HMCL 导出的实例包（文件全在包里，没有在线工程）。</summary>
+    public bool IsMultiMc =>
+        string.Equals(Source, "multimc", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 来源展示名。旧数据没有 multimc 这个值，一律按 Modrinth 处理（与以前一致）。
+    /// </summary>
+    public string SourceText => IsCurseForge
+        ? "CurseForge"
+        : IsMultiMc
+            ? "MultiMC"
+            : "Modrinth";
 
     public bool HasMissing => Missing.Count > 0;
 

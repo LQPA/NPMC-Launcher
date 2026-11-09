@@ -1307,7 +1307,7 @@
               <TextBlock Text="{Binding ExportFormatHint}" FontSize="11" Foreground="#949CA9"
                          TextWrapping="Wrap" MaxWidth="620" />
 
-              <!-- 整合包信息与内容清单：对 .mrpack / CurseForge zip 有意义（完整 ZIP 按全量打包） -->
+              <!-- 整合包信息与内容清单：对 .mrpack / CurseForge zip / MultiMC 系列包有意义（完整 ZIP 按全量打包） -->
               <StackPanel Spacing="10" IsVisible="{Binding IsPackExport}">
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <TextBlock Text="整合包名称" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
@@ -1640,7 +1640,7 @@
         </StackPanel>
       </Grid>
 
-      <!-- 下载页：整合包（本地 .mrpack，可选择或拖入） -->      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
+      <!-- 下载页：整合包（本地文件：.mrpack / CF .zip / MultiMC 系列 zip，可选择或拖入） -->      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
             IsVisible="{Binding IsModpacksMode}"
             DragDrop.AllowDrop="True"
             DragDrop.DragOver="OnModpackDragOver"
@@ -1764,9 +1764,9 @@
                     CornerRadius="8" Padding="24" MinHeight="260"
                     IsVisible="{Binding IsModpackLocalMode}">
               <StackPanel Spacing="10" VerticalAlignment="Center">
-                <TextBlock Text="把 .mrpack 或 CF 整合包 .zip 拖到本页任意位置" FontSize="15" Foreground="#B4BCC8"
+                <TextBlock Text="把整合包文件拖到本页任意位置" FontSize="15" Foreground="#B4BCC8"
                            HorizontalAlignment="Center" />
-                <TextBlock Text="（Modrinth .mrpack 或 CurseForge 导出的 .zip，整页都可以）" FontSize="11"
+                <TextBlock Text="（Modrinth .mrpack、CurseForge .zip、HMCL / Prism / MultiMC 实例包；整页都可以）" FontSize="11"
                            Foreground="#6E7684" HorizontalAlignment="Center" />
                 <Button Content="选择整合包文件…" Click="OnPickModpackClick"
                         HorizontalAlignment="Center" Padding="14,6" />
