@@ -1107,6 +1107,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var merged = JvmArgumentMerger.Merge(instanceArgs, JvmArgumentMerger.Parse(ExportExtraJvmArgs));
 
+        if (merged.Arguments.Count == 0)
+        {
+            // 未勾「导出实例内的 JVM 参数」且追加为空：包里不会写 JVM 参数
+            ExportStatus = "未包含 JVM 参数（没有勾选实例参数，追加也为空）";
+            return merged.Arguments;
+        }
+
         if (merged.DuplicatesRemoved > 0 || merged.Overridden > 0)
         {
             ExportStatus = $"JVM 参数已合并：去重 {merged.DuplicatesRemoved} 项"
@@ -1286,10 +1293,43 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (parts.Count == 0) return "什么都没勾选：导出的整合包里不会有任何内容。";
 
             return "将导出：" + string.Join("、", parts)
-                   + (AdvancedExportEnabled
-                       ? $"；另有 {ExportRuleCount} 条规则打包配置，认不出的文件也放进 overrides"
-                       : "；未启用高级导出选项，规则补的配置与 JVM 参数都不会写进包");
+                   + DescribeAdvancedExtras();
         }
+    }
+
+    /// <summary>
+    /// 高级导出部分的摘要：规则是否启用、JVM 参数到底会不会写进包。
+    ///
+    /// JVM 这一项不能只看开关 —— 没勾「导出实例内的 JVM 参数」且追加框为空时，
+    /// 实际上不会往包里写任何 JVM 参数，摘要必须如实说明，否则容易误以为带上了。
+    /// </summary>
+    private string DescribeAdvancedExtras()
+    {
+        var extraCount = JvmArgumentMerger.Parse(ExportExtraJvmArgs).Count;
+        var writesJvm = AdvancedExportEnabled && (ExportIncludeInstanceJvmArgs || extraCount > 0);
+
+        var jvmText = writesJvm ? DescribeJvmExtras() : "JVM 参数不写进包";
+
+        if (!AdvancedExportEnabled) return $"，未启用高级导出选项（规则补的配置、{jvmText}）";
+
+        return $"，另有 {ExportRuleCount} 条规则打包配置；{jvmText}";
+    }
+
+    /// <summary>JVM 参数的摘要文字：带上几个、追加几个。</summary>
+    private string DescribeJvmExtras()
+    {
+        var parts = new List<string>();
+
+        if (ExportIncludeInstanceJvmArgs && SelectedInstance is { } instance)
+        {
+            var count = instance.Model.Settings.ExtraJvmArguments.Count;
+            parts.Add(count == 0 ? "实例暂无 JVM 参数" : $"带实例 JVM 参数 {count} 项");
+        }
+
+        var extra = JvmArgumentMerger.Parse(ExportExtraJvmArgs);
+        if (extra.Count > 0) parts.Add($"追加 {extra.Count} 项");
+
+        return parts.Count == 0 ? "JVM 参数不写进包" : string.Join(" + ", parts);
     }
 
     /// <summary>统计某目录下的文件（跳过 mods/.trash 回收站；支持 *.ext 和 *.ext.disabled）。</summary>
