@@ -3625,6 +3625,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 foreach (var item in items) item.SetUpdate(null);
 
                 UpdateCount = 0;
+                _lastCheckedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 Status = "整合包实例：整合包内模组不做单独更新检查（只检查手动添加的模组）。";
                 LauncherLog.Write(_launcher.Root,
                     $"检查更新 {instance.Id}：整合包实例，跳过 {items.Count} 个自带模组");
@@ -3670,6 +3671,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     curseForgeOnly: packSource == UpdateSource.CurseForge);
 
             var report = MergeReports(manualReport, packReport);
+            _lastCheckedPaths = checkItems
+                .Select(item => item.Entry.Path)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             // 整合包自带的文件明确清掉"可升级"标记，避免旧检查结果残留；
             // ***不能**清识别徽标—— 那是哈希识别的结果，会变。`?`
@@ -3819,13 +3823,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// 一键升级所有标记为可升级的模组：逐个下载新版 → → 删旧、，最后统一刷新列表。
     /// 失败不会中断后续项，结束时汇总多少个成功、多少个失败。
     /// </summary>
+    /// <summary>
+    /// 上一次"检查更新"实际覆盖的文件路径。
+    ///
+    /// 「全部升级」只升这些 —— 否则会出现"隐藏整合包自带模组、只查了 1 个，
+    /// 点全部升级却把展开时残留的 29 个也升了"这种不一致。
+    /// </summary>
+    private HashSet<string> _lastCheckedPaths = new(StringComparer.OrdinalIgnoreCase);
     private async Task UpgradeAllAsync()
     {
         if (SelectedInstance is not { } instance || IsUpgradingAll) return;
 
         var scope = _selectedContent.Count > 0 ? _selectedContent.ToList() : Content.ToList();
+
+        // 与"检查更新"保持一致：只升级上次**实际检查过**的那些文件。
+        // 否则隐藏整合包自带模组时只查了 N 个，点全部升级却会把展开时残留的更新一起升掉。
         var pending = scope
             .Where(item => item.PendingUpdate?.Latest.DownloadUrl is { Length: > 0 })
+            .Where(item => _lastCheckedPaths.Count == 0 || _lastCheckedPaths.Contains(item.Entry.Path))
             .ToList();
 
         if (pending.Count == 0)
