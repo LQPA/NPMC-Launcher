@@ -105,6 +105,36 @@ public class MultiMcPackExporterTests
     }
 
     [Fact]
+    public void Content_checkboxes_are_honoured()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var instanceDir = Path.Combine(root, "instance");
+            Write(instanceDir, "mods/a.jar", 10);
+            Write(instanceDir, "resourcepacks/pack.zip", 10);
+            Write(instanceDir, "shaderpacks/shader.zip", 10);
+
+            var target = Path.Combine(root, "no-mods.zip");
+            var result = MultiMcPackExporter.Export(new MultiMcExportRequest(
+                instanceDir, target, "只带资源包", "1.21.1", "fabric-loader", "0.16.0", 4096, 1280, 720,
+                IncludeSaves: false, Notes: null,
+                IncludeMods: false, IncludeResourcePacks: true, IncludeShaderPacks: false));
+
+            Assert.Equal(1, result.Files);
+
+            using var archive = ZipFile.OpenRead(target);
+            var names = archive.Entries.Select(entry => entry.FullName).ToList();
+            Assert.DoesNotContain(names, name => name.StartsWith(".minecraft/mods/"));
+            Assert.DoesNotContain(names, name => name.StartsWith(".minecraft/shaderpacks/"));
+            Assert.Contains(".minecraft/resourcepacks/pack.zip", names);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+    [Fact]
     public void Vanilla_instance_has_only_the_minecraft_component()
     {
         var request = new MultiMcExportRequest(

@@ -1337,12 +1337,7 @@
                 </Border>
               </StackPanel>
 
-              <!-- MultiMC 包默认不带存档（存档是个人数据），需要时勾选 -->
-              <CheckBox Content="包含存档（saves/）" IsChecked="{Binding ExportIncludeSaves, Mode=TwoWay}"
-                        IsVisible="{Binding IsMultiMcExport}" FontSize="11"
-                        ToolTip.Tip="默认不带：整合包通常是拿去分享的，存档属于个人数据" />
-
-              <!-- 整合包信息与内容清单：对 .mrpack / CurseForge zip / MultiMC 系列包有意义 -->
+              <!-- 整合包信息（仅 mrpack / CurseForge 需要名称/版本/作者） -->
               <StackPanel Spacing="10" IsVisible="{Binding IsPackExport}">
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <TextBlock Text="整合包名称" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
@@ -1354,17 +1349,25 @@
                   <TextBox Text="{Binding ExportPackAuthor}" Width="140" FontSize="12"
                            IsVisible="{Binding IsCurseForgeExport}" />
                 </StackPanel>
+              </StackPanel>
 
-                <TextBlock Text="导出内容" FontSize="12" Foreground="#C9CED6" Margin="0,2,0,0" />
-                <WrapPanel>
-                  <CheckBox Content="Mod（含已禁用的）" IsChecked="{Binding ExportIncludeMods}"
-                            FontSize="12" Width="190" />
-                  <CheckBox Content="资源包" IsChecked="{Binding ExportIncludeResourcePacks}"
-                            FontSize="12" Width="110" />
-                  <CheckBox Content="光影包" IsChecked="{Binding ExportIncludeShaderPacks}"
-                            FontSize="12" Width="110" />
-                </WrapPanel>
+              <!-- 导出内容：三种格式统一在这里选，存档也在这一行（不再是单独一个勾选框） -->
+              <TextBlock Text="导出内容" FontSize="12" Foreground="#C9CED6" Margin="0,2,0,0" />
+              <WrapPanel>
+                <CheckBox Content="Mod（含已禁用的）" IsChecked="{Binding ExportIncludeMods}"
+                          FontSize="12" Width="190" />
+                <CheckBox Content="资源包" IsChecked="{Binding ExportIncludeResourcePacks}"
+                          FontSize="12" Width="110" />
+                <CheckBox Content="光影包" IsChecked="{Binding ExportIncludeShaderPacks}"
+                          FontSize="12" Width="110" />
+                <!-- 存档属于个人数据，默认不带；只有 MultiMC 实例包带得动它 -->
+                <CheckBox Content="存档（saves/）" IsChecked="{Binding ExportIncludeSaves, Mode=TwoWay}"
+                          IsVisible="{Binding IsMultiMcExport}" FontSize="12" Width="130"
+                          ToolTip.Tip="默认不带：整合包通常是拿去分享的，存档属于个人数据" />
+              </WrapPanel>
 
+              <!-- overrides / 打包规则只对 mrpack 与 CurseForge 有意义 -->
+              <StackPanel Spacing="10" IsVisible="{Binding IsPackExport}">
                 <CheckBox Content="把配置等文件打包进 overrides（取消勾选只生成下载清单：包最小，但导入后没有配置）"
                           IsChecked="{Binding ExportBundleExtra}" FontSize="11" />
 
@@ -1388,9 +1391,11 @@
                   </StackPanel>
                 </StackPanel>
 
-                <TextBlock Text="{Binding ExportSelectionHint}" FontSize="11" Foreground="#949CA9"
-                           TextWrapping="Wrap" MaxWidth="620" />
               </StackPanel>
+
+              <!-- 选择摘要：三种格式都显示（MMC 也按这些勾选打包） -->
+              <TextBlock Text="{Binding ExportSelectionHint}" FontSize="11" Foreground="#949CA9"
+                         TextWrapping="Wrap" MaxWidth="620" />
 
               <Button Content="选择导出位置…" Click="OnExportInstanceClick"
                       FontSize="12" HorizontalAlignment="Left" Padding="14,4" />

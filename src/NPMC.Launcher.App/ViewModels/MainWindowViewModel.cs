@@ -1415,7 +1415,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 WindowWidth: instance.Model.Settings.WindowWidth,
                 WindowHeight: instance.Model.Settings.WindowHeight,
                 IncludeSaves: ExportIncludeSaves,
-                Notes: $"用 NPMC Launcher 导出（{DateTimeOffset.Now:yyyy-MM-dd HH:mm}）");
+                Notes: $"用 NPMC Launcher 导出（{DateTimeOffset.Now:yyyy-MM-dd HH:mm}）",
+                IncludeMods: ExportIncludeMods,
+                IncludeResourcePacks: ExportIncludeResourcePacks,
+                IncludeShaderPacks: ExportIncludeShaderPacks);
 
             var progress = new Progress<(int Done, int Total, string Path)>(p =>
                 ExportStatus = $"正在打包 {p.Done}/{p.Total}：{p.Path}");

@@ -16,7 +16,10 @@ public sealed record MultiMcExportRequest(
     int WindowWidth,
     int WindowHeight,
     bool IncludeSaves,
-    string? Notes = null);
+    string? Notes = null,
+    bool IncludeMods = true,
+    bool IncludeResourcePacks = true,
+    bool IncludeShaderPacks = true);
 
 /// <summary>导出结果。</summary>
 public sealed record MultiMcExportResult(int Files, long Bytes, IReadOnlyList<string> Skipped);
@@ -64,6 +67,25 @@ public static class MultiMcPackExporter
 
             if (!request.IncludeSaves
                 && parts.Any(part => string.Equals(part, "saves", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            // 导出页的「导出内容」勾选对 MultiMC 包同样生效
+            if (!request.IncludeMods
+                && parts.Contains("mods", StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!request.IncludeResourcePacks
+                && parts.Contains("resourcepacks", StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!request.IncludeShaderPacks
+                && parts.Contains("shaderpacks", StringComparer.OrdinalIgnoreCase))
             {
                 continue;
             }
