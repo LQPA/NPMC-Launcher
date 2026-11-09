@@ -8,7 +8,7 @@
     <LangVersion>latest</LangVersion>
 
     <!-- 版本号：标题栏与文件属性都会带上，便于区分分发出去的包（beta = 预发布） -->
-    <Version>1.0.0-beta.1</Version>
+    <Version>1.0.0-beta.2</Version>
     <FileVersion>1.0.0.0</FileVersion>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <OutputType>WinExe</OutputType>
