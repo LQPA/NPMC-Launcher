@@ -166,6 +166,30 @@ public static class GameLauncher
                 .MemoryMb;
         }
 
+        // 整合包自带的 -Xmx 优先保留（作者按包内容定的值通常更准）；
+        // 只有物理内存明显不够（如 8GB 机器装 ATM10）才丢掉它、改用自动值，
+        // 否则启动后就是 OOM 或疯狂换页。必须在建 plan 之前算好，否则堆参数早写进去了。
+        var extraJvmArguments = instanceSettings.ExtraJvmArguments.ToList();
+        string? heapNotice = null;
+
+        var packHeapMb = ReadHeapArgument(extraJvmArguments);
+        if (packHeapMb > 0)
+        {
+            var (total, available) = MemoryAutoCalculator.GetMemoryInfo();
+            var decision = PackHeapPolicy.Evaluate(
+                (int)Math.Min(total, int.MaxValue),
+                (int)Math.Min(available, int.MaxValue),
+                packHeapMb,
+                memory);
+
+            if (!decision.KeepPreset)
+            {
+                extraJvmArguments.RemoveAll(IsHeapArgument);
+                memory = decision.RecommendedHeapMb;
+                heapNotice = decision.Reason;
+            }
+        }
+
         // client.jar、natives 与资源索引都在**根版本**目录下。
         // 加载器 profile 自己的目录里只有那个 JSON，没有 jar —— 用它去找必然报"缺少 client jar"。
         var rootVersionId = version.RootVersionId ?? version.Id;
@@ -234,8 +258,8 @@ public static class GameLauncher
         if (!string.Equals(javaPath, plan.JavaPath, StringComparison.OrdinalIgnoreCase))
             plan = plan with { JavaPath = javaPath };
 
-        if (instanceSettings.ExtraJvmArguments.Count > 0)
-            plan = plan with { JvmArguments = plan.JvmArguments.Concat(instanceSettings.ExtraJvmArguments).ToList() };
+        if (extraJvmArguments.Count > 0)
+            plan = plan with { JvmArguments = plan.JvmArguments.Concat(extraJvmArguments).ToList() };
 
         // 高级选项：额外的游戏参数（原样追加在版本参数之后，由用户自己负责合法性）
         if (instanceSettings.ExtraGameArguments.Count > 0)
@@ -551,4 +575,45 @@ public static class GameLauncher
             // 删不掉就留给下次的 PID 检查处理
         }
     }
+
+    /// <summary>从 JVM 参数里读 -Xmx（MB）；没有就返回 0。</summary>
+    private static int ReadHeapArgument(IReadOnlyList<string> arguments)
+    {
+        foreach (var argument in arguments)
+        {
+            if (!argument.StartsWith("-Xmx", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var megabytes = ParseMemorySize(argument[4..].Trim());
+            if (megabytes > 0) return megabytes;
+        }
+
+        return 0;
+    }
+
+    /// <summary>把 4G / 4096M / 4096 解析成 MB。</summary>
+    private static int ParseMemorySize(string value)
+    {
+        if (value.Length == 0) return 0;
+
+        var suffix = char.ToLowerInvariant(value[^1]);
+        if (suffix is not ('g' or 'm' or 'k')) suffix = 'm';
+
+        var number = suffix == 'm' && value[^1] is not ('m' or 'M') ? value : value[..^1];
+        if (!long.TryParse(number, out var amount) || amount <= 0) return 0;
+
+        var megabytes = suffix switch
+        {
+            'g' => amount * 1024,
+            'k' => amount / 1024,
+            _ => amount,
+        };
+
+        return megabytes is > 0 and <= 262144 ? (int)megabytes : 0;
+    }
+
+    /// <summary>堆相关参数：内存不足时整体移除，避免它压过启动器算出来的值。</summary>
+    private static bool IsHeapArgument(string argument) =>
+        argument.StartsWith("-Xmx", StringComparison.OrdinalIgnoreCase)
+        || argument.StartsWith("-Xms", StringComparison.OrdinalIgnoreCase);
+
 }
