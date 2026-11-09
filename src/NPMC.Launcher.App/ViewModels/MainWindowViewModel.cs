@@ -756,7 +756,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>导出格式：MultiMC 实例包 / Modrinth 整合包 / CurseForge 整合包。</summary>
     public ObservableCollection<string> ExportFormats { get; } = new()
     {
-        "MultiMC 实例包（Prism / HMCL 可导入）",
+        "MultiMC 实例包",
         "Modrinth 整合包（.mrpack）",
         "CurseForge 整合包（.zip）",
     };
@@ -804,8 +804,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public string ExportFormatHint => _exportFormatIndex switch
     {
-        0 => "生成 MultiMC 实例包：文件全部打进 .minecraft/，外加 mmc-pack.json（游戏版本+加载器）"
-             + "与 instance.cfg（名字/内存/窗口）。Prism、HMCL、MultiMC、FCL 和本启动器都能导入。",
+        0 => "生成 MultiMC 实例包：文件全部打进 .minecraft/，外加 mmc-pack.json（游戏版本 + 加载器）"
+             + "与 instance.cfg（名字 / 内存 / 窗口）。导入时按这两个清单重建版本与加载器环境。",
         1 => "生成 Modrinth 整合包：能在 Modrinth 找到的文件只写下载地址（包很小），"
              + "勾选的内容原样打包进 overrides。导入时需要联网。",
         2 => "生成 CurseForge 整合包：按指纹把文件换成 projectID/fileID，写 manifest.json。"

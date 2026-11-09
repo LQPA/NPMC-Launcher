@@ -22,7 +22,7 @@ public sealed record MultiMcExportRequest(
 public sealed record MultiMcExportResult(int Files, long Bytes, IReadOnlyList<string> Skipped);
 
 /// <summary>
-/// 导出成 MultiMC / Prism / HMCL 的实例包：
+/// 导出成 MultiMC 实例包：
 ///
 /// <code>
 /// mmc-pack.json     组件清单（net.minecraft + 加载器 uid/version）
@@ -31,9 +31,8 @@ public sealed record MultiMcExportResult(int Files, long Bytes, IReadOnlyList<st
 /// .minecraft/…      实例文件（模组、配置、资源包…，排除 logs / crash-reports）
 /// </code>
 ///
-/// 为什么用它替代原来的「完整 ZIP」：完整 ZIP 只有我们自己能生成、**谁也导不回来**
-/// （导入器只认 mrpack / CurseForge / MultiMC）；而这个格式 Prism / HMCL / MultiMC / FCL
-/// 都能直接导入，也能被本启动器重新导入，形成闭环。
+/// 为什么用它替代原来的「完整 ZIP」：完整 ZIP 只有我们自己能生成、**谁也导不回来**；
+/// 而这个格式能按清单重建版本与加载器环境，导出后可以再导入，形成闭环。
 /// </summary>
 public static class MultiMcPackExporter
 {
