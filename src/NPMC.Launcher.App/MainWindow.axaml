@@ -2065,6 +2065,25 @@
 
             <TextBlock Text="界面语言目前只有简体中文；多语言要等界面文案抽出来之后再做。"
                        FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+
+            <!-- 缓存占用：整合包解压产物 / Forge 安装包 / 安装器临时目录加起来能到 1 GB -->
+            <Border Background="#1B1D23" CornerRadius="6" Padding="12">
+              <StackPanel Spacing="8">
+                <TextBlock Text="缓存" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
+                <TextBlock Text="{Binding CacheSummaryText}" FontSize="12" Foreground="#B4BCC8"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="{Binding CacheDetailText}" FontSize="10" Foreground="#6E7684"
+                           TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Button Content="清理缓存" Command="{Binding ClearCacheCommand}"
+                          FontSize="12" Height="30" Padding="14,0"
+                          VerticalContentAlignment="Center" />
+                  <TextBlock Text="只删可再生的缓存：图标、整合包解压产物、Forge 安装包、安装器临时目录。实例与游戏本体不受影响。"
+                             FontSize="10" Foreground="#6E7684" VerticalAlignment="Center"
+                             TextWrapping="Wrap" MaxWidth="420" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
           </StackPanel>
         </ScrollViewer>
 

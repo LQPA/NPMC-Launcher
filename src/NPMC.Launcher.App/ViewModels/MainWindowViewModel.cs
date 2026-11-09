@@ -178,6 +178,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ResetSettingsCommand = new AsyncRelayCommand(ResetSettingsAsync);
         OpenSettingsFolderCommand = new AsyncRelayCommand(OpenSettingsFolder, () => true, OnOpenError);
         InstallRuntimeCommand = new AsyncRelayCommand(InstallRuntimeAsync, () => CanInstallRuntime);
+        ClearCacheCommand = new AsyncRelayCommand(ClearCacheAsync);
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
         DeleteInstanceCommand = new AsyncRelayCommand(
             DeleteInstanceAsync,
@@ -3053,6 +3054,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         // NPMC_TIMING=1 时把各阶段耗时写进 logs/launcher.log（默认关闭）
         var timing = new LoadTiming(_launcher.Root);
+
+        // 安装器中断/崩溃时不会自己收尾，临时目录会一直堆着（实测 90 MB+）：
+        // 启动时清掉 3 天前的残留，清理不记录耗时（很快）。
+        try
+        {
+            var stale = CacheInventory.CleanStaleEntries(_launcher.TempRoot, TimeSpan.FromDays(3));
+            if (stale > 0) LauncherLog.Write(_launcher.Root, $"清理陈旧临时目录：{stale} 项");
+        }
+        catch
+        {
+            // 清理失败不影响启动
+        }
 
         IsBusy = true;
         try

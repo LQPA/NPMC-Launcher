@@ -231,6 +231,86 @@ public sealed partial class MainWindowViewModel
         private set => SetProperty(ref _settingsJavaHint, value);
     }
 
+    // ---- 缓存占用与清理 ----
+
+    private string _cacheSummaryText = "缓存：统计中…";
+    private string _cacheDetailText = "";
+    private bool _cacheClearConfirmPending;
+
+    public ICommand ClearCacheCommand { get; }
+
+    /// <summary>一行总览，例如「缓存占用 1.02 GB，其中可清理 1.02 GB」。</summary>
+    public string CacheSummaryText
+    {
+        get => _cacheSummaryText;
+        private set => SetProperty(ref _cacheSummaryText, value);
+    }
+
+    /// <summary>按大小排的分项明细。</summary>
+    public string CacheDetailText
+    {
+        get => _cacheDetailText;
+        private set => SetProperty(ref _cacheDetailText, value);
+    }
+
+    /// <summary>统计各缓存目录占用（<root>\data\cache 下）。</summary>
+    private void RefreshCacheInfo()
+    {
+        try
+        {
+            var cacheRoot = Path.Combine(_launcher.Root, "cache");
+            var areas = CacheInventory.Measure(cacheRoot);
+
+            var total = areas.Sum(area => area.Bytes);
+            var clearable = areas.Where(area => area.SafeToClear).Sum(area => area.Bytes);
+
+            CacheSummaryText = clearable > 0
+                ? $"缓存占用 {CacheInventory.FormatSize(total)}，其中可清理 {CacheInventory.FormatSize(clearable)}"
+                : $"缓存占用 {CacheInventory.FormatSize(total)}，暂无可清理项";
+
+            CacheDetailText = string.Join(" · ", areas
+                .Where(area => area.Bytes > 0)
+                .OrderByDescending(area => area.Bytes)
+                .Select(area => $"{area.Label} {CacheInventory.FormatSize(area.Bytes)}"));
+        }
+        catch (Exception ex)
+        {
+            CacheSummaryText = $"统计缓存失败：{ex.GetBaseException().Message}";
+            CacheDetailText = "";
+        }
+    }
+
+    /// <summary>清理可再生的缓存（图标 / 整合包解压 / Forge 安装包 / 临时目录）。点两次才执行。</summary>
+    private async Task ClearCacheAsync()
+    {
+        if (!_cacheClearConfirmPending)
+        {
+            _cacheClearConfirmPending = true;
+            CacheSummaryText = "再点一次「清理缓存」确认（只删可再生的缓存，实例与游戏本体不受影响）";
+            return;
+        }
+
+        _cacheClearConfirmPending = false;
+        SettingsStatus = "正在清理缓存…";
+
+        try
+        {
+            var cacheRoot = Path.Combine(_launcher.Root, "cache");
+            var result = await Task.Run(() => CacheInventory.ClearSafe(cacheRoot));
+
+            RefreshCacheInfo();
+
+            var text = $"已清理 {result.Files} 个文件，回收 {CacheInventory.FormatSize(result.Bytes)}";
+            if (result.Failures.Count > 0) text += $"（{result.Failures.Count} 个文件被占用，跳过）";
+            SettingsStatus = text;
+            LauncherLog.Write(_launcher.Root, $"清理缓存：{text}");
+        }
+        catch (Exception ex)
+        {
+            SettingsStatus = $"清理缓存失败：{ex.GetBaseException().Message}";
+        }
+    }
+
     /// <summary>页面打开时懒加载：枚举 Java 要跑几次 java -version，不该拖慢启动。</summary>
     private async Task EnsureSettingsPageDataAsync()
     {
@@ -240,6 +320,10 @@ public sealed partial class MainWindowViewModel
 
         // 运行时清单要联网，失败也不该挡住其它设置
         if (!_runtimeComponentsLoaded) await LoadRuntimeComponentsAsync();
+
+        RefreshCacheInfo();
+
+        RefreshCacheInfo();
     }
 
     private async Task LoadSettingsJavaChoicesAsync()

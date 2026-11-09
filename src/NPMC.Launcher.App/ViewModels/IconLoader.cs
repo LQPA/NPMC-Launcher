@@ -28,6 +28,7 @@ internal sealed class IconLoader
 {
     private readonly HttpClient _http;
     private readonly string _cacheDirectory;
+    private readonly IconStore _disk;
     private readonly Action<string>? _log;
     private const int MaxEntries = 128;
 
@@ -57,6 +58,7 @@ internal sealed class IconLoader
     {
         _http = http;
         _cacheDirectory = cacheDirectory;
+        _disk = new IconStore(cacheDirectory);
         _log = log;
     }
 
@@ -72,12 +74,10 @@ internal sealed class IconLoader
 
         try
         {
-            var file = Path.Combine(_cacheDirectory, Hash(url) + ".img");
-
-            if (File.Exists(file))
+            // 磁盘缓存：打包在 icons.pack 里，按偏移取一段字节（不再是一个图标一个文件）
+            if (_disk.TryGet(url, out var cachedBytes))
             {
-                var bytes = await File.ReadAllBytesAsync(file).ConfigureAwait(true);
-                var cachedBitmap = Decode(bytes, $" (缓存 {file})");
+                var cachedBitmap = Decode(cachedBytes, " (磁盘缓存)");
                 if (cachedBitmap is not null)
                 {
                     Store(url, cachedBitmap);
@@ -91,15 +91,7 @@ internal sealed class IconLoader
             if (bitmap is not null)
             {
                 // 落盘失败不影响显示
-                try
-                {
-                    Directory.CreateDirectory(_cacheDirectory);
-                    await File.WriteAllBytesAsync(file, downloaded).ConfigureAwait(true);
-                }
-                catch
-                {
-                    // 忽略
-                }
+                _disk.Store(url, downloaded);
             }
 
             Store(url, bitmap);
