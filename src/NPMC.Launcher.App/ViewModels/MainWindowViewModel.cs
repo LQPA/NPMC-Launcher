@@ -3630,8 +3630,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
             if (version is not null) loaders = LoaderDetector.Detect(version);
 
+            // 只查 checkItems：整合包自带的模组不参与单独更新检查。
+            // 之前这里传的是 items（全部），于是"已跳过 99 个"只是文案，
+            // 实际仍然把 100 个全查了一遍，还按全部结果报"29 个可升级"（2026-11-09 用户实测）
             var report = await _updateService.CheckAsync(
-                items.Select(item => item.Entry.Path).ToList(),
+                checkItems.Select(item => item.Entry.Path).ToList(),
                 gameVersion,
                 loaders,
                 includePrerelease: _settingsIncludePrereleaseUpdates);
