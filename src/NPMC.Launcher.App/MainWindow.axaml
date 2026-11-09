@@ -105,10 +105,6 @@
               </Border>
             </Grid>
           </Button>
-
-          <TextBlock Margin="12,20,12,0" FontSize="11" Foreground="#6E7684"
-                     TextWrapping="Wrap" LineHeight="17"
-                     Text="模组/资源包/光影/存档在实例右侧页签里。离线账号在「账号」，下载源、默认账号/Java 在「设置」。" />
         </StackPanel>
       </Border>
 
@@ -1307,13 +1303,12 @@
 
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock Text="格式" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />
+                <!-- 格式说明收进悬停提示：三段文字铺在页面里太占地方，需要时悬停即可 -->
                 <ComboBox ItemsSource="{Binding ExportFormats}"
                           SelectedIndex="{Binding ExportFormatIndex}"
+                          ToolTip.Tip="{Binding ExportFormatHint}"
                           Width="230" FontSize="12" />
               </StackPanel>
-
-              <TextBlock Text="{Binding ExportFormatHint}" FontSize="11" Foreground="#949CA9"
-                         TextWrapping="Wrap" MaxWidth="620" />
 
               <!-- 整合包信息与内容清单：对 .mrpack / CurseForge zip / MultiMC 系列包有意义（完整 ZIP 按全量打包） -->
               <StackPanel Spacing="10" IsVisible="{Binding IsPackExport}">
