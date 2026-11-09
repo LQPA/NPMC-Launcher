@@ -1960,6 +1960,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             // 概览页的可编辑字段都从 SelectedInstance 取值，切换实例时必须重算
             OnPropertyChanged(nameof(MemoryMb));
+            // 内存框绑的是 EffectiveMemoryMb（自动模式下显示自动算出的值）：
+            // 漏发这条通知会让输入框停在"未选中实例"时的空值（2026-11-09 实测）
+            OnPropertyChanged(nameof(EffectiveMemoryMb));
             OnPropertyChanged(nameof(AutoMemory));
             OnPropertyChanged(nameof(MemoryAutoHint));
             OnPropertyChanged(nameof(WindowWidth));
