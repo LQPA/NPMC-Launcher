@@ -753,13 +753,32 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>导出格式：完整 ZIP（含存档）或 Modrinth 整合包（.mrpack）</summary>
+    /// <summary>导出格式：MultiMC 实例包 / Modrinth 整合包 / CurseForge 整合包。</summary>
     public ObservableCollection<string> ExportFormats { get; } = new()
     {
-        "完整 ZIP（含存档与配置）",
+        "MultiMC 实例包（Prism / HMCL 可导入）",
         "Modrinth 整合包（.mrpack）",
         "CurseForge 整合包（.zip）",
     };
+
+    private bool _exportIncludeSaves;
+
+    /// <summary>
+    /// 导出 MultiMC 包时是否连存档一起打进去。
+    /// 默认不带：整合包通常是"拿去分享"的，存档属于个人数据，不该默认带走。
+    /// </summary>
+    public bool ExportIncludeSaves
+    {
+        get => _exportIncludeSaves;
+        set
+        {
+            if (!SetProperty(ref _exportIncludeSaves, value)) return;
+            OnPropertyChanged(nameof(ExportSelectionHint));
+        }
+    }
+
+    /// <summary>第 0 项是 MultiMC 实例包（完整文件 + 两个启动器清单）。</summary>
+    public bool IsMultiMcExport => _exportFormatIndex == 0;
 
     private int _exportFormatIndex;
 
@@ -785,6 +804,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public string ExportFormatHint => _exportFormatIndex switch
     {
+        0 => "生成 MultiMC 实例包：文件全部打进 .minecraft/，外加 mmc-pack.json（游戏版本+加载器）"
+             + "与 instance.cfg（名字/内存/窗口）。Prism、HMCL、MultiMC、FCL 和本启动器都能导入。",
         1 => "生成 Modrinth 整合包：能在 Modrinth 找到的文件只写下载地址（包很小），"
              + "勾选的内容原样打包进 overrides。导入时需要联网。",
         2 => "生成 CurseForge 整合包：按指纹把文件换成 projectID/fileID，写 manifest.json。"
@@ -1189,35 +1210,37 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         try
         {
-            await Task.Run(() =>
-            {
-                if (File.Exists(targetPath)) File.Delete(targetPath);
+            var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
+            var loader = version is null ? null : LoaderDetector.DetectWithVersion(version);
+            var gameVersion = await ResolveGameVersionAsync(instance);
 
-                using var archive = ZipFile.Open(targetPath, ZipArchiveMode.Create);
+            var request = new MultiMcExportRequest(
+                InstanceDirectory: instance.GameDirectory,
+                TargetPath: targetPath,
+                Name: instance.Name,
+                GameVersion: gameVersion,
+                LoaderKey: loader?.Key,
+                LoaderVersion: loader?.Version,
+                MemoryMb: instance.Model.Settings.MemoryMb,
+                WindowWidth: instance.Model.Settings.WindowWidth,
+                WindowHeight: instance.Model.Settings.WindowHeight,
+                IncludeSaves: ExportIncludeSaves,
+                Notes: $"用 NPMC Launcher 导出（{DateTimeOffset.Now:yyyy-MM-dd HH:mm}）");
 
-                foreach (var file in Directory.EnumerateFiles(instance.GameDirectory, "*", SearchOption.AllDirectories))
-                {
-                    var relative = Path.GetRelativePath(instance.GameDirectory, file);
-                    if (relative.Split(Path.DirectorySeparatorChar).Any(part => part is "logs" or "crash-reports"))
-                        continue;
+            var progress = new Progress<(int Done, int Total, string Path)>(p =>
+                ExportStatus = $"正在打包 {p.Done}/{p.Total}：{p.Path}");
 
-                    archive.CreateEntryFromFile(file, relative);
-                }
+            var result = await Task.Run(() => MultiMcPackExporter.Export(
+                request,
+                (done, total, path) => ((IProgress<(int, int, string)>)progress).Report((done, total, path))));
 
-                var marker = archive.CreateEntry("instance.nmpc.json");
-                using var writer = new StreamWriter(marker.Open(), new UTF8Encoding(false));
-                writer.Write(JsonSerializer.Serialize(new
-                {
-                    instance.Name,
-                    instance.VersionId,
-                    Isolation = instance.Model.Isolation.ToString(),
-                    ExportedAt = DateTimeOffset.Now,
-                }, new JsonSerializerOptions { WriteIndented = true }));
-            });
-
-            ExportStatus = $"已导出：{targetPath}";
+            ExportStatus = $"已导出 MultiMC 实例包：{result.Files} 个文件"
+                           + $"（{result.Bytes / 1024.0 / 1024.0:F1} MB）"
+                           + (ExportIncludeSaves ? "" : "；未包含存档")
+                           + (loader is null ? "；原版（无加载器）" : $"；{loader.Value.Key} {loader.Value.Version}");
             Status = ExportStatus;
-            LauncherLog.Write(_launcher.Root, $"导出实例 {instance.Name} → {targetPath}");
+            LauncherLog.Write(_launcher.Root,
+                $"导出 MultiMC 实例包 {instance.Name} → {targetPath}（{result.Files} 个文件）");
         }
         catch (Exception ex)
         {

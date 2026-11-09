@@ -1310,7 +1310,12 @@
                           Width="230" FontSize="12" />
               </StackPanel>
 
-              <!-- 整合包信息与内容清单：对 .mrpack / CurseForge zip / MultiMC 系列包有意义（完整 ZIP 按全量打包） -->
+              <!-- MultiMC 包默认不带存档（存档是个人数据），需要时勾选 -->
+              <CheckBox Content="包含存档（saves/）" IsChecked="{Binding ExportIncludeSaves, Mode=TwoWay}"
+                        IsVisible="{Binding IsMultiMcExport}" FontSize="11"
+                        ToolTip.Tip="默认不带：整合包通常是拿去分享的，存档属于个人数据" />
+
+              <!-- 整合包信息与内容清单：对 .mrpack / CurseForge zip / MultiMC 系列包有意义 -->
               <StackPanel Spacing="10" IsVisible="{Binding IsPackExport}">
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <TextBlock Text="整合包名称" FontSize="11" Foreground="#949CA9" VerticalAlignment="Center" />

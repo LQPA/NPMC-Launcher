@@ -275,14 +275,14 @@ public partial class MainWindow : Window
             var files = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = curseForge ? "导出 CurseForge 整合包"
-                    : mrpack ? "导出 Modrinth 整合包" : "导出实例",
+                    : mrpack ? "导出 Modrinth 整合包" : "导出 MultiMC 实例包",
                 SuggestedFileName = instance.Name + (mrpack ? ".mrpack" : ".zip"),
                 DefaultExtension = mrpack ? "mrpack" : "zip",
                 FileTypeChoices = mrpack
                     ? new[] { new FilePickerFileType("Modrinth 整合包") { Patterns = new[] { "*.mrpack" } } }
                     : curseForge
                         ? new[] { new FilePickerFileType("CurseForge 整合包") { Patterns = new[] { "*.zip" } } }
-                        : new[] { new FilePickerFileType("ZIP 压缩包") { Patterns = new[] { "*.zip" } } },
+                        : new[] { new FilePickerFileType("MultiMC 实例包") { Patterns = new[] { "*.zip" } } },
             });
 
             var path = files?.TryGetLocalPath();

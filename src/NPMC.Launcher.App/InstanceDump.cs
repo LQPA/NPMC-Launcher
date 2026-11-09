@@ -1030,6 +1030,34 @@ internal static class InstanceDump
             }
         }
 
+        // 导出 MultiMC 实例包（--exercise-export-mmc <zip> [--exercise-export-instance 名称]）
+        var exportMmcIndex = Array.FindIndex(args, arg =>
+            string.Equals(arg, "--exercise-export-mmc", StringComparison.OrdinalIgnoreCase));
+
+        if (exportMmcIndex >= 0 && exportMmcIndex + 1 < args.Length)
+        {
+            var targetIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-export-instance", StringComparison.OrdinalIgnoreCase));
+            var targetName = targetIndex >= 0 && targetIndex + 1 < args.Length
+                ? args[targetIndex + 1]
+                : null;
+
+            var exportInstance = (targetName is null
+                                     ? null
+                                     : viewModel.Instances.FirstOrDefault(item =>
+                                         string.Equals(item.Name, targetName, StringComparison.OrdinalIgnoreCase)
+                                         || string.Equals(item.Id, targetName, StringComparison.OrdinalIgnoreCase)))
+                                 ?? viewModel.SelectedInstance
+                                 ?? viewModel.Instances.FirstOrDefault();
+
+            if (exportInstance is not null)
+            {
+                viewModel.SelectedInstance = exportInstance;
+                viewModel.RefreshCapabilitiesAsync(exportInstance).GetAwaiter().GetResult();
+                viewModel.ExportInstanceAsync(args[exportMmcIndex + 1]).GetAwaiter().GetResult();
+                lines.Add($"[MMC导出] {viewModel.ExportStatus}");
+            }
+        }
         // 验证下载进度真的在动：采样 DownloadProgress
         if (args.Any(arg => string.Equals(arg, "--exercise-download-progress", StringComparison.OrdinalIgnoreCase)))
         {
