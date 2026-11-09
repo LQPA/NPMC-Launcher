@@ -309,6 +309,13 @@ internal static class InstanceDump
             // 页签内容是异步加载的；等列表就绪再检查，否则会得到“mods 目录里没有文件”
             for (var i = 0; i < 100 && viewModel.Content.Count == 0; i++) Thread.Sleep(100);
 
+            // 展开整合包自带模组再检查（验证"展开时才检查自带模组"这条规则）
+            if (args.Any(arg => string.Equals(arg, "--exercise-show-pack-mods", StringComparison.OrdinalIgnoreCase)))
+            {
+                viewModel.HidePackMods = false;
+                for (var i = 0; i < 50 && viewModel.Content.Count == 0; i++) Thread.Sleep(100);
+            }
+
             viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
 
             // 图标由页签刷新时后台补，给它时间落盘
@@ -347,6 +354,13 @@ internal static class InstanceDump
 
             // 默认只看正式版；打开"含测试版"再查一次，验证 beta 能被认出来
             viewModel.SettingsIncludePrereleaseUpdates = true;
+            // 展开整合包自带模组再检查（验证"展开时才检查自带模组"这条规则）
+            if (args.Any(arg => string.Equals(arg, "--exercise-show-pack-mods", StringComparison.OrdinalIgnoreCase)))
+            {
+                viewModel.HidePackMods = false;
+                for (var i = 0; i < 50 && viewModel.Content.Count == 0; i++) Thread.Sleep(100);
+            }
+
             viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
             Thread.Sleep(1500);
 
@@ -1795,7 +1809,14 @@ internal static class InstanceDump
                 lines.Add($"    默认隐藏={viewModel.HidePackMods}  可折叠={viewModel.CanHidePackMods}");
                 lines.Add($"    列表 {viewModel.Content.Count} 个；{viewModel.PackModsHint}");
 
-                viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
+                // 展开整合包自带模组再检查（验证"展开时才检查自带模组"这条规则）
+            if (args.Any(arg => string.Equals(arg, "--exercise-show-pack-mods", StringComparison.OrdinalIgnoreCase)))
+            {
+                viewModel.HidePackMods = false;
+                for (var i = 0; i < 50 && viewModel.Content.Count == 0; i++) Thread.Sleep(100);
+            }
+
+            viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
                 lines.Add($"    无手动模组时检查：{viewModel.Status}");
 
                 var dummy = Path.Combine(pack.ModsDirectory, "zzz-user-mod.jar");
@@ -1808,7 +1829,14 @@ internal static class InstanceDump
 
                     lines.Add($"    加入手动模组后列表 {viewModel.Content.Count} 个");
 
-                    viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
+                    // 展开整合包自带模组再检查（验证"展开时才检查自带模组"这条规则）
+            if (args.Any(arg => string.Equals(arg, "--exercise-show-pack-mods", StringComparison.OrdinalIgnoreCase)))
+            {
+                viewModel.HidePackMods = false;
+                for (var i = 0; i < 50 && viewModel.Content.Count == 0; i++) Thread.Sleep(100);
+            }
+
+            viewModel.CheckUpdatesAsync().GetAwaiter().GetResult();
                     lines.Add($"    更新检查：{viewModel.Status}");
                 }
                 finally

@@ -3586,17 +3586,30 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             var items = Content.ToList();
 
-            // 整合包实例：整合包自带的模组不检查更新（作者钉的是整套版本），
-            // 只检查用户后来手动加进来的文件。
+            // 整合包自带的模组默认不检查更新（作者钉的是整套版本），只查手动添加的。
+            // 但用户把「隐藏整合包自带模组」取消勾选（= 展开查看整合包模组）时，
+            // 说明他想连这些一起看，这时也检查它们。
             var modpack = InstanceModpackStore.Load(instance.GameDirectory);
             var packNames = modpack?.PackFiles
                 .Select(file => PackFileCollector.LogicalName(file.FileName))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)
                 ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            var checkItems = items
-                .Where(item => !packNames.Contains(PackFileCollector.LogicalName(Path.GetFileName(item.Entry.Path))))
-                .ToList();
+            bool IsPackFile(ContentEntryItem item) =>
+                packNames.Contains(PackFileCollector.LogicalName(Path.GetFileName(item.Entry.Path)));
+
+            var includePackMods = packNames.Count > 0 && !HidePackMods;
+
+            var checkItems = includePackMods
+                ? items.ToList()
+                : items.Where(item => !IsPackFile(item)).ToList();
+
+            // 整合包自带的模组优先用整合包自己的平台查：
+            // Modrinth 包里的文件基本都在 Modrinth，CF 包里的基本都在 CurseForge。
+            // MultiMC 包没有上游平台（ResolvePackSource 返回 null），两边都查。
+            var packSource = ResolvePackSource(modpack);
+            var packCheckItems = checkItems.Where(IsPackFile).ToList();
+            var manualCheckItems = checkItems.Where(item => !IsPackFile(item)).ToList();
 
             if (items.Count == 0)
             {
@@ -3619,8 +3632,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
 
             Status = $"正在检查 {checkItems.Count} 个模组…"
-                     + (packNames.Count > 0 ? $"（已跳过 {items.Count - checkItems.Count} 个整合包自带模组）" : "")
-                     + $"（Modrinth{( _updateService.CurseForgeEnabled ? " + CurseForge" : "") }）…";
+                     + (packNames.Count == 0
+                         ? ""
+                         : includePackMods
+                             ? $"（含 {packCheckItems.Count} 个整合包自带）"
+                             : $"（已跳过 {items.Count - checkItems.Count} 个整合包自带模组）")
+                     + $"（{DescribeCheckPlatforms(packSource, includePackMods)}）…";
 
             // 查询要用**游戏版本（*1.20.1），不是加载器 profile 名（fabric-loader-...）
             var gameVersion = await ResolveGameVersionAsync(instance);
@@ -3630,14 +3647,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var version = await GameLauncher.TryLoadInstalledVersionAsync(_launcher, instance.VersionId);
             if (version is not null) loaders = LoaderDetector.Detect(version);
 
-            // 只查 checkItems：整合包自带的模组不参与单独更新检查。
-            // 之前这里传的是 items（全部），于是"已跳过 99 个"只是文案，
-            // 实际仍然把 100 个全查了一遍，还按全部结果报"29 个可升级"（2026-11-09 用户实测）
-            var report = await _updateService.CheckAsync(
-                checkItems.Select(item => item.Entry.Path).ToList(),
-                gameVersion,
-                loaders,
-                includePrerelease: _settingsIncludePrereleaseUpdates);
+            // 手动添加的模组：**不套用整合包的平台偏好**，两个平台都查（Modrinth 先查、CF 补缺口）。
+            // 用户自己装的模组跟整合包来源无关，可能来自任何一个平台。
+            // 整合包自带的模组：优先走整合包自己的平台 —— CF 包就只查 CurseForge，
+            // 避免把 CF 上的模组又拿去 Modrinth 猜一遍（既慢又容易认错）。
+            var manualReport = manualCheckItems.Count == 0
+                ? EmptyReport(loaders)
+                : await _updateService.CheckAsync(
+                    manualCheckItems.Select(item => item.Entry.Path).ToList(),
+                    gameVersion,
+                    loaders,
+                    includePrerelease: _settingsIncludePrereleaseUpdates,
+                    curseForgeOnly: false);
+
+            var packReport = packCheckItems.Count == 0
+                ? EmptyReport(loaders)
+                : await _updateService.CheckAsync(
+                    packCheckItems.Select(item => item.Entry.Path).ToList(),
+                    gameVersion,
+                    loaders,
+                    includePrerelease: _settingsIncludePrereleaseUpdates,
+                    curseForgeOnly: packSource == UpdateSource.CurseForge);
+
+            var report = MergeReports(manualReport, packReport);
 
             // 整合包自带的文件明确清掉"可升级"标记，避免旧检查结果残留；
             // ***不能**清识别徽标—— 那是哈希识别的结果，会变。`?`
@@ -3678,6 +3710,40 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    /// <summary>空报告：某一组没有要检查的文件时占位，合并逻辑就不用到处判空。</summary>
+    private static ModUpdateReport EmptyReport(IReadOnlyList<string> loaders) => new()
+    {
+        Updates = Array.Empty<ModUpdate>(),
+        LocalMods = Array.Empty<LocalModInfo>(),
+        ModrinthMatches = 0,
+        CurseForgeMatches = 0,
+        UnmatchedCount = 0,
+        Loaders = loaders,
+    };
+
+    /// <summary>把"手动添加的模组"与"整合包自带模组"两份报告合成一份。</summary>
+    private static ModUpdateReport MergeReports(ModUpdateReport manual, ModUpdateReport pack) => new()
+    {
+        Updates = manual.Updates.Concat(pack.Updates).ToList(),
+        LocalMods = manual.LocalMods.Concat(pack.LocalMods).ToList(),
+        ModrinthMatches = manual.ModrinthMatches + pack.ModrinthMatches,
+        CurseForgeMatches = manual.CurseForgeMatches + pack.CurseForgeMatches,
+        UnmatchedCount = manual.UnmatchedCount + pack.UnmatchedCount,
+        Loaders = manual.Loaders.Count > 0 ? manual.Loaders : pack.Loaders,
+        CurseForgeNote = manual.CurseForgeNote ?? pack.CurseForgeNote,
+    };
+
+    /// <summary>状态栏里"查哪些平台"的说明。</summary>
+    private string DescribeCheckPlatforms(UpdateSource? packSource, bool includePackMods)
+    {
+        var platforms = _updateService.CurseForgeEnabled ? "Modrinth + CurseForge" : "Modrinth";
+
+        if (!includePackMods || packSource is null) return platforms;
+
+        return packSource == UpdateSource.CurseForge
+            ? $"整合包自带走 CurseForge，其余 {platforms}"
+            : $"整合包自带走 Modrinth，其余 {platforms}";
+    }
     /// <summary>供诊断用：直接触发一次更新检查并等待完成。</summary>
     public Task CheckUpdatesAsync() => CheckModUpdatesAsync();
 
