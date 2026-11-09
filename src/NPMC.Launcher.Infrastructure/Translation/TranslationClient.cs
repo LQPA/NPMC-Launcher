@@ -49,6 +49,14 @@ public sealed class TranslationClient
     private DateTimeOffset _myMemoryCooldownUntil = DateTimeOffset.MinValue;
     private DateTimeOffset _bingCooldownUntil = DateTimeOffset.MinValue;
 
+    /// <summary>每小时最多多少个真实请求（含 Bing 令牌抓取）。网页通道会按 IP 限流，本地先自保。</summary>
+    private const int MaxRequestsPerHour = 120;
+
+    private readonly Queue<DateTimeOffset> _requestTimes = new();
+
+    /// <summary>因为本地配额被拦下的次数（诊断用）。</summary>
+    public int QuotaBlockedCount { get; private set; }
+
     // Bing 网页版翻译的临时令牌（约 10 分钟有效，需要 IG/IID + abuse-prevention key）
     private string? _bingIg;
     private string? _bingIid;
@@ -191,6 +199,7 @@ public sealed class TranslationClient
     private async Task<string?> TryBingAsync(string text, string targetLanguage, CancellationToken cancellationToken)
     {
         if (!await EnsureBingTokenAsync(cancellationToken).ConfigureAwait(true)) return null;
+        if (!TryReserveRequest()) return null;
 
         try
         {
@@ -260,6 +269,8 @@ public sealed class TranslationClient
     private async Task<bool> EnsureBingTokenAsync(CancellationToken cancellationToken)
     {
         if (_bingToken is not null && DateTimeOffset.UtcNow < _bingTokenExpires) return true;
+
+        if (!TryReserveRequest()) return false;
 
         try
         {
@@ -445,6 +456,73 @@ public sealed class TranslationClient
         return Normalize(builder.ToString());
     }
 
+    /// <summary>
+    /// 本地小时配额：超过就拒绝发请求（缓存仍然可用）。
+    /// 网页翻译通道按 IP 限流，本地先自保能避免把 IP 打黑。
+    /// </summary>
+    private bool TryReserveRequest()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        lock (_requestTimes)
+        {
+            while (_requestTimes.Count > 0 && now - _requestTimes.Peek() > TimeSpan.FromHours(1))
+            {
+                _requestTimes.Dequeue();
+            }
+
+            if (_requestTimes.Count >= MaxRequestsPerHour)
+            {
+                QuotaBlockedCount++;
+                if (QuotaBlockedCount == 1)
+                {
+                    _log?.Invoke($"翻译请求达到本小时上限（{MaxRequestsPerHour} 次），本轮只用缓存");
+                }
+
+                return false;
+            }
+
+            _requestTimes.Enqueue(now);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 只查缓存，不发请求。详情打开时先调它：命中就直接显示译文，
+    /// 没命中则由用户点「机翻」按钮才真正请求（避免浏览时把额度烧光）。
+    /// </summary>
+    public bool TryGetCached(string text, string targetLanguage, out string translation)
+    {
+        translation = string.Empty;
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(targetLanguage)) return false;
+
+        var normalized = text.Length > MaxCharacters ? text[..MaxCharacters] : text;
+        var key = Hash($"{targetLanguage}|{normalized}");
+
+        if (_memory.TryGetValue(key, out var memory) && !string.IsNullOrWhiteSpace(memory))
+        {
+            translation = memory!;
+            return true;
+        }
+
+        if (_cache.TryGet(key, out var cached))
+        {
+            _memory[key] = cached;
+            translation = cached;
+            return true;
+        }
+
+        var legacyPath = Path.Combine(_cacheDirectory, key + ".txt");
+        if (_cache.TryImportLegacy(legacyPath, key, targetLanguage, normalized, out var migrated))
+        {
+            _memory[key] = migrated;
+            translation = migrated;
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>GET 一个 JSON 文本；429/403 时调用方给的冷却回调生效并返回 null。</summary>
     private async Task<string?> GetJsonAsync(
         string url,
@@ -452,6 +530,8 @@ public sealed class TranslationClient
         Action limitRef,
         string endpointName)
     {
+        if (!TryReserveRequest()) return null;
+
         try
         {
             using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct)

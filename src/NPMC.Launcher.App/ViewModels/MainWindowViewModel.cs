@@ -182,6 +182,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OpenSettingsFolderCommand = new AsyncRelayCommand(OpenSettingsFolder, () => true, OnOpenError);
         InstallRuntimeCommand = new AsyncRelayCommand(InstallRuntimeAsync, () => CanInstallRuntime);
         ClearCacheCommand = new AsyncRelayCommand(ClearCacheAsync);
+        TranslateDetailCommand = new AsyncRelayCommand(TranslateDetailNowAsync);
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
         DeleteInstanceCommand = new AsyncRelayCommand(
             DeleteInstanceAsync,
@@ -4313,7 +4314,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string DetailBody
     {
         get => _detailBody;
-        private set => SetProperty(ref _detailBody, value);
+        private set
+        {
+            if (!SetProperty(ref _detailBody, value)) return;
+            OnPropertyChanged(nameof(CanTranslateDetail));
+            (TranslateDetailCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
     }
 
     private string _detailTranslation = "";
@@ -4326,10 +4332,74 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (!SetProperty(ref _detailTranslation, value)) return;
             OnPropertyChanged(nameof(HasDetailTranslation));
+            OnPropertyChanged(nameof(CanTranslateDetail));
+            (TranslateDetailCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         }
     }
 
     public bool HasDetailTranslation => _detailTranslation.Length > 0;
+
+    private bool _isTranslatingDetail;
+
+    /// <summary>正在翻当前简介（按钮转圈/禁用用）。</summary>
+    public bool IsTranslatingDetail
+    {
+        get => _isTranslatingDetail;
+        private set
+        {
+            if (!SetProperty(ref _isTranslatingDetail, value)) return;
+            OnPropertyChanged(nameof(CanTranslateDetail));
+            (TranslateDetailCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// 是否显示「机翻」按钮：有正文、还没译文、也没在翻。
+    /// 详情打开时**不会自动请求**翻译接口（公共端点按 IP 限流），必须用户点一下。
+    /// </summary>
+    public bool CanTranslateDetail =>
+        !IsTranslatingDetail
+        && !HasDetailTranslation
+        && !string.IsNullOrWhiteSpace(DetailBody)
+        && !DetailBody.StartsWith("正在加载", StringComparison.Ordinal)
+        && !LooksChinese(DetailBody);
+
+    public ICommand TranslateDetailCommand { get; }
+
+    /// <summary>点「机翻」：真正去请求翻译接口。</summary>
+    private async Task TranslateDetailNowAsync()
+    {
+        if (string.IsNullOrWhiteSpace(DetailBody)) return;
+
+        IsTranslatingDetail = true;
+        try
+        {
+            await TranslateDetailAsync(_detailToken, DetailBody);
+        }
+        finally
+        {
+            IsTranslatingDetail = false;
+            OnPropertyChanged(nameof(CanTranslateDetail));
+            (TranslateDetailCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>只看缓存：命中就显示译文，没命中什么都不做（按钮会露出来）。</summary>
+    private async Task ShowCachedTranslationAsync(int token, string body)
+    {
+        DetailTranslation = "";
+        if (string.IsNullOrWhiteSpace(body)) return;
+        if (LooksChinese(body)) return;
+
+        var language = await DescriptionLanguageAsync();
+        if (string.IsNullOrWhiteSpace(language)) return;
+        if (language.StartsWith("en", StringComparison.OrdinalIgnoreCase)) return;
+
+        if (!_translation.TryGetCached(body, language, out var cached)) return;
+
+        if (token != _detailToken) return;
+        DetailTranslation = cached;
+    }
 
     public string DetailUrl
     {
@@ -4649,8 +4719,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             DetailBody = cached;
 
-            // 缓存只省了正文请求，翻译仍要补上（译文本身也有缓存，通常瞬间完成）
-            await TranslateDetailAsync(token, cached);
+            // 打开详情时只查译文缓存：命中就直接显示，没命中等用户点「机翻」
+            await ShowCachedTranslationAsync(token, cached);
             return;
         }
 
@@ -4686,7 +4756,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             _detailBodyCache[item.ProjectRef] = DetailBody;
 
-            await TranslateDetailAsync(token, DetailBody);
+            await ShowCachedTranslationAsync(token, DetailBody);
         }
         catch (Exception ex)
         {

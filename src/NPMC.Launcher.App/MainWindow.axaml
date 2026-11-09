@@ -1042,6 +1042,13 @@
                         </StackPanel>
                       </Grid>
 
+                      <!-- 打开详情只查译文缓存；没命中时由用户点这个按钮才请求翻译接口
+                           （公共端点按 IP 限流，浏览一遍列表就打上百个请求会被封） -->
+                      <Button Content="机翻这段简介" Command="{Binding TranslateDetailCommand}"
+                              IsVisible="{Binding CanTranslateDetail}"
+                              FontSize="11" Padding="10,3" HorizontalAlignment="Left"
+                              ToolTip.Tip="点一次才会请求翻译接口；同一段简介只会请求一次，之后走缓存" />
+
                       <!-- 机器翻译放在原文**上方**：先看中文判断是不是自己要的，需要时再读原文 -->
                       <Border Background="#20242B" CornerRadius="4" Padding="8"
                               IsVisible="{Binding HasDetailTranslation}">

@@ -298,7 +298,7 @@ public sealed class TranslationCache
     private static readonly UTF8Encoding Utf8Bom = new(encoderShouldEmitUTF8Identifier: true);
 
     /// <summary>和 TranslationClient 保持同一套 key 规则：sha1(语言|原文)。</summary>
-    internal static string Sha1(string value)
+    public static string Sha1(string value)
         => Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(Encoding.UTF8.GetBytes(value)))
             .ToLowerInvariant();
 
