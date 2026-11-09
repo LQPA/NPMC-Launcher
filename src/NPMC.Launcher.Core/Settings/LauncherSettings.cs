@@ -23,6 +23,14 @@ public sealed record LauncherSettings
     /// <summary>新建实例时默认使用自动内存（按整合包/模组/空闲内存推荐）。已有实例不受影响。</summary>
     public bool DefaultMemoryAuto { get; init; }
 
+    /// <summary>
+    /// 新建实例的隔离级别：Version（共享版本库，默认）或 Full（整包独立）。
+    ///
+    /// 不隔离（None）不提供 —— 那种实例与所有其它实例共用 mods/config/saves，
+    /// 装不同版本的同一个模组会互相打架、存档也会串。
+    /// </summary>
+    public string DefaultIsolation { get; init; } = "Version";
+
     /// <summary>并发下载数（资源对象、运行时文件）。</summary>
     public int DownloadConcurrency { get; init; } = 12;
 

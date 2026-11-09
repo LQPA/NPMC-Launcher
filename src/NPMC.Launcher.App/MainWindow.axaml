@@ -631,6 +631,18 @@
                            FontSize="12" Foreground="#C9CDD3" VerticalAlignment="Center" />
               </Grid>
 
+              <!-- 不隔离的实例：与其它实例共用 mods/配置/存档，装冲突模组会互相打架 -->
+              <Border Background="#2A1E1E" BorderBrush="#6B3A3A" BorderThickness="1"
+                      CornerRadius="6" Padding="10,8" IsVisible="{Binding IsSelectedInstanceUnisolated}">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="这个实例没有隔离：mods / 配置 / 存档与其它实例共用，装不同版本的同一个模组会互相打架。"
+                             FontSize="11" Foreground="#E0958F" TextWrapping="Wrap" MaxWidth="560" />
+                  <Button Content="{Binding MigrateIsolationText}" Command="{Binding MigrateIsolationCommand}"
+                          FontSize="11" Padding="10,2" HorizontalAlignment="Left"
+                          ToolTip.Tip="把共享的 mods/配置/存档复制进实例自己的目录，再把隔离级别改为版本隔离；共享目录里的原文件会保留" />
+                </StackPanel>
+              </Border>
+
               <Grid ColumnDefinitions="96,*">
                 <TextBlock Grid.Column="0" Text="内存" FontSize="12" Foreground="#949CA9"
                            VerticalAlignment="Center" />
@@ -2024,6 +2036,35 @@
                   <TextBlock Grid.Column="1"
                              Text="新建实例将使用自动内存（整合包推荐 / 模组数量 / 当前空闲内存），实例页里可单独改回手动。"
                              FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" />
+                </Grid>
+
+                <!-- 隔离级别：只给"版本隔离 / 完全隔离"，不提供"不隔离"（会跨实例污染 mods 与存档）。
+                     改完不立即生效，先给一次确认：这个设置只影响之后新建的实例，不会移动已有文件。 -->
+                <Grid ColumnDefinitions="110,*">
+                  <TextBlock Text="实例隔离" FontSize="12" Foreground="#949CA9"
+                             VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1" Spacing="4">
+                    <ComboBox ItemsSource="{Binding SettingsIsolationOptions}"
+                              SelectedIndex="{Binding SettingsIsolationSelectionIndex, Mode=TwoWay}"
+                              Width="260" FontSize="12" HorizontalAlignment="Left"
+                              ToolTip.Tip="版本隔离：实例各自独立，但共享 versions/libraries/assets（省空间）；完全隔离：整包独立、可单独搬走，但每个实例会多占数 GB" />
+                    <TextBlock Text="只影响新建实例。不提供「不隔离」——那样会和其它实例共用 mods/存档，装冲突模组时会互相打架。"
+                               FontSize="10" Foreground="#6E7684" TextWrapping="Wrap" MaxWidth="520" />
+
+                    <Border Background="#2A2618" BorderBrush="#6B5A2E" BorderThickness="1"
+                            CornerRadius="6" Padding="10,6" IsVisible="{Binding IsIsolationChangePending}">
+                      <StackPanel Spacing="6">
+                        <TextBlock Text="{Binding IsolationPendingText}" FontSize="11"
+                                   Foreground="#E0C87A" TextWrapping="Wrap" MaxWidth="520" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <Button Content="确认更改" Command="{Binding ConfirmIsolationChangeCommand}"
+                                  FontSize="11" Padding="10,2" />
+                          <Button Content="取消" Command="{Binding CancelIsolationChangeCommand}"
+                                  FontSize="11" Padding="10,2" />
+                        </StackPanel>
+                      </StackPanel>
+                    </Border>
+                  </StackPanel>
                 </Grid>
 
                 <Grid ColumnDefinitions="110,*">

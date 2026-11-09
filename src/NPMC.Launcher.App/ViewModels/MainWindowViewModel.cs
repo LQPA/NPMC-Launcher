@@ -183,6 +183,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         InstallRuntimeCommand = new AsyncRelayCommand(InstallRuntimeAsync, () => CanInstallRuntime);
         ClearCacheCommand = new AsyncRelayCommand(ClearCacheAsync);
         TranslateDetailCommand = new AsyncRelayCommand(TranslateDetailNowAsync);
+        ConfirmIsolationChangeCommand = new RelayCommand(ConfirmIsolationChange);
+        CancelIsolationChangeCommand = new RelayCommand(CancelIsolationChange);
+        MigrateIsolationCommand = new AsyncRelayCommand(MigrateIsolationAsync, () => IsSelectedInstanceUnisolated);
         DownloadCommand = new AsyncRelayCommand(DownloadAsync, () => CanDownload);
         DeleteInstanceCommand = new AsyncRelayCommand(
             DeleteInstanceAsync,
@@ -590,6 +593,170 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _ = PersistInstanceOrderAsync(Instances.Select(item => item.Id).ToList());
     }
 
+    // ---- 不隔离实例的迁移 ----
+
+    private bool _migrateIsolationConfirmPending;
+
+    /// <summary>当前选中的实例是不是"不隔离"（mods / 存档与其它实例共用）。</summary>
+    public bool IsSelectedInstanceUnisolated =>
+        SelectedInstance?.Model.Isolation == IsolationLevel.None;
+
+    /// <summary>迁移按钮文案：第一次点是"改为版本隔离"，再点一次才真的复制文件。</summary>
+    public string MigrateIsolationText => _migrateIsolationConfirmPending
+        ? "再点一次确认迁移"
+        : "改为版本隔离";
+
+    public ICommand MigrateIsolationCommand { get; }
+
+    /// <summary>
+    /// 把"不隔离"实例迁到"版本隔离"。
+    ///
+    /// 不隔离的实例，mods/config/saves 实际就在共享根目录里；切换前必须先把这些内容
+    /// 复制进实例自己的目录，否则启动器会去空目录找文件（"模组全没了"）。
+    /// 复制而不是移动：共享根里的文件可能还被其它不隔离实例使用。
+    /// </summary>
+    private async Task MigrateIsolationAsync()
+    {
+        if (SelectedInstance is not { } instance) return;
+        if (instance.Model.Isolation != IsolationLevel.None) return;
+
+        // 第一次点：先算清要复制多少东西，让用户知道这一步会动文件
+        if (!_migrateIsolationConfirmPending)
+        {
+            _migrateIsolationConfirmPending = true;
+            OnPropertyChanged(nameof(MigrateIsolationText));
+
+            var (files, bytes) = await Task.Run(() => CountSharedContent(_launcher.SharedRoot));
+            Status = $"该实例不隔离：mods / 配置 / 存档与其它实例共用。"
+                     + $"将复制 {files} 个文件（{FormatBytes(bytes)}）到实例独立目录，并把隔离级别改为版本隔离；"
+                     + "共享目录里的原文件保留。再点一次确认。";
+
+            _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ =>
+            {
+                if (!_migrateIsolationConfirmPending) return;
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    _migrateIsolationConfirmPending = false;
+                    OnPropertyChanged(nameof(MigrateIsolationText));
+                });
+            });
+
+            return;
+        }
+
+        _migrateIsolationConfirmPending = false;
+        OnPropertyChanged(nameof(MigrateIsolationText));
+
+        try
+        {
+            var target = Path.Combine(_launcher.Instances, instance.Id);
+            var copied = await Task.Run(() => CopySharedContent(_launcher.SharedRoot, target));
+
+            var store = new JsonInstanceStore(_launcher);
+            var catalog = new InstanceCatalog(await store.LoadAsync());
+            catalog.SetIsolation(instance.Id, IsolationLevel.Version);
+            await store.SaveAsync(catalog.Instances);
+
+            Status = $"已迁移 {instance.Name}：复制 {copied} 个文件到 {target}，隔离级别改为版本隔离。";
+            LauncherLog.Write(_launcher.Root, $"实例 {instance.Id} 迁移到版本隔离，复制 {copied} 个文件");
+
+            await LoadAsync();
+            SelectedInstance = Instances.FirstOrDefault(item =>
+                string.Equals(item.Id, instance.Id, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            Status = $"迁移失败：{ex.GetBaseException().Message}";
+        }
+    }
+
+    /// <summary>不隔离实例会共用这些内容，迁移时要复制进实例目录。</summary>
+    private static readonly string[] SharedContentDirectories =
+    {
+        "mods", "config", "resourcepacks", "shaderpacks", "saves", "defaultconfigs", "scripts",
+    };
+
+    /// <summary>共享根里的单文件（选项、服务器列表）。</summary>
+    private static readonly string[] SharedContentFiles =
+    {
+        "options.txt", "optionsof.txt", "optionsshaders.txt", "servers.dat",
+    };
+
+    private static (int Files, long Bytes) CountSharedContent(string sharedRoot)
+    {
+        var files = 0;
+        long bytes = 0;
+
+        foreach (var directory in SharedContentDirectories)
+        {
+            var path = Path.Combine(sharedRoot, directory);
+            if (!Directory.Exists(path)) continue;
+
+            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    bytes += new FileInfo(file).Length;
+                    files++;
+                }
+                catch
+                {
+                    // 统计不到的文件忽略
+                }
+            }
+        }
+
+        foreach (var name in SharedContentFiles)
+        {
+            var path = Path.Combine(sharedRoot, name);
+            if (!File.Exists(path)) continue;
+
+            try
+            {
+                bytes += new FileInfo(path).Length;
+                files++;
+            }
+            catch
+            {
+                // 同上
+            }
+        }
+
+        return (files, bytes);
+    }
+
+    private static int CopySharedContent(string sharedRoot, string target)
+    {
+        var copied = 0;
+
+        foreach (var directory in SharedContentDirectories)
+        {
+            var source = Path.Combine(sharedRoot, directory);
+            if (!Directory.Exists(source)) continue;
+
+            foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+            {
+                var relative = Path.GetRelativePath(sharedRoot, file);
+                var destination = Path.Combine(target, relative);
+
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(file, destination, overwrite: true);
+                copied++;
+            }
+        }
+
+        foreach (var name in SharedContentFiles)
+        {
+            var source = Path.Combine(sharedRoot, name);
+            if (!File.Exists(source)) continue;
+
+            Directory.CreateDirectory(target);
+            File.Copy(source, Path.Combine(target, name), overwrite: true);
+            copied++;
+        }
+
+        return copied;
+    }
     private async Task PersistInstanceOrderAsync(IReadOnlyList<string> orderedIds)
     {
         try
@@ -1963,6 +2130,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             // 内存框绑的是 EffectiveMemoryMb（自动模式下显示自动算出的值）：
             // 漏发这条通知会让输入框停在"未选中实例"时的空值（2026-11-09 实测）
             OnPropertyChanged(nameof(EffectiveMemoryMb));
+            OnPropertyChanged(nameof(IsSelectedInstanceUnisolated));
+            OnPropertyChanged(nameof(MigrateIsolationText));
             OnPropertyChanged(nameof(AutoMemory));
             OnPropertyChanged(nameof(MemoryAutoHint));
             OnPropertyChanged(nameof(WindowWidth));
@@ -6612,7 +6781,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var catalog = new InstanceCatalog(await store.LoadAsync());
 
             var name = EffectiveInstanceName;
-            var instance = catalog.Add(name, instanceVersionId, settings: NewInstanceSettings());
+            var instance = catalog.Add(name, instanceVersionId, NewInstanceIsolation, NewInstanceSettings());
 
             await store.SaveAsync(catalog.Instances);
 
@@ -7211,7 +7380,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     };
                 }
 
-                instance = catalog.Add(name, instanceVersion, settings: settings);
+                instance = catalog.Add(name, instanceVersion, NewInstanceIsolation, settings);
                 await store.SaveAsync(catalog.Instances);
             }
 

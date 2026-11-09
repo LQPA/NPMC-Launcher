@@ -39,6 +39,7 @@ public sealed partial class MainWindowViewModel
     private string _settingsProxy = "";
     private int _settingsDefaultMemory = 4096;
     private bool _settingsDefaultMemoryAuto;
+    private int _settingsDefaultIsolationIndex;
     private JavaChoice? _settingsJavaChoice;
     private string _settingsJavaHint = "";
     private string? _settingsDefaultJavaPath;
@@ -209,6 +210,70 @@ public sealed partial class MainWindowViewModel
         AutoMemory = _settingsDefaultMemoryAuto,
     };
 
+    // ---- 新建实例的隔离级别 ----
+
+    /// <summary>两项：版本隔离（默认）/ 完全隔离。不提供"不隔离"。</summary>
+    public ObservableCollection<string> SettingsIsolationOptions { get; } = new()
+    {
+        "版本隔离（共享版本库，推荐）",
+        "完全隔离（整包独立，占更多空间）",
+    };
+
+    private int? _pendingIsolationIndex;
+
+    /// <summary>
+    /// 下拉框选中的值。**选中不等于生效**：先把改动挂起，等用户点「确认更改」。
+    /// 隔离级别会改变新实例的目录结构，误触后很难回退，所以给一次确认。
+    /// </summary>
+    public int SettingsIsolationSelectionIndex
+    {
+        get => _pendingIsolationIndex ?? _settingsDefaultIsolationIndex;
+        set
+        {
+            var clamped = Math.Clamp(value, 0, 1);
+            if (clamped == (_pendingIsolationIndex ?? _settingsDefaultIsolationIndex)) return;
+
+            _pendingIsolationIndex = clamped;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsIsolationChangePending));
+            OnPropertyChanged(nameof(IsolationPendingText));
+        }
+    }
+
+    /// <summary>选中的值与已生效的值不同 → 显示确认条。</summary>
+    public bool IsIsolationChangePending =>
+        _pendingIsolationIndex is { } pending && pending != _settingsDefaultIsolationIndex;
+
+    public string IsolationPendingText =>
+        $"将把新建实例的隔离改为「{SettingsIsolationOptions[_pendingIsolationIndex ?? 0]}」。"
+        + "确认后只影响之后新建的实例，**不会移动已有实例的文件**。";
+
+    public ICommand ConfirmIsolationChangeCommand { get; }
+    public ICommand CancelIsolationChangeCommand { get; }
+
+    private void ConfirmIsolationChange()
+    {
+        if (_pendingIsolationIndex is not { } pending) return;
+
+        _settingsDefaultIsolationIndex = pending;
+        _pendingIsolationIndex = null;
+
+        OnPropertyChanged(nameof(SettingsIsolationSelectionIndex));
+        OnPropertyChanged(nameof(IsIsolationChangePending));
+        SettingsStatus = $"新建实例的隔离已改为「{SettingsIsolationOptions[_settingsDefaultIsolationIndex]}」";
+        SaveSettings();
+    }
+
+    private void CancelIsolationChange()
+    {
+        _pendingIsolationIndex = null;
+        OnPropertyChanged(nameof(SettingsIsolationSelectionIndex));
+        OnPropertyChanged(nameof(IsIsolationChangePending));
+    }
+
+    /// <summary>新建实例时用的隔离级别。</summary>
+    private IsolationLevel NewInstanceIsolation =>
+        _settingsDefaultIsolationIndex == 1 ? IsolationLevel.Full : IsolationLevel.Version;
     // ---- 全局默认 Java ----
 
     public ObservableCollection<JavaChoice> SettingsJavaChoices { get; } = new();
@@ -605,6 +670,8 @@ public sealed partial class MainWindowViewModel
             _settingsProxy = settings.HttpProxy ?? "";
             _settingsDefaultMemory = settings.DefaultMemoryMb;
             _settingsDefaultMemoryAuto = settings.DefaultMemoryAuto;
+            _settingsDefaultIsolationIndex =
+                string.Equals(settings.DefaultIsolation, "Full", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             _settingsDefaultJavaPath = settings.DefaultJavaPath;
             _settingsDefaultAccountId = settings.DefaultAccountId;
 
@@ -621,6 +688,9 @@ public sealed partial class MainWindowViewModel
             OnPropertyChanged(nameof(SettingsProxyText));
             OnPropertyChanged(nameof(SettingsDefaultMemory));
             OnPropertyChanged(nameof(SettingsDefaultMemoryAuto));
+            _pendingIsolationIndex = null;
+            OnPropertyChanged(nameof(SettingsIsolationSelectionIndex));
+            OnPropertyChanged(nameof(IsIsolationChangePending));
 
             if (_settingsJavaLoaded)
             {
@@ -654,6 +724,7 @@ public sealed partial class MainWindowViewModel
         IncludePrereleaseUpdates = _settingsIncludePrereleaseUpdates,
         DefaultMemoryMb = _settingsDefaultMemory,
         DefaultMemoryAuto = _settingsDefaultMemoryAuto,
+        DefaultIsolation = _settingsDefaultIsolationIndex == 1 ? "Full" : "Version",
         DownloadConcurrency = _settingsConcurrency,
         HttpTimeoutSeconds = _settingsTimeoutSeconds,
         HttpProxy = string.IsNullOrWhiteSpace(_settingsProxy) ? null : _settingsProxy.Trim(),
