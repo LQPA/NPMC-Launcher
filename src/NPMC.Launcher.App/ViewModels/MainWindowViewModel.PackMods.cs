@@ -192,7 +192,9 @@ public sealed partial class MainWindowViewModel
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var packSource = info?.IsCurseForge == true ? UpdateSource.CurseForge : UpdateSource.Modrinth;
+        // MultiMC 实例包没有上游工程：文件可能从未上传到任何平台，
+        // 所以不预先打来源徽标，交给哈希识别（认不出来就显示 `?`）
+        var packSource = ResolvePackSource(info);
         var query = _contentFilterQuery.Trim();
 
         Content.Clear();
@@ -222,7 +224,10 @@ public sealed partial class MainWindowViewModel
                 _modItemCache[entry.Path] = item;
             }
 
-            if (packIndexNames.Contains(logical)) item.SetIdentification(packSource);
+            if (packSource is { } source && packIndexNames.Contains(logical))
+            {
+                item.SetIdentification(source);
+            }
 
             Content.Add(item);
         }

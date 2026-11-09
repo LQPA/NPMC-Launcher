@@ -4554,9 +4554,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .ToHashSet(StringComparer.OrdinalIgnoreCase)
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var packSource = packInfo?.IsCurseForge == true
-            ? UpdateSource.CurseForge
-            : UpdateSource.Modrinth;
+        // 整合包清单里的文件按**来源平台**打徽标；但 MultiMC 实例包没有上游工程
+        // （文件是别的启动器打包进来的，可能根本没上传到任何平台），
+        // 这时不能冒充 Modrinth —— 留 null，让它走"哈希识别"，识别不到就显示 `?`。
+        var packSource = ResolvePackSource(packInfo);
 
         // 1) 先用记住的结果：徽标、R/B/A 离线可用。
         //    图标不在这里统一加载—— 495 行一次解码：495 个位图是内存尖峰的主因；
@@ -4568,14 +4569,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var logical = PackFileCollector.LogicalName(name);
             var isPack = packNames.Contains(logical);
 
-            // 整合包清单里的文件：来源直接按整合包归属，不再联网猜
-            if (packIndexNames.Contains(logical)) item.SetIdentification(packSource);
+            // 整合包清单里的文件：能确定来源平台就直接用；MultiMC 包不确定，
+            // 交给后面的哈希识别（未上传的模组会保持 `?`，不再被误标成 Modrinth）
+            if (packSource is { } source && packIndexNames.Contains(logical))
+            {
+                item.SetIdentification(source);
+            }
 
             if (!_contentMetadata.TryGet(item.Entry.FileName, out var remembered)) continue;
 
-            // overrides/ 里的文件照样可以用 "哈希识别"的结果：真在 Modrinth 上就认，
-            // 认不出来就保留 `?`（不能因为是整合包就强行打来源徽标）
-            if (remembered.Identified && !packIndexNames.Contains(logical))
+            // 哈希识别的结果：真在平台上有就认，认不出来就保留 `?`。
+            //  - mrpack / CF：清单里的文件按整合包归属，不再用识别结果覆盖；
+            //  - MultiMC：没有上游工程，清单文件也必须用识别结果（否则永远不打徽标）
+            var useRemembered = packSource is null || !packIndexNames.Contains(logical);
+            if (remembered.Identified && useRemembered)
                 item.SetIdentification(remembered.Source, remembered.Channel);
         }
 
@@ -6789,6 +6796,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
         + "来源：格式由包内清单决定。MMC 包通常由别的启动器导出，"
         + "因此会带上对方的实例名、内存与窗口设置——导入时会照这些值建实例，之后可以在实例页自行调整。\n\n"
         + "用途：导入后按清单里的版本/加载器重建运行环境，再把包内文件写进一个新实例。";
+    /// <summary>
+    /// 整合包来源 → 徽标用的平台。
+    ///
+    /// MultiMC 实例包返回 null：它没有上游工程，文件是别的启动器整包带进来的，
+    /// 可能从未上传到任何平台。之前这里一律回落成 Modrinth，导致用户导入的
+    /// 自制/未公开模组全被打上"M"（2026-11-09 用户实测反馈），现在必须交给哈希识别，
+    /// 认不出来就保持 `?`。
+    /// </summary>
+    public static UpdateSource? ResolvePackSource(InstanceModpackInfo? info) => info switch
+    {
+        null => null,
+        { IsCurseForge: true } => UpdateSource.CurseForge,
+        { IsMultiMc: true } => null,
+        _ => UpdateSource.Modrinth,
+    };
     /// <summary>概览页显示缺失文件面板；从别的页签点「查看缺失」时切回去。</summary>
     public RelayCommand ShowOverviewTabCommand { get; }
 
