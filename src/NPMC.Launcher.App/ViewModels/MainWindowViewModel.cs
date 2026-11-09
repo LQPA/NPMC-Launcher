@@ -792,6 +792,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(IsCurseForgeExport));
             OnPropertyChanged(nameof(IsPackExport));
             OnPropertyChanged(nameof(ExportFormatHint));
+            OnPropertyChanged(nameof(ExportFormatDetails));
         }
     }
 
@@ -814,6 +815,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
              + "不会包含 logs 和 crash-reports。",
     };
 
+    /// <summary>
+    /// 导出格式的「原理 + 用途」说明，显示在格式下拉旁的 ❓ 悬停里。
+    ///
+    /// 为什么单独写：下拉框自带的提示太隐蔽（很多人不会去悬停下拉框），
+    /// 而"这个包是怎么生成的、拿去干什么"恰恰是导出页最需要交代的信息。
+    /// </summary>
+    public string ExportFormatDetails => _exportFormatIndex switch
+    {
+        1 => "原理：只生成下载清单（modrinth.index.json 里记每个文件的路径、哈希与下载地址），"
+             + "配置等小文件放进 overrides。\n"
+             + "用途：体积最小，适合在 Modrinth 生态里分发。\n"
+             + "导入时需要联网把文件重新下载回来。",
+        2 => "原理：把文件按指纹换成 CurseForge 的 projectID/fileID 写进 manifest.json，"
+             + "认不出的文件放进 overrides。\n"
+             + "用途：适合在 CurseForge 生态里分发。\n"
+             + "导入时用 CurseForge API 解析下载地址，需要 API key。",
+        _ => "原理：把实例目录原样打包成 .minecraft/，外加两个清单——"
+             + "mmc-pack.json 记录游戏版本与加载器（导入方据此重建运行环境），"
+             + "instance.cfg 记录名字 / 内存 / 窗口。\n"
+             + "用途：备份、迁移或分享整个实例；文件全在包里，导入时直接解压，不需要联网下载模组。\n"
+             + "不含日志与崩溃报告；存档默认不带，需要时勾选。",
+    };
     // ---- 整合包内容选择（照着「整合包制作」的表单）---
 
     private string _exportPackName = "";
