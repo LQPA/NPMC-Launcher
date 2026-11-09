@@ -942,6 +942,28 @@ internal static class InstanceDump
             }
         }
 
+        // 验证翻译链（--exercise-translation <文本>）：只看端点是否可用、CSV 是否落盘
+        var translationIndex = Array.FindIndex(args, arg =>
+            string.Equals(arg, "--exercise-translation", StringComparison.OrdinalIgnoreCase));
+
+        if (translationIndex >= 0 && translationIndex + 1 < args.Length)
+        {
+            var sample = args[translationIndex + 1];
+            using var probeHttp = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(40) };
+            var client = new NPMC.Launcher.Infrastructure.Translation.TranslationClient(
+                probeHttp,
+                Path.Combine(viewModel.RootPath, "cache", "translations"),
+                message => lines.Add($"[翻译日志] {message}"));
+
+            var translated = client.TranslateAsync(sample, "zh-CN").GetAwaiter().GetResult();
+
+            lines.Add("");
+            lines.Add("[翻译]");
+            lines.Add($"    原文   = {sample[..Math.Min(60, sample.Length)]}");
+            lines.Add($"    译文   = {(translated is null ? "(取不到)" : translated[..Math.Min(60, translated.Length)])}");
+            lines.Add($"    冷却中 = {client.IsCoolingDown}");
+            lines.Add($"    缓存   = {client.CachePath} 存在={File.Exists(client.CachePath)}");
+        }
         // 验证整合包解析（本地文件；不安装）
         if (ModpackPath(args) is { } modpackPath)
         {

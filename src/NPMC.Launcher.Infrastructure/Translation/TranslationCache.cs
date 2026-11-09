@@ -178,7 +178,12 @@ public sealed class TranslationCache
                         ? parsed
                         : DateTimeOffset.MinValue;
 
-                    _records[row[0]] = new Record(row[1], row[2], row[3], at);
+                    // 早期版本把 "语言|原文" 直接当 key 写进了 CSV：转成 sha1，
+                    // 否则这些行永远命中不了（查找用的是哈希），还会把整段原文塞在 key 列里。
+                    var key = row[0].Contains('|') ? Sha1(row[0]) : row[0];
+                    if (key != row[0]) _needsRewrite = true;
+
+                    _records[key] = new Record(row[1], row[2], row[3], at);
                 }
 
                 // 没有表头、或内容看着不像我们的 CSV → 下次写入前整体重写
@@ -291,6 +296,11 @@ public sealed class TranslationCache
     private static readonly JsonSerializerOptions MetaJsonOptions = new() { WriteIndented = true };
 
     private static readonly UTF8Encoding Utf8Bom = new(encoderShouldEmitUTF8Identifier: true);
+
+    /// <summary>和 TranslationClient 保持同一套 key 规则：sha1(语言|原文)。</summary>
+    internal static string Sha1(string value)
+        => Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(Encoding.UTF8.GetBytes(value)))
+            .ToLowerInvariant();
 
     private static bool HasHeader(string text)
     {

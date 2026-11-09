@@ -112,7 +112,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         _contentMetadata = new ContentMetadataCache(Path.Combine(_launcher.Root, "cache"));
         _categoryCache = new SearchCategoryCache(Path.Combine(_launcher.Root, "cache"));
-        _translation = new TranslationClient(_http, Path.Combine(_launcher.Root, "cache", "translations"));
+        _translation = new TranslationClient(
+            _http,
+            Path.Combine(_launcher.Root, "cache", "translations"),
+            message => LauncherLog.Write(_launcher.Root, message));
 
         // 导出规则文件：启动时读一次（不存在就写一份默认的），导出页直接显示规则条数。
         LoadExportRules();
