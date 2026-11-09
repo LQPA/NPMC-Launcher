@@ -19,9 +19,23 @@ public sealed class TranslationClient
     private const string GtxEndpoint = "https://translate.googleapis.com/translate_a/single";
     private const string DictEndpoint = "https://clients5.google.com/translate_a/t";
     private const string MyMemoryEndpoint = "https://api.mymemory.translated.net/get";
+    private const string BingPage = "https://www.bing.com/translator";
+    private const string BingTranslate = "https://www.bing.com/ttranslatev3";
 
-    /// <summary>单次翻译的字符上限。超长正文会先截断 —— 详情摘要本来就只显示前几百字。</summary>
-    private const int MaxCharacters = 1800;
+    /// <summary>正文上限：超出部分不翻（详情正文本来也有上限，避免一次发几十 KB 上去）。</summary>
+    private const int MaxCharacters = 6000;
+
+    /// <summary>
+    /// 单段长度。端点对一次请求的长度都有限制，超了会**只翻前面一部分**（实测用户遇到的就是这个：
+    /// 长简介只翻了前半段，后半段还是英文）。所以统一切成 900 字以内的段落分别翻。
+    /// </summary>
+    private const int ChunkSize = 900;
+
+    /// <summary>最多切几段：防止一篇超长自述打出十几个请求把额度烧光。</summary>
+    private const int MaxChunks = 6;
+
+    private const string BrowserUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
     private readonly HttpClient _http;
     private readonly string _cacheDirectory;
@@ -29,10 +43,18 @@ public sealed class TranslationClient
     private readonly Dictionary<string, string?> _memory = new(StringComparer.Ordinal);
     private readonly Action<string>? _log;
 
-    // 每个端点各自记冷却时间：实测 gtx 会持续 429，而 dict-chrome-ex / MyMemory 仍然可用。
+    // 每个端点各自记冷却时间：实测 gtx 会持续 429，而 dict-chrome-ex / MyMemory / Bing 仍然可用。
     private DateTimeOffset _gtxCooldownUntil = DateTimeOffset.MinValue;
     private DateTimeOffset _dictCooldownUntil = DateTimeOffset.MinValue;
     private DateTimeOffset _myMemoryCooldownUntil = DateTimeOffset.MinValue;
+    private DateTimeOffset _bingCooldownUntil = DateTimeOffset.MinValue;
+
+    // Bing 网页版翻译的临时令牌（约 10 分钟有效，需要 IG/IID + abuse-prevention key）
+    private string? _bingIg;
+    private string? _bingIid;
+    private string? _bingKey;
+    private string? _bingToken;
+    private DateTimeOffset _bingTokenExpires = DateTimeOffset.MinValue;
 
     public TranslationClient(HttpClient http, string cacheDirectory, Action<string>? log = null)
     {
@@ -45,6 +67,7 @@ public sealed class TranslationClient
     /// <summary>三个端点是否都在冷却（诊断/界面提示用）。</summary>
     public bool IsCoolingDown =>
         DateTimeOffset.UtcNow < _gtxCooldownUntil
+        && DateTimeOffset.UtcNow < _bingCooldownUntil
         && DateTimeOffset.UtcNow < _dictCooldownUntil
         && DateTimeOffset.UtcNow < _myMemoryCooldownUntil;
 
@@ -85,7 +108,8 @@ public sealed class TranslationClient
         var result = await RequestAsync(normalized, targetLanguage, cancellationToken).ConfigureAwait(true);
         _memory[key] = result;
 
-        if (result is not null)
+        // 只有整段都翻成功才写缓存：半截译文一旦落盘，以后永远命中这半截
+        if (result is not null && !result.EndsWith(PartialMarker, StringComparison.Ordinal))
         {
             _cache.Store(key, targetLanguage, normalized, result);
         }
@@ -93,17 +117,55 @@ public sealed class TranslationClient
         return result;
     }
 
+    /// <summary>未翻完时追加的标记；带这个标记的结果不进缓存。</summary>
+    private const string PartialMarker = "\u2026（后文未翻译）";
+
     /// <summary>
-    /// 依次尝试三个端点。公共翻译端点经常限流（gtx 实测 429），
-    /// 单个端点失败不该让整个功能哑掉，所以这里做一条回退链；
-    /// 每个端点各自记冷却时间，冷却期内直接跳过。
+    /// 把正文切成小段，逐段走端点回退链，最后拼起来。
+    ///
+    /// 为什么要分段：端点对单次请求长度有限制，超长时不会报错，而是**只翻前面一部分**，
+    /// 于是界面上出现"前半段中文、后半段英文"（用户实测）。
     /// </summary>
     private async Task<string?> RequestAsync(string text, string targetLanguage, CancellationToken cancellationToken)
+    {
+        var chunks = SplitForRequest(text, ChunkSize, MaxChunks);
+        if (chunks.Count == 0) return null;
+
+        var builder = new StringBuilder();
+        var complete = true;
+
+        for (var i = 0; i < chunks.Count; i++)
+        {
+            var part = await RequestChunkAsync(chunks[i], targetLanguage, cancellationToken).ConfigureAwait(true);
+            if (part is null)
+            {
+                complete = false;
+                break;
+            }
+
+            if (builder.Length > 0) builder.Append(' ');
+            builder.Append(part);
+        }
+
+        if (builder.Length == 0) return null;
+
+        var translated = builder.ToString().Trim();
+        return complete && translated.Length > 0 ? translated : translated + PartialMarker;
+    }
+
+    /// <summary>逐段走端点回退链（每个端点各自记冷却）。</summary>
+    private async Task<string?> RequestChunkAsync(string text, string targetLanguage, CancellationToken cancellationToken)
     {
         if (DateTimeOffset.UtcNow >= _gtxCooldownUntil)
         {
             var viaGtx = await TryGtxAsync(text, targetLanguage, cancellationToken).ConfigureAwait(true);
             if (viaGtx is not null) return viaGtx;
+        }
+
+        if (DateTimeOffset.UtcNow >= _bingCooldownUntil)
+        {
+            var viaBing = await TryBingAsync(text, targetLanguage, cancellationToken).ConfigureAwait(true);
+            if (viaBing is not null) return viaBing;
         }
 
         if (DateTimeOffset.UtcNow >= _dictCooldownUntil)
@@ -120,6 +182,137 @@ public sealed class TranslationClient
 
         return null;
     }
+
+    /// <summary>
+    /// Bing 网页版翻译：先抓 <c>/translator</c> 页面拿 IG / IID / abuse-prevention key 与 token，
+    /// 再 POST 到 <c>ttranslatev3</c>。**不需要 API key**，token 约 10 分钟有效。
+    /// 官方 Azure 翻译接口需要订阅密钥，这里用的是同一套翻译引擎的网页通道。
+    /// </summary>
+    private async Task<string?> TryBingAsync(string text, string targetLanguage, CancellationToken cancellationToken)
+    {
+        if (!await EnsureBingTokenAsync(cancellationToken).ConfigureAwait(true)) return null;
+
+        try
+        {
+            var url = $"{BingTranslate}?isVertical=1&&IG={_bingIg}&IID={_bingIid}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
+            request.Headers.TryAddWithoutValidation("Referer", BingPage);
+
+            request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["fromLang"] = "auto-detect",
+                ["to"] = BingLanguage(targetLanguage),
+                ["text"] = text,
+                ["token"] = _bingToken!,
+                ["key"] = _bingKey!,
+            });
+
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(true);
+
+            if (response.StatusCode is System.Net.HttpStatusCode.TooManyRequests
+                or System.Net.HttpStatusCode.Forbidden)
+            {
+                _bingCooldownUntil = DateTimeOffset.UtcNow.AddMinutes(10);
+                _log?.Invoke($"翻译端点 bing 限流（{(int)response.StatusCode}）");
+                return null;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // token 过期时 Bing 常返回 400：清掉缓存，下次重新抓
+                _bingTokenExpires = DateTimeOffset.MinValue;
+                _log?.Invoke($"翻译端点 bing 返回 {(int)response.StatusCode}");
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(true);
+
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() == 0) return null;
+
+            if (!root[0].TryGetProperty("translations", out var translations)
+                || translations.ValueKind != JsonValueKind.Array
+                || translations.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            var first = translations[0];
+            return first.TryGetProperty("text", out var textElement) && textElement.ValueKind == JsonValueKind.String
+                ? Normalize(textElement.GetString() ?? string.Empty)
+                : null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _log?.Invoke($"翻译端点 bing 失败：{ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>抓取/刷新 Bing 的临时令牌；失败返回 false。</summary>
+    private async Task<bool> EnsureBingTokenAsync(CancellationToken cancellationToken)
+    {
+        if (_bingToken is not null && DateTimeOffset.UtcNow < _bingTokenExpires) return true;
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, BingPage);
+            request.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
+
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(true);
+            if (!response.IsSuccessStatusCode) return false;
+
+            var html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(true);
+
+            var ig = System.Text.RegularExpressions.Regex.Match(html, "IG:\"([^\"]+)\"");
+            var iid = System.Text.RegularExpressions.Regex.Match(html, "data-iid=\"([^\"]+)\"");
+            var abuse = System.Text.RegularExpressions.Regex.Match(
+                html, @"params_AbusePreventionHelper\s*=\s*\[(\d+),\s*""([^""]+)"",\s*(\d+)\]");
+
+            if (!ig.Success || !iid.Success || !abuse.Success) return false;
+
+            _bingIg = ig.Groups[1].Value;
+            _bingIid = iid.Groups[1].Value;
+            _bingKey = abuse.Groups[1].Value;
+            _bingToken = abuse.Groups[2].Value;
+
+            // abuse 数组第三项是有效毫秒数（通常 600000），留 60 秒余量
+            if (long.TryParse(abuse.Groups[3].Value, out var lifetimeMs) && lifetimeMs > 60000)
+            {
+                _bingTokenExpires = DateTimeOffset.UtcNow.AddMilliseconds(lifetimeMs - 60000);
+            }
+            else
+            {
+                _bingTokenExpires = DateTimeOffset.UtcNow.AddMinutes(8);
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _log?.Invoke($"获取 bing 令牌失败：{ex.GetBaseException().Message}");
+            return false;
+        }
+    }
+
+    /// <summary>内部语言代码 → Bing 的写法（简体中文是 zh-Hans）。</summary>
+    private static string BingLanguage(string language) => language.ToLowerInvariant() switch
+    {
+        "zh-cn" or "zh" => "zh-Hans",
+        "zh-tw" => "zh-Hant",
+        _ => language,
+    };
 
     /// <summary>Google gtx（质量最好，但最容易被限流）。响应形如 [[["译文","原文",...], ...], null, "en"]。</summary>
     private async Task<string?> TryGtxAsync(string text, string targetLanguage, CancellationToken cancellationToken)
@@ -297,6 +490,38 @@ public sealed class TranslationClient
         return text.Length == 0 ? null : text;
     }
 
+    /// <summary>
+    /// 把正文切成不超过 <paramref name="maxLength"/> 的片段（优先在句末/换行处断开）。
+    /// 端点对长度敏感：超长请求会静默地只翻前半段。
+    /// </summary>
+    private static List<string> SplitForRequest(string text, int maxLength, int maxChunks)
+    {
+        var chunks = new List<string>();
+        var current = new StringBuilder();
+
+        void Flush()
+        {
+            if (current.Length == 0) return;
+            chunks.Add(current.ToString());
+            current.Clear();
+        }
+
+        // 也按换行/制表符切：日文等没有空格的长正文才有多处断点
+        foreach (var piece in text.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (current.Length + piece.Length + 1 > maxLength && current.Length > 0)
+            {
+                Flush();
+                if (chunks.Count >= maxChunks) return chunks;
+            }
+
+            if (current.Length > 0) current.Append(' ');
+            current.Append(piece);
+        }
+
+        Flush();
+        return chunks;
+    }
     /// <summary>按字符集猜源语言（MyMemory 必须显式给源语言，不接受 auto）。</summary>
     private static string GuessSourceLanguage(string text)
     {

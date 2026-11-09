@@ -949,6 +949,13 @@ internal static class InstanceDump
         if (translationIndex >= 0 && translationIndex + 1 < args.Length)
         {
             var sample = args[translationIndex + 1];
+
+            // 长文本用文件传（命令行里带空格会被拆成多个参数）
+            if (sample.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
+                && File.Exists(sample[5..]))
+            {
+                sample = File.ReadAllText(sample[5..]).Trim();
+            }
             using var probeHttp = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(40) };
             var client = new NPMC.Launcher.Infrastructure.Translation.TranslationClient(
                 probeHttp,
