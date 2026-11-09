@@ -76,3 +76,6 @@ desktop.ini
 /tests/NPMC.P2P.Tests/
 /docs/p2p/
 /docs/P2P-HANDOFF.md
+
+# ---- P2P 联机：solution 里留有本机工程条目，暂不提交（P2P 暂停中）----
+/NPMC.Launcher.sln
