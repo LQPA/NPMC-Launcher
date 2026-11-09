@@ -11,8 +11,8 @@ namespace NPMC.Launcher.Infrastructure.Translation;
 /// （没有 SLA、可能限流或失效）。因此这里的设计原则是"翻不出来就不显示"，
 /// 绝不因为翻译失败而影响详情本身。
 ///
-/// 缓存按 (目标语言 + 原文) 的 SHA1 落盘：同一段简介翻一次就够，
-/// 而且不同项目常有相同的模板化描述，去重能省不少请求。
+/// 缓存格式见 <see cref="TranslationCache"/>：一个可手改的 CSV（语言 + 原文 + 译文）
+/// 加一个纯元数据 JSON。旧版「sha1.txt」会在命中时懒迁移进 CSV 后删除。
 /// </summary>
 public sealed class TranslationClient
 {
@@ -23,13 +23,18 @@ public sealed class TranslationClient
 
     private readonly HttpClient _http;
     private readonly string _cacheDirectory;
+    private readonly TranslationCache _cache;
     private readonly Dictionary<string, string?> _memory = new(StringComparer.Ordinal);
 
     public TranslationClient(HttpClient http, string cacheDirectory)
     {
         _http = http;
         _cacheDirectory = cacheDirectory;
+        _cache = new TranslationCache(cacheDirectory);
     }
+
+    /// <summary>缓存文件路径（诊断用）。</summary>
+    public string CachePath => _cache.CsvPath;
 
     public async Task<string?> TranslateAsync(
         string text,
@@ -44,23 +49,19 @@ public sealed class TranslationClient
 
         if (_memory.TryGetValue(key, out var cached)) return cached;
 
-        var file = Path.Combine(_cacheDirectory, Hash(key) + ".txt");
-
-        try
+        // 1) 新格式 CSV
+        if (_cache.TryGet(key, out var fromCsv))
         {
-            if (File.Exists(file))
-            {
-                var fromDisk = (await File.ReadAllTextAsync(file, cancellationToken).ConfigureAwait(true)).Trim();
-                if (fromDisk.Length > 0)
-                {
-                    _memory[key] = fromDisk;
-                    return fromDisk;
-                }
-            }
+            _memory[key] = fromCsv;
+            return fromCsv;
         }
-        catch
+
+        // 2) 旧版 <sha1>.txt：命中时补进 CSV 并删掉旧文件
+        var legacyPath = Path.Combine(_cacheDirectory, Hash(key) + ".txt");
+        if (_cache.TryImportLegacy(legacyPath, key, targetLanguage, normalized, out var migrated))
         {
-            // 缓存读不了就当没有
+            _memory[key] = migrated;
+            return migrated;
         }
 
         var result = await RequestAsync(normalized, targetLanguage, cancellationToken).ConfigureAwait(true);
@@ -68,15 +69,7 @@ public sealed class TranslationClient
 
         if (result is not null)
         {
-            try
-            {
-                Directory.CreateDirectory(_cacheDirectory);
-                await File.WriteAllTextAsync(file, result, cancellationToken).ConfigureAwait(true);
-            }
-            catch
-            {
-                // 落盘失败不影响显示
-            }
+            _cache.Store(key, targetLanguage, normalized, result);
         }
 
         return result;
