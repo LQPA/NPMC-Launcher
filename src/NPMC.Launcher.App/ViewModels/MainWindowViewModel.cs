@@ -6775,6 +6775,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         };
     }
 
+    /// <summary>
+    /// 导入页 ❓ 的说明：三种整合包格式分别是**怎么被认出来**的、导入时做什么、要不要联网。
+    /// 放在悬停里，避免把格式判断规则铺满整页。
+    /// </summary>
+    public string ModpackImportDetails =>
+        "识别方式：读包里的清单文件判断格式——\n"
+        + "· modrinth.index.json → Modrinth 整合包（按清单逐项下载，导入时需要联网）\n"
+        + "· manifest.json → CurseForge 整合包（用 API 把 projectID/fileID 换成下载地址，需要 API key）\n"
+        + "· mmc-pack.json 或 instance.cfg → MultiMC 实例包（文件全在包里，导入时直接解压，不需要联网下载模组）\n"
+        + "三者都没有 → 提示无法识别。\n\n"
+        + "用途：导入后按清单里的版本/加载器重建运行环境，再把包内文件写进一个新实例。";
     /// <summary>概览页显示缺失文件面板；从别的页签点「查看缺失」时切回去。</summary>
     public RelayCommand ShowOverviewTabCommand { get; }
 

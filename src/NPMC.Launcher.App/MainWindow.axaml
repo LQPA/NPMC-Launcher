@@ -1784,8 +1784,21 @@
                     CornerRadius="8" Padding="24" MinHeight="260"
                     IsVisible="{Binding IsModpackLocalMode}">
               <StackPanel Spacing="10" VerticalAlignment="Center">
-                <TextBlock Text="把整合包文件拖到本页任意位置" FontSize="15" Foreground="#B4BCC8"
-                           HorizontalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                  <TextBlock Text="把整合包文件拖到本页任意位置" FontSize="15" Foreground="#B4BCC8"
+                             VerticalAlignment="Center" />
+                  <!-- 三种格式按包内清单文件识别，规则放进悬停 -->
+                  <Border Width="18" Height="18" CornerRadius="9" VerticalAlignment="Center"
+                          Background="#2B2F38" BorderBrush="#3A404B" BorderThickness="1">
+                    <TextBlock Text="?" FontSize="11" Foreground="#949CA9"
+                               HorizontalAlignment="Center" VerticalAlignment="Center">
+                      <ToolTip.Tip>
+                        <TextBlock Text="{Binding ModpackImportDetails}" TextWrapping="Wrap" MaxWidth="400"
+                                   FontSize="11" LineHeight="17" />
+                      </ToolTip.Tip>
+                    </TextBlock>
+                  </Border>
+                </StackPanel>
                 <TextBlock Text="（Modrinth .mrpack、CurseForge .zip、HMCL / Prism / MultiMC 实例包；整页都可以）" FontSize="11"
                            Foreground="#6E7684" HorizontalAlignment="Center" />
                 <Button Content="选择整合包文件…" Click="OnPickModpackClick"
