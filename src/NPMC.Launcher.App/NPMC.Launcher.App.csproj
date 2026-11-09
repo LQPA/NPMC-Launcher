@@ -6,6 +6,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+
+    <!-- 正式版本号：标题栏与文件属性都会带上，便于区分分发出去的包 -->
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <OutputType>WinExe</OutputType>
 
     <!-- 绑定写在 XAML 里、编译期检查：写错属性名会直接编译失败，而不是运行期静默不生效 -->

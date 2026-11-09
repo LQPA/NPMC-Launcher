@@ -11,6 +11,35 @@ internal static class BuildInfo
 {
     public static string Stamp { get; } = Resolve();
 
+    /// <summary>程序集版本（csproj 的 Version），正式分发时用来区分版本。</summary>
+    public static string Version { get; } = ResolveVersion();
+
+    private static string ResolveVersion()
+    {
+        try
+        {
+            var version = typeof(BuildInfo).Assembly
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                .FirstOrDefault()
+                ?.InformationalVersion;
+
+            if (!string.IsNullOrWhiteSpace(version))
+            {
+                // 去掉 SourceLink 附在后面的 +commit 后缀
+                var plus = version.IndexOf('+');
+                if (plus > 0) version = version[..plus];
+                return version;
+            }
+        }
+        catch
+        {
+            // 取不到就当开发版
+        }
+
+        return "dev";
+    }
+
     private static string Resolve()
     {
         try
