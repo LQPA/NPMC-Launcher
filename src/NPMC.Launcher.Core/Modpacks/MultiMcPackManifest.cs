@@ -145,7 +145,9 @@ public sealed record MultiMcPackManifest(
             LoaderName: loaderName,
             LoaderVersion: loaderVersion,
             PayloadPrefix: payloadPrefix,
-            MaxMemoryMb: ReadInt(cfg, "MaxMemAlloc") ?? ReadInt(cfg, "MinMemAlloc"),
+            // 只认 MaxMemAlloc：MinMemAlloc 是"最低要求"，拿它当推荐值会把
+            // 作者写的 2048 当成"建议值"，把用户的自动内存覆盖成 2048（2026-11-09 实测踩到）
+            MaxMemoryMb: ReadInt(cfg, "MaxMemAlloc"),
             WindowWidth: ReadInt(cfg, "MinecraftWinWidth"),
             WindowHeight: ReadInt(cfg, "MinecraftWinHeight"),
             PayloadFiles: payloadFiles);

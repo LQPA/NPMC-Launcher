@@ -161,7 +161,9 @@ public static class GameLauncher
             }
 
             var packName = layout is null ? null : InstanceModpackStore.Load(layout.GameDirectory)?.Name;
-            memory = MemoryAutoCalculator.RecommendForCurrentMachine(mods, packName).MemoryMb;
+            memory = MemoryAutoCalculator
+                .RecommendForCurrentMachine(mods, packName, instanceSettings.MemoryFloorMb)
+                .MemoryMb;
         }
 
         // client.jar、natives 与资源索引都在**根版本**目录下。

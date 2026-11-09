@@ -67,14 +67,15 @@ public static class MemoryAutoCalculator
     };
 
     /// <summary>按当前机器状态推荐。</summary>
-    public static MemoryRecommendation RecommendForCurrentMachine(int modsCount, string? modpackName)
+    public static MemoryRecommendation RecommendForCurrentMachine(int modsCount, string? modpackName, int floorMb = 0)
     {
         var (total, available) = GetMemoryInfo();
-        return Recommend(modsCount, modpackName, total, available);
+        return Recommend(modsCount, modpackName, total, available, floorMb);
     }
 
     public static MemoryRecommendation Recommend(
-        int modsCount, string? modpackName, long totalPhysicalBytes, long availablePhysicalBytes)
+        int modsCount, string? modpackName, long totalPhysicalBytes, long availablePhysicalBytes,
+        int floorMb = 0)
     {
         var totalMb = Math.Max(1024, totalPhysicalBytes / Megabyte);
         var freeMb = availablePhysicalBytes > 0 ? availablePhysicalBytes / Megabyte : totalMb / 2;
@@ -93,6 +94,13 @@ public static class MemoryAutoCalculator
             reason = modsCount > 0
                 ? $"按 {modsCount} 个模组估算 {need} MB"
                 : $"纯原版建议 {need} MB";
+        }
+
+        // 整合包预设作为下限：自动值比作者设的低时用它兜底（物理内存不够时仍然会被 capacity 压回去）
+        if (floorMb > need)
+        {
+            need = Math.Min(floorMb, MaximumMb);
+            reason = $"整合包预设 {floorMb} MB";
         }
 
         var capacity = Math.Min((long)(freeMb * CeilingShare), Math.Min(totalMb / 2, MaximumMb));

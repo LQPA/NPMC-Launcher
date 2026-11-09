@@ -14,10 +14,13 @@ public static class ModpackInstallMemory
     {
         if (recommendedRamMb <= 0) return settings;
 
-        return settings with
-        {
-            MemoryMb = Math.Clamp(recommendedRamMb, MinimumMb, MaximumMb),
-            AutoMemory = false,
-        };
+        var clamped = Math.Clamp(recommendedRamMb, MinimumMb, MaximumMb);
+
+        // 用户勾了"自动内存"就保持自动：预设值只作为自动值的**下限**
+        // （作者推荐 8192 而自动算出 4096 时，用 8192）。
+        // 用户手动模式则直接按作者推荐值来。
+        return settings.AutoMemory
+            ? settings with { MemoryMb = clamped, MemoryFloorMb = clamped }
+            : settings with { MemoryMb = clamped, MemoryFloorMb = 0 };
     }
 }

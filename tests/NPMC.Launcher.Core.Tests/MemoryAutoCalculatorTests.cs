@@ -68,4 +68,32 @@ public class MemoryAutoCalculatorTests
             Assert.Equal(0, recommendation.MemoryMb % MemoryAutoCalculator.StepMb);
         }
     }
+
+    [Fact]
+    public void Pack_floor_raises_the_auto_value()
+    {
+        // 纯原版自动值 2048，但整合包预设了 6144 → 用 6144
+        var recommendation = MemoryAutoCalculator.Recommend(0, null, 64 * Gb, 64 * Gb, 6144);
+
+        Assert.Equal(6144, recommendation.MemoryMb);
+        Assert.Contains("整合包预设", recommendation.Reason);
+    }
+
+    [Fact]
+    public void Pack_floor_never_lowers_the_auto_value()
+    {
+        var recommendation = MemoryAutoCalculator.Recommend(400, null, 64 * Gb, 64 * Gb, 2048);
+
+        Assert.True(recommendation.MemoryMb >= 8192);
+    }
+
+    [Fact]
+    public void Pack_floor_is_still_capped_by_free_memory()
+    {
+        // 预设 16 GB，但机器只有 4 GB 空闲：不能被预设顶爆
+        var recommendation = MemoryAutoCalculator.Recommend(0, null, 16 * Gb, 4 * Gb, 16384);
+
+        Assert.True(recommendation.MemoryMb < 16384);
+        Assert.True(recommendation.LimitedByFreeMemory);
+    }
 }

@@ -635,7 +635,8 @@
                 <TextBlock Grid.Column="0" Text="内存" FontSize="12" Foreground="#949CA9"
                            VerticalAlignment="Center" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-                  <NumericUpDown Value="{Binding MemoryMb, Mode=TwoWay}"
+                  <!-- 开自动时显示自动算出来的值（含整合包预设下限），不再显示存储值 -->
+                  <NumericUpDown Value="{Binding EffectiveMemoryMb, Mode=TwoWay}"
                                  Minimum="{Binding MinimalMemory}"
                                  Maximum="{Binding MaximalMemory}"
                                  Increment="256" FormatString="0"

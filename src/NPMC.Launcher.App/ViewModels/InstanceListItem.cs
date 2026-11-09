@@ -66,7 +66,8 @@ public sealed class InstanceListItem : ObservableObject
             if (!_model.Settings.AutoMemory) return $"{MemoryMb} MB";
 
             var (total, available) = MemoryAutoCalculator.GetMemoryInfo();
-            var recommendation = MemoryAutoCalculator.Recommend(ModsCount, ModpackName, total, available);
+            var recommendation = MemoryAutoCalculator.Recommend(
+                ModsCount, ModpackName, total, available, _model.Settings.MemoryFloorMb);
             return $"自动 {recommendation.MemoryMb} MB";
         }
     }

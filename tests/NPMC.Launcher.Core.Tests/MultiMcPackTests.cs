@@ -224,6 +224,34 @@ public class MultiMcPackTests
         }
     }
 
+    [Fact]
+    public void MinMemAlloc_alone_is_not_treated_as_a_recommendation()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var artifact = Path.Combine(root, "min-only.zip");
+            WriteZip(artifact, new Dictionary<string, string>
+            {
+                ["mmc-pack.json"] = MmcJson("1.21.11", "net.fabricmc.fabric-loader", "0.18.4"),
+                // HMCL 只写 MinMemAlloc 时，那是"最低要求"，不能当推荐值
+                ["instance.cfg"] = new StringBuilder()
+                    .AppendLine("name=MinOnly")
+                    .AppendLine("MinMemAlloc=2048")
+                    .ToString(),
+            });
+
+            var manifest = MultiMcPackManifest.TryRead(artifact);
+
+            Assert.NotNull(manifest);
+            Assert.Null(manifest!.MaxMemoryMb);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static string MmcJson(string gameVersion, string? loaderUid, string? loaderVersion, bool duplicateMinecraft = false)
     {
         var components = new List<object> { new { uid = "net.minecraft", version = gameVersion } };

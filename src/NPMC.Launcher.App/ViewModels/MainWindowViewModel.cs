@@ -2498,6 +2498,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             item.ApplySettings(item.Model.Settings with { MemoryMb = memory });
             OnPropertyChanged();
+            OnPropertyChanged(nameof(EffectiveMemoryMb));
             ScheduleInstanceSave();
         }
     }
@@ -2514,10 +2515,44 @@ public sealed partial class MainWindowViewModel : ObservableObject
             item.ApplySettings(item.Model.Settings with { AutoMemory = value });
             OnPropertyChanged();
             OnPropertyChanged(nameof(MemoryAutoHint));
+            OnPropertyChanged(nameof(EffectiveMemoryMb));
             ScheduleInstanceSave();
         }
     }
 
+    /// <summary>
+    /// 概览页「内存」输入框显示的值。
+    ///
+    /// 以前直接绑 MemoryMb：开了自动内存后框里仍是存储值（例如 4096），
+    /// 用户会以为自动没生效（2026-11-09 用户实测反馈）。
+    /// 现在自动模式显示自动算出来的值（含整合包预设下限），手动模式显示并可编辑 MemoryMb。
+    /// </summary>
+    public decimal? EffectiveMemoryMb
+    {
+        get
+        {
+            if (SelectedInstance is not { } item) return null;
+            if (!item.Model.Settings.AutoMemory) return item.Model.Settings.MemoryMb;
+
+            var (total, available) = MemoryAutoCalculator.GetMemoryInfo();
+            return MemoryAutoCalculator
+                .Recommend(item.ModsCount, item.ModpackName, total, available, item.Model.Settings.MemoryFloorMb)
+                .MemoryMb;
+        }
+        set
+        {
+            if (SelectedInstance is not { } item || value is not { } raw) return;
+            if (item.Model.Settings.AutoMemory) return;   // 自动模式下框是禁用的，不该写
+
+            var memory = Math.Clamp((int)Math.Round(raw), MinimalMemoryMb, MaximalMemoryMb);
+            if (item.MemoryMb == memory) return;
+
+            item.ApplySettings(item.Model.Settings with { MemoryMb = memory });
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(EffectiveMemoryMb));
+            ScheduleInstanceSave();
+        }
+    }
     /// <summary>自动内存的说明文字（只在开启时显示）。</summary>
     public string MemoryAutoHint
     {
@@ -2527,7 +2562,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var (total, available) = MemoryAutoCalculator.GetMemoryInfo();
             var recommendation = MemoryAutoCalculator.Recommend(
-                item.ModsCount, item.ModpackName, total, available);
+                item.ModsCount, item.ModpackName, total, available,
+                item.Model.Settings.MemoryFloorMb);
             return MemoryAutoCalculator.Describe(recommendation, total, available);
         }
     }

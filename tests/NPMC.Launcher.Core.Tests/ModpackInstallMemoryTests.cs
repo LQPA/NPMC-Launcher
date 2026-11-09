@@ -6,14 +6,28 @@ namespace NPMC.Launcher.Core.Tests;
 public class ModpackInstallMemoryTests
 {
     [Fact]
-    public void Recommendation_overrides_default_and_turns_off_auto()
+    public void Recommendation_keeps_auto_and_records_a_floor()
     {
         var defaults = new InstanceSettings { MemoryMb = 4096, AutoMemory = true };
 
         var applied = ModpackInstallMemory.Apply(defaults, 10112);
 
+        // 用户选了自动内存 → 保持自动，作者推荐值退化为"自动的下限"
+        Assert.True(applied.AutoMemory);
         Assert.Equal(10112, applied.MemoryMb);
+        Assert.Equal(10112, applied.MemoryFloorMb);
+    }
+
+    [Fact]
+    public void Recommendation_overrides_manual_memory()
+    {
+        var defaults = new InstanceSettings { MemoryMb = 4096, AutoMemory = false };
+
+        var applied = ModpackInstallMemory.Apply(defaults, 8192);
+
         Assert.False(applied.AutoMemory);
+        Assert.Equal(8192, applied.MemoryMb);
+        Assert.Equal(0, applied.MemoryFloorMb);
     }
 
     [Fact]
