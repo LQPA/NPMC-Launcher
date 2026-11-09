@@ -1,4 +1,4 @@
-﻿using System.IO.Compression;
+using System.IO.Compression;
 using System.Text.Json;
 using NPMC.Launcher.Core.Modpacks;
 using NPMC.Launcher.Core.Paths;
@@ -6,6 +6,13 @@ using NPMC.Launcher.Infrastructure.Http;
 using NPMC.Launcher.Infrastructure.Modrinth;
 
 namespace NPMC.Launcher.Infrastructure.Modpacks;
+
+/// <summary>
+/// MultiMC 系列包（Prism / HMCL 导出）的载荷位置。
+/// 这类包没有下载清单：文件全在压缩包里，安装等于解压。
+/// <paramref name="Prefix"/> 为空表示包根目录本身就是载荷。
+/// </summary>
+public sealed record PackedPayload(string Prefix);
 
 /// <summary>准备阶段的产物：解析好的清单 + 已解压的覆盖层目录。</summary>
 public sealed record ModpackPlan(
@@ -21,6 +28,14 @@ public sealed record ModpackPlan(
 
     /// <summary>整合包作者推荐的内存（MB）；0 表示未提供（例如 Modrinth 的 mrpack）。</summary>
     public int RecommendedRamMb { get; init; }
+
+    /// <summary>非空表示"文件就在压缩包里"（MultiMC / Prism / HMCL），安装走解压而不是下载。</summary>
+    public PackedPayload? PackedPayload { get; init; }
+
+    /// <summary>作者在 instance.cfg 里指定的窗口尺寸；0 表示没提供，沿用默认。</summary>
+    public int RecommendedWindowWidth { get; init; }
+
+    public int RecommendedWindowHeight { get; init; }
 }
 
 /// <summary>安装进度：已完成 / 总数 / 当前文件（相对路径）。</summary>
@@ -165,6 +180,13 @@ public sealed class ModpackInstaller
         int concurrency = 8,
         CancellationToken cancellationToken = default)
     {
+        // MultiMC 系列包：文件全在压缩包里，没有下载清单，直接解压
+        if (plan.PackedPayload is { } packed)
+        {
+            return await ExtractPackedPayloadAsync(plan, packed, instanceDirectory, progress, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         Directory.CreateDirectory(instanceDirectory);
 
         var downloaded = 0;
@@ -227,6 +249,71 @@ public sealed class ModpackInstaller
 
         return new ModpackInstallResult(downloaded, skipped, overrides, failures);
     }
+
+    /// <summary>
+    /// 解压 MultiMC 系列包的载荷到实例目录。
+    ///
+    /// 它是"整包自带文件"的格式，所以这里的"解压数量"既算覆盖层也算文件总数。
+    /// 包根上的启动器元数据（mmc-pack.json / instance.cfg / .packignore）不会写进实例；
+    /// 条目路径同样要过 zip-slip 校验 —— 压缩包来自外部，不能直接信。
+    /// </summary>
+    public static Task<ModpackInstallResult> ExtractPackedPayloadAsync(
+        ModpackPlan plan,
+        PackedPayload packed,
+        string instanceDirectory,
+        IProgress<ModpackInstallProgress>? progress,
+        CancellationToken cancellationToken)
+        => Task.Run(() =>
+        {
+            Directory.CreateDirectory(instanceDirectory);
+
+            var failures = new List<string>();
+            var extracted = 0;
+
+            using var archive = ZipFile.OpenRead(plan.ArchivePath);
+
+            var payload = new List<(ZipArchiveEntry Entry, string Relative)>();
+            foreach (var entry in archive.Entries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var name = entry.FullName.Replace('\\', '/');
+                if (name.EndsWith('/')) continue;
+
+                if (packed.Prefix.Length > 0
+                    && !name.StartsWith(packed.Prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var relative = packed.Prefix.Length > 0 ? name[packed.Prefix.Length..] : name;
+                if (MultiMcPackManifest.IsLauncherMetadata(relative)) continue;
+
+                payload.Add((entry, relative));
+            }
+
+            var total = payload.Count;
+            foreach (var (entry, relative) in payload)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    var destination = SafeCombine(instanceDirectory, relative);
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                    entry.ExtractToFile(destination, overwrite: true);
+                    extracted++;
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{relative}：{ex.GetBaseException().Message}");
+                }
+
+                progress?.Report(new ModpackInstallProgress(extracted, total, relative));
+            }
+
+            return new ModpackInstallResult(0, 0, extracted, failures);
+        }, cancellationToken);
 
     /// <summary>解压 overrides 与 client-overrides 到临时目录。</summary>
     private static void ExtractOverrides(

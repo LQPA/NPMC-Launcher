@@ -6521,9 +6521,84 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return await CreateModpackInstaller().PrepareFromFileAsync(path, cacheDirectory);
         }
 
+        if (format == ModpackArchiveFormat.MultiMc)
+        {
+            return PrepareMultiMcPack(path);
+        }
+
         throw new InvalidDataException(
-            "无法识别的整合包：Modrinth 的 .mrpack 应包含 modrinth.index.json。"  +
-            "CurseForge 整合包应包含 manifest.json（通常导出为 .zip）");
+            "无法识别的整合包。支持三种格式："
+            + "Modrinth（.mrpack，需 modrinth.index.json）、"
+            + "CurseForge（.zip，需 manifest.json）、"
+            + "MultiMC / Prism / HMCL（.zip，需 mmc-pack.json 或 instance.cfg）");
+    }
+
+    /// <summary>
+    /// MultiMC / Prism / HMCL 的实例包：文件全在包里，不用下载模组，
+    /// 但**加载器版本严格按包内 mmc-pack.json**（换版本可能有模组不兼容）。
+    /// 真正的安装由 ModpackInstaller 的"解压载荷"分支完成，这里只负责解析与校验。
+    /// </summary>
+    private ModpackPlan PrepareMultiMcPack(string path)
+    {
+        var manifest = MultiMcPackManifest.TryRead(path)
+                       ?? throw new InvalidDataException(
+                           "无法解析这个 MultiMC 包：mmc-pack.json 里没有 net.minecraft 组件。");
+
+        if (manifest.LoaderName is not null && string.IsNullOrWhiteSpace(manifest.LoaderVersion))
+        {
+            throw new InvalidDataException(
+                $"{manifest.LoaderName} 组件缺少 version，无法确定要装哪个加载器版本。");
+        }
+
+        // 显示用：把载荷文件当清单条目（没有下载地址，只用于统计与进度）
+        var files = new List<ModpackFile>(manifest.PayloadFiles.Count);
+        try
+        {
+            using var archive = System.IO.Compression.ZipFile.OpenRead(path);
+            foreach (var entry in archive.Entries)
+            {
+                var name = entry.FullName.Replace('\\', '/');
+                if (name.EndsWith('/')) continue;
+                if (manifest.PayloadPrefix.Length > 0
+                    && !name.StartsWith(manifest.PayloadPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var relative = manifest.PayloadPrefix.Length > 0
+                    ? name[manifest.PayloadPrefix.Length..]
+                    : name;
+                if (MultiMcPackManifest.IsLauncherMetadata(relative)) continue;
+
+                files.Add(new ModpackFile(relative, string.Empty, entry.Length, Array.Empty<string>()));
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidDataException($"读取整合包内容失败：{ex.GetBaseException().Message}");
+        }
+
+        var index = new ModpackIndex(
+            manifest.Name,
+            manifest.VersionLabel,
+            manifest.GameVersion,
+            manifest.LoaderName,
+            manifest.LoaderVersion,
+            files);
+
+        return new ModpackPlan(
+            manifest.Name,
+            manifest.VersionLabel,
+            index,
+            path,
+            OverridesRoot: string.Empty,
+            Problems: Array.Empty<string>())
+        {
+            PackedPayload = new PackedPayload(manifest.PayloadPrefix),
+            RecommendedRamMb = manifest.MaxMemoryMb ?? 0,
+            RecommendedWindowWidth = manifest.WindowWidth ?? 0,
+            RecommendedWindowHeight = manifest.WindowHeight ?? 0,
+        };
     }
 
     /// <summary>概览页显示缺失文件面板；从别的页签点「查看缺失」时切回去。</summary>
@@ -6751,6 +6826,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 // 作者在 CF manifest 里给了推荐内存就用它（关掉自动内存，装完即作者建议值）
                 var settings = ModpackInstallMemory.Apply(NewInstanceSettings(), plan.RecommendedRamMb);
+
+                // MultiMC 系列包会把窗口尺寸写在 instance.cfg 里，照着用，省得用户再调
+                if (plan.RecommendedWindowWidth > 0 && plan.RecommendedWindowHeight > 0)
+                {
+                    settings = settings with
+                    {
+                        WindowWidth = plan.RecommendedWindowWidth,
+                        WindowHeight = plan.RecommendedWindowHeight,
+                    };
+                }
+
                 instance = catalog.Add(name, instanceVersion, settings: settings);
                 await store.SaveAsync(catalog.Instances);
             }
@@ -6782,7 +6868,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ModpackProgressPercent = 100;
             ModpackProgressIndeterminate = false;
 
-            ModpackStatus = $"完成：已创建「{instance.Name}」"
+            ModpackStatus = plan.PackedPayload is not null
+                ? $"完成：已创建「{instance.Name}」（解压 {result.OverrideFiles} 个文件"
+                  + (result.Failures.Count > 0 ? $"，失败 {result.Failures.Count} 个" : "")
+                  + "）"
+                : $"完成：已创建「{instance.Name}」"
                             + $"（文件 {result.FilesDownloaded} 个，跳过 {result.FilesSkipped} 个，"
                             + $"覆盖 {result.OverrideFiles} 个"
                             + (result.Failures.Count > 0 ? $"，失败 {result.Failures.Count} 个" : "")
