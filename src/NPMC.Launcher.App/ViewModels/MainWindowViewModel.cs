@@ -1418,7 +1418,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 Notes: $"用 NPMC Launcher 导出（{DateTimeOffset.Now:yyyy-MM-dd HH:mm}）",
                 IncludeMods: ExportIncludeMods,
                 IncludeResourcePacks: ExportIncludeResourcePacks,
-                IncludeShaderPacks: ExportIncludeShaderPacks);
+                IncludeShaderPacks: ExportIncludeShaderPacks,
+                JvmArguments: instance.Model.Settings.ExtraJvmArguments,
+                QuickPlayServer: ExtractQuickPlayServer(instance.Model.Settings.ExtraGameArguments));
 
             var progress = new Progress<(int Done, int Total, string Path)>(p =>
                 ExportStatus = $"正在打包 {p.Done}/{p.Total}：{p.Path}");
@@ -3900,6 +3902,61 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             IsCheckingUpdates = false;
         }
+    }
+
+    /// <summary>
+    /// 从实例的额外游戏参数里还原"一键进服"地址，导出时写进包清单。
+    /// 支持 --quickPlayMultiplayer host:port 与 --server host --port p 两种写法。
+    /// </summary>
+    public static string? ExtractQuickPlayServer(IReadOnlyList<string> gameArguments)
+    {
+        for (var i = 0; i < gameArguments.Count; i++)
+        {
+            var arg = gameArguments[i];
+            if (i + 1 >= gameArguments.Count) break;
+
+            if (string.Equals(arg, "--quickPlayMultiplayer", StringComparison.OrdinalIgnoreCase))
+            {
+                return gameArguments[i + 1];
+            }
+
+            if (string.Equals(arg, "--server", StringComparison.OrdinalIgnoreCase))
+            {
+                var host = gameArguments[i + 1];
+                var port = i + 3 < gameArguments.Count
+                           && string.Equals(gameArguments[i + 2], "--port", StringComparison.OrdinalIgnoreCase)
+                    ? gameArguments[i + 3]
+                    : "25565";
+
+                return $"{host}:{port}";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 把整合包预设的启动参数写进实例设置。
+    ///
+    /// 只在实例还没有自定义参数时写入（避免覆盖用户自己的设置）。
+    /// </summary>
+    private static InstanceSettings ApplyPackPresets(InstanceSettings settings, ModpackPlan plan)
+    {
+        var extras = plan.Extras;
+        if (extras.IsEmpty) return settings;
+
+        if (extras.JvmArguments.Count > 0 && settings.ExtraJvmArguments.Count == 0)
+        {
+            settings = settings with { ExtraJvmArguments = extras.JvmArguments.ToList() };
+        }
+
+        var gameArgs = ModpackExtras.BuildQuickPlayArguments(extras.QuickPlayServer, plan.Index.GameVersion);
+        if (gameArgs.Count > 0 && settings.ExtraGameArguments.Count == 0)
+        {
+            settings = settings with { ExtraGameArguments = gameArgs };
+        }
+
+        return settings;
     }
 
     /// <summary>空报告：某一组没有要检查的文件时占位，合并逻辑就不用到处判空。</summary>
@@ -6928,6 +6985,33 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public string ModpackTitle => _modpackPlan?.Name ?? "尚未选择整合包";
 
+    /// <summary>
+    /// 包内预设参数的一次性提示（JVM 参数 / 一键进服地址）。
+    ///
+    /// 只在导入时展示一次：这类整合包通常是作者有意做的一键进服包，
+    /// 用户既然在用就是知情的；但参数本身是任意代码执行入口，必须列出原文。
+    /// </summary>
+    public string ModpackPresetNotice
+    {
+        get
+        {
+            if (_modpackPlan?.Extras is not { IsEmpty: false } extras) return "";
+
+            var lines = new List<string> { "该整合包包含预设启动参数（安装后会写入实例的高级选项）：" };
+
+            if (extras.JvmArguments.Count > 0)
+                lines.Add("JVM：" + string.Join(" ", extras.JvmArguments));
+
+            if (!string.IsNullOrWhiteSpace(extras.QuickPlayServer))
+                lines.Add("一键进服：" + extras.QuickPlayServer);
+
+            return string.Join(Environment.NewLine, lines);
+        }
+    }
+
+    /// <summary>是否要显示上面那条提示。</summary>
+    public bool HasModpackPresetNotice => ModpackPresetNotice.Length > 0;
+
     /// <summary>解析出来的关键信息：游戏版本、加载器、文件数、大小。</summary>
     public string ModpackSummary => _modpackPlan is not { } plan
         ? ""
@@ -6975,6 +7059,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(ModpackSummary));
             OnPropertyChanged(nameof(HasModpackWarnings));
             OnPropertyChanged(nameof(ModpackWarnings));
+            OnPropertyChanged(nameof(ModpackPresetNotice));
+            OnPropertyChanged(nameof(HasModpackPresetNotice));
             (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
             ModpackStatus = plan.Problems.Count == 0
@@ -6990,6 +7076,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             OnPropertyChanged(nameof(ModpackSummary));
             OnPropertyChanged(nameof(HasModpackWarnings));
             OnPropertyChanged(nameof(ModpackWarnings));
+            OnPropertyChanged(nameof(ModpackPresetNotice));
+            OnPropertyChanged(nameof(HasModpackPresetNotice));
             (InstallModpackCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
 
             ModpackStatus = $"无法读取该文件：{ex.GetBaseException().Message}";
@@ -7115,6 +7203,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             RecommendedRamMb = manifest.MaxMemoryMb ?? 0,
             RecommendedWindowWidth = manifest.WindowWidth ?? 0,
             RecommendedWindowHeight = manifest.WindowHeight ?? 0,
+            Extras = manifest.Extras,
         };
     }
 
@@ -7383,6 +7472,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     };
                 }
 
+                // 包内预设参数（JVM / 一键进服）：导入时已提示过一次，这里写进实例设置
+                settings = ApplyPackPresets(settings, plan);
                 instance = catalog.Add(name, instanceVersion, NewInstanceIsolation, settings);
                 await store.SaveAsync(catalog.Instances);
             }

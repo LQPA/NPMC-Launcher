@@ -36,6 +36,11 @@ public sealed record ModpackPlan(
     public int RecommendedWindowWidth { get; init; }
 
     public int RecommendedWindowHeight { get; init; }
+
+    /// <summary>
+    /// 包内预设参数（JVM 参数 / 一键进服地址）。导入时展示一次原文，用户知情后写入实例。
+    /// </summary>
+    public ModpackExtras Extras { get; init; } = ModpackExtras.Empty;
 }
 
 /// <summary>安装进度：已完成 / 总数 / 当前文件（相对路径）。</summary>
@@ -164,7 +169,10 @@ public sealed class ModpackInstaller
             ExtractOverrides(archive, extractRoot, problems, cancellationToken);
         }
 
-        return new ModpackPlan(index.Name, versionLabel, index, archivePath, extractRoot, problems);
+        return new ModpackPlan(index.Name, versionLabel, index, archivePath, extractRoot, problems)
+        {
+            Extras = ModpackExtras.FromArchive(archivePath),
+        };
     }
 
     /// <summary>

@@ -1836,6 +1836,13 @@
                            TextWrapping="Wrap" />
                 <TextBlock Text="{Binding ModpackWarnings}" FontSize="10" Foreground="#E0A94A"
                            TextWrapping="Wrap" IsVisible="{Binding HasModpackWarnings}" />
+
+                <!-- 包内预设启动参数：只提示一次，列出原文（这类包通常是作者有意做的一键进服包） -->
+                <Border Background="#1E2430" BorderBrush="#37506B" BorderThickness="1" CornerRadius="6"
+                        Padding="10,8" Margin="0,4,0,0" IsVisible="{Binding HasModpackPresetNotice}">
+                  <TextBlock Text="{Binding ModpackPresetNotice}" FontSize="10" Foreground="#8FB8E0"
+                             TextWrapping="Wrap" />
+                </Border>
                 <TextBlock Text="标记为「只能从 CurseForge 手动下载」的模组不会被自动替换：Modrinth 同项目版本不一定与作者测试过的一致，请用 CurseForge App 或网页手动补齐。"
                            FontSize="10" Foreground="#6E7684" TextWrapping="Wrap"
                            IsVisible="{Binding HasModpackWarnings}" />

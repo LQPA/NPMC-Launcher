@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using NPMC.Launcher.Core.Modpacks;
 
 namespace NPMC.Launcher.Infrastructure.Mods;
 
@@ -19,7 +20,9 @@ public sealed record MultiMcExportRequest(
     string? Notes = null,
     bool IncludeMods = true,
     bool IncludeResourcePacks = true,
-    bool IncludeShaderPacks = true);
+    bool IncludeShaderPacks = true,
+    IReadOnlyList<string>? JvmArguments = null,
+    string? QuickPlayServer = null);
 
 /// <summary>导出结果。</summary>
 public sealed record MultiMcExportResult(int Files, long Bytes, IReadOnlyList<string> Skipped);
@@ -125,6 +128,15 @@ public static class MultiMcPackExporter
             WriteText(archive, "mmc-pack.json", BuildPackJson(request), indented: true);
             WriteText(archive, "instance.cfg", BuildInstanceCfg(request), indented: false);
             WriteText(archive, ".packignore", string.Empty, indented: false);
+
+            if (!string.IsNullOrWhiteSpace(request.QuickPlayServer))
+            {
+                var extras = JsonSerializer.Serialize(
+                    new { quickPlayServer = request.QuickPlayServer },
+                    new JsonSerializerOptions { WriteIndented = true });
+
+                WriteText(archive, ModpackExtras.PackExtrasEntry, extras, indented: true);
+            }
         }
 
         return new MultiMcExportResult(written, bytes, skipped);
@@ -177,6 +189,13 @@ public static class MultiMcPackExporter
         builder.AppendLine($"MaxMemAlloc={Math.Max(512, request.MemoryMb)}");
         builder.AppendLine($"MinecraftWinWidth={Math.Max(320, request.WindowWidth)}");
         builder.AppendLine($"MinecraftWinHeight={Math.Max(240, request.WindowHeight)}");
+
+        if (request.JvmArguments is { Count: > 0 } jvm)
+        {
+            // MultiMC 标准字段：OverrideJavaArgs + JvmArgs（别的启动器也认这两个）
+            builder.AppendLine("OverrideJavaArgs=true");
+            builder.AppendLine("JvmArgs=" + string.Join(' ', jvm));
+        }
 
         if (!string.IsNullOrWhiteSpace(request.Notes))
         {
