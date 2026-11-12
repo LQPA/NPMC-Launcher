@@ -1,4 +1,5 @@
 using System.Globalization;
+using NPMC.Launcher.Core.Modpacks;
 
 namespace NPMC.Launcher.Core.Worlds;
 
@@ -104,94 +105,15 @@ public static class MapVersionMatch
     /// <summary>
     /// 从实例的 VersionId 里取出 Minecraft 版本号。
     ///
-    /// 实测实例目录的 version 字段是**加载器版本名**而不是纯 MC 版本，形态非常多：
-    ///   <c>26.3</c>、<c>1.21.1</c>、<c>1.7.10</c>                      ← 纯版本，直接用
-    ///   <c>fabric-loader-0.18.4-1.21.11</c>                          ← 取 1.21.11
-    ///   <c>1.20.1-forge-47.1.106</c>                                 ← 取开头的 1.20.1
-    ///   <c>1.9-forge1.9-12.16.1.1938-1.9.0</c>                       ← 取 1.9
-    ///   <c>1.7.10-Forge10.13.4.1614-1.7.10</c>                       ← 取 1.7.10
-    ///   <c>quilt-loader-0.30.1-26.3</c>                              ← 取 26.3
-    ///   <c>neoforge-21.1.259</c>、<c>neoforge-26.2.0.93</c>          ← 只有加载器版本，取不到
-    ///   <c>22w13oneblockatatime</c>                                  ← 愚人节快照，取不到
+    /// 具体规则见 <see cref="LoaderVersionName.GameVersionFromName"/> —— 四家加载器格式不同，
+    /// 那边逐家单独处理。这里只做转调，避免同一套规则出现两份。
     ///
-    /// 最麻烦的是 <c>neoforge-26.1.2.124</c>：它的加载器版本号看起来和 MC 版本一模一样。
-    /// 所以不能"只按形态挑第一个像的"，必须**先排除加载器自己的版本段**。
+    /// 注意：这是**纯名字解析**，拿不到的形态（如 <c>neoforge-21.1.259</c>）返回空串。
+    /// 有 LauncherPaths 时应当优先用 <see cref="LoaderVersionName.ResolveGameVersion"/>
+    /// 读 <c>inheritsFrom</c>，那条路四家都能拿到。
     /// </summary>
     public static string MinecraftVersionOf(string? instanceVersionId)
-    {
-        if (string.IsNullOrWhiteSpace(instanceVersionId)) return "";
-
-        var value = instanceVersionId.Trim();
-
-        // 纯版本号（可能带 -snapshot 之类后缀）
-        if (LooksLikeMinecraftVersion(value)) return StripSuffix(value);
-
-        // 用 - 切成若干段
-        // fabric-loader-0.18.4-1.21.11 → ["fabric","loader","0.18.4","1.21.11"]
-        var segments = value.Split(new[] { '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
-
-        // 加载器名后面紧跟的那一段是**加载器版本**，即使它长得像 MC 版本也必须跳过：
-        //   neoforge-26.1.2.124 → 跳过 "26.1.2.124"（形似但实为加载器版本）
-        //   forge-47.1.106      → 跳过 "47.1.106"
-        var loaderPrefixes = new[] { "neoforge", "forge", "fabric", "quilt", "liteloader", "rift" };
-        var skip = new HashSet<int>();
-
-        for (var i = 0; i < segments.Length; i++)
-        {
-            var isLoaderName = loaderPrefixes.Any(prefix =>
-                string.Equals(segments[i], prefix, StringComparison.OrdinalIgnoreCase)
-                || segments[i].StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-
-            // "loader"/"loader-0.18.4" 这种也一并跳过（fabric-loader-0.18.4 两段）
-            if (!isLoaderName && !segments[i].Contains("loader", StringComparison.OrdinalIgnoreCase)) continue;
-
-            // 紧跟在加载器名后面的一段是版本号，跳过
-            if (i + 1 < segments.Length) skip.Add(i + 1);
-        }
-
-        for (var i = 0; i < segments.Length; i++)
-        {
-            if (skip.Contains(i)) continue;
-            if (LooksLikeMinecraftVersion(segments[i])) return StripSuffix(segments[i]);
-        }
-
-        return "";
-    }
-
-    /// <summary>
-    /// 看起来像 Minecraft 版本。
-    ///
-    /// 实测实例的 VersionId 里同时混着两种"版本号"，必须区分开：
-    ///   - MC 版本：<c>1.21.11</c>、<c>1.20.1</c>、<c>26.1.2</c>、<c>1.8.9</c>
-    ///   - 加载器版本：<c>neoforge-21.1.259</c>、<c>47.1.106</c>
-    ///
-    /// 规则：主版本 1~99 且次段是个小数字（MC 的次段最大到 21 左右，
-    /// 而加载器版本一般次段也是小数 —— 所以真正靠的是调用方先剔除加载器段）。
-    /// </summary>
-    private static bool LooksLikeMinecraftVersion(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return false;
-
-        var cleaned = StripSuffix(value.Trim());
-        var parts = cleaned.Split('.');
-
-        // MC 版本最多三段：1.21.11 / 26.1.2；四段以上是加载器版本（26.1.2.124）
-        if (parts.Length < 2 || parts.Length > 3) return false;
-
-        foreach (var part in parts)
-        {
-            if (!int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)) return false;
-        }
-
-        var major = int.Parse(parts[0], CultureInfo.InvariantCulture);
-        var minor = int.Parse(parts[1], CultureInfo.InvariantCulture);
-
-        // 1.x 线：1.21.11 / 1.20.1 / 1.12.2 / 1.7.10（次段 7~22）
-        if (major == 1) return minor is >= 7 and <= 25;
-
-        // 2026 起的快照线：26.1 / 26.2 / 26.3（次段 1~9）
-        return major is >= 26 and <= 40 && minor is >= 1 and <= 9;
-    }
+        => LoaderVersionName.GameVersionFromName(instanceVersionId);
 
     /// <summary>去掉 -snapshot / -pre / -rc 之类的后缀，只留版本号本身。</summary>
     private static string StripSuffix(string version)

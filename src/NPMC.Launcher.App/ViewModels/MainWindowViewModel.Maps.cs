@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
+using NPMC.Launcher.Core.Modpacks;
 using NPMC.Launcher.Core.Worlds;
 using NPMC.Launcher.Infrastructure.CurseForge;
 using NPMC.Launcher.Infrastructure.Http;
@@ -276,8 +277,19 @@ public sealed partial class MainWindowViewModel
 
         var mapVersions = SelectedMapVersion?.GameVersions ?? Array.Empty<string>();
 
+        // 每个实例的 MC 版本：先读版本 JSON 的 inheritsFrom（四家加载器都准确写出），
+        // 读不到再退回按名字解析。批量算一次，避免排序时反复 IO。
+        var gameVersions = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var instance in Instances)
+        {
+            if (gameVersions.ContainsKey(instance.VersionId)) continue;
+
+            gameVersions[instance.VersionId] =
+                LoaderVersionName.ResolveGameVersion(_launcher, instance.VersionId);
+        }
+
         var ordered = Instances
-            .Select(instance => new MapTargetInstanceItem(instance, mapVersions))
+            .Select(instance => new MapTargetInstanceItem(instance, mapVersions, gameVersions[instance.VersionId]))
             .OrderBy(item => item.MatchLevel)
             .ThenBy(item => item.Instance.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
@@ -426,17 +438,29 @@ public sealed class MapVersionItem
 /// <summary>可作为地图安装目标的实例，附带与地图的兼容程度。</summary>
 public sealed class MapTargetInstanceItem
 {
-    public MapTargetInstanceItem(InstanceListItem instance, IReadOnlyList<string> mapVersions)
+    public MapTargetInstanceItem(
+        InstanceListItem instance,
+        IReadOnlyList<string> mapVersions,
+        string? resolvedGameVersion = null)
     {
         Instance = instance;
-        MatchLevel = MapVersionMatch.Match(mapVersions, instance.VersionId);
 
-        // 实例的 VersionId 可能是加载器名（fabric-loader-0.18.4-1.21.11），
-        // 界面上要给用户看的是 MC 版本本身，否则"实例 neoforge-21.1.259"对用户没有意义。
-        var minecraft = MapVersionMatch.MinecraftVersionOf(instance.VersionId);
+        // 优先用调用方解析好的 MC 版本（来自 inheritsFrom，四家加载器都准确）；
+        // 没传时退回按版本名解析。
+        var minecraft = string.IsNullOrWhiteSpace(resolvedGameVersion)
+            ? MapVersionMatch.MinecraftVersionOf(instance.VersionId)
+            : resolvedGameVersion!;
+
+        MinecraftVersion = minecraft;
+
+        // 版本名里可能写的是加载器 profile，界面显示 MC 版本更有意义
         var version = minecraft.Length > 0
             ? minecraft
             : (string.IsNullOrWhiteSpace(instance.VersionId) ? "未知版本" : instance.VersionId);
+
+        MatchLevel = minecraft.Length == 0
+            ? MapMatchLevel.None
+            : MapVersionMatch.Match(mapVersions, minecraft);
 
         MatchText = MatchLevel switch
         {
@@ -449,6 +473,9 @@ public sealed class MapTargetInstanceItem
 
     public InstanceListItem Instance { get; }
     public MapMatchLevel MatchLevel { get; }
+
+    /// <summary>解析出来的 Minecraft 版本（空表示判断不了）。</summary>
+    public string MinecraftVersion { get; }
 
     /// <summary>界面上给用户看的兼容性说明。</summary>
     public string MatchText { get; }
