@@ -207,10 +207,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         ShowVersionsModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Versions));
         ShowModpacksModeCommand = new RelayCommand(() => SetDownloadMode(DownloadMode.Modpacks));
+        ShowMapsModeCommand = new RelayCommand(SwitchToMapsMode);
         RefreshLoadersCommand = new RelayCommand(RefreshLoadersNow);
 
         InitializeAccountCommands();
         InitializeModpackOnlineCommands();
+        InitializeMapCommands();
         InitializeBlockedModCommands();
         InitializeContentViewCommands();
         InstallModpackCommand = new AsyncRelayCommand(
@@ -4721,6 +4723,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsCurseForgeSearchAvailable));
         OnPropertyChanged(nameof(IsCurseForgeKeyMissing));
         OnPropertyChanged(nameof(IsCurseForgeSearchAvailableForModpacks));
+        OnPropertyChanged(nameof(IsMapSearchAvailable));
     }
 
     public ObservableCollection<ModSearchResultItem> SearchResults { get; } = new();
@@ -6774,11 +6777,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(IsVersionsMode));
         OnPropertyChanged(nameof(IsModpacksMode));
+        OnPropertyChanged(nameof(IsMapsMode));
         OnPropertyChanged(nameof(ShowVersionList));
         OnPropertyChanged(nameof(VersionsModeBackground));
         OnPropertyChanged(nameof(ModpacksModeBackground));
+        OnPropertyChanged(nameof(MapsModeBackground));
         OnPropertyChanged(nameof(VersionsModeForeground));
         OnPropertyChanged(nameof(ModpacksModeForeground));
+        OnPropertyChanged(nameof(MapsModeForeground));
     }
 
     /// <summary>
@@ -7051,6 +7057,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool IsModpacksMode => IsDownloadsPage && _downloadMode == DownloadMode.Modpacks;
 
+    public bool IsMapsMode => IsDownloadsPage && _downloadMode == DownloadMode.Maps;
+
     /// <summary>下载页左侧版本列表只在 "游戏版本"区域显示。</summary>
     public bool ShowVersionList => IsVersionsMode;
 
@@ -7058,12 +7066,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public string ModpacksModeBackground => IsModpacksMode ? "#2B3A55" : "Transparent";
 
+    public string MapsModeBackground => IsMapsMode ? "#2B3A55" : "Transparent";
+
     public string VersionsModeForeground => IsVersionsMode ? "#DCE4F5" : "#949CA9";
 
     public string ModpacksModeForeground => IsModpacksMode ? "#DCE4F5" : "#949CA9";
 
+    public string MapsModeForeground => IsMapsMode ? "#DCE4F5" : "#949CA9";
+
     public ICommand ShowVersionsModeCommand { get; }
     public ICommand ShowModpacksModeCommand { get; }
+    public ICommand ShowMapsModeCommand { get; }
     public ICommand RefreshLoadersCommand { get; }
     public ICommand InstallModpackCommand { get; }
 
@@ -7150,6 +7163,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         _downloadMode = mode;
         RaiseDownloadModeChanged();
+    }
+
+    /// <summary>
+    /// 进入地图区域：顺带按当前地图版本重建可选的实例列表。
+    ///
+    /// 实例列表是懒加载的，切到地图页时可能还是空的；直接绑定空集合会让用户
+    /// 以为"没有可用实例"，所以进来就重建一次。
+    /// </summary>
+    private void SwitchToMapsMode()
+    {
+        SetDownloadMode(DownloadMode.Maps);
+        RebuildMapTargets();
     }
 
     /// <summary>界面侧的错误（例如拖入的不是 .mrpack）也要能显示出来。</summary>

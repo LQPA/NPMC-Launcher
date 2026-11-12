@@ -2025,6 +2025,58 @@ internal static class InstanceDump
             }
         }
 
+        // 地图：CurseForge Worlds 搜索 → 选中 → 读文件 → 按地图版本给实例排序（不下载）
+        if (args.Any(arg => string.Equals(arg, "--exercise-maps", StringComparison.OrdinalIgnoreCase)))
+        {
+            lines.Add("");
+            lines.Add("[地图下载]");
+
+            var mapArgIndex = Array.FindIndex(args, arg =>
+                string.Equals(arg, "--exercise-maps", StringComparison.OrdinalIgnoreCase));
+
+            viewModel.MapSearchQuery = mapArgIndex + 1 < args.Length ? args[mapArgIndex + 1] : "oneblock";
+
+            viewModel.SearchMapsCommand.Execute(null);
+            Thread.Sleep(6000);
+
+            lines.Add($"    搜索「{viewModel.MapSearchQuery}」：{viewModel.MapSearchStatus}");
+            lines.Add($"    结果 {viewModel.MapHits.Count} 个"
+                      + (viewModel.MapHits.Count == 0
+                          ? ""
+                          : $"（首个：{viewModel.MapHits[0].Title} · {viewModel.MapHits[0].DownloadCountText}）"));
+
+            if (viewModel.SelectedMapHit is not null)
+            {
+                Thread.Sleep(5000);
+
+                lines.Add($"    文件版本 {viewModel.MapVersions.Count} 个"
+                          + (viewModel.SelectedMapVersion is { } version
+                              ? $"，默认 {version.FileName}"
+                              : ""));
+
+                if (viewModel.SelectedMapVersion is { } picked)
+                    lines.Add($"    该版本：{picked.Label}");
+                lines.Add($"    {viewModel.SelectedMapSupportText}");
+
+                // 可安装目标：按兼容程度排序，不兼容的排在末尾且不可选
+                var targets = viewModel.MapTargetInstances.ToList();
+                lines.Add($"    可选实例 {targets.Count(item => item.CanInstall)} / {targets.Count} 个：");
+
+                foreach (var item in targets.Take(12))
+                    lines.Add($"      {(item.CanInstall ? "✓" : "×")} {item.Instance.Name} — {item.MatchText}");
+            }
+
+            if (viewModel.SelectedMapHit is not null
+                && viewModel.SelectedMapVersion is not null
+                && args.Any(arg => string.Equals(arg, "--download", StringComparison.OrdinalIgnoreCase)))
+            {
+                lines.Add("    开始下载并解压（--download）…");
+                viewModel.InstallMapCommand.Execute(null);
+                Thread.Sleep(30000);
+                lines.Add($"    {viewModel.MapSearchStatus}");
+            }
+        }
+
         // 页签数量要跟实例走：停在「日志」页换实例时，数字不能留在上一个实例上
         if (args.Any(arg => string.Equals(arg, "--exercise-tab-counts", StringComparison.OrdinalIgnoreCase)))
         {

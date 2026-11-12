@@ -13,11 +13,14 @@ public enum NavPage
     P2P = 4,
 }
 
-/// <summary>下载页的两个区域。</summary>
+/// <summary>下载页的三个区域。</summary>
 public enum DownloadMode
 {
     Versions = 0,
     Modpacks = 1,
+
+    /// <summary>地图：从 CurseForge 的 Worlds 分区（classId 17）下载存档并解压进某个实例。</summary>
+    Maps = 2,
 }
 
 /// <summary>下载页里的一个可选版本。</summary>

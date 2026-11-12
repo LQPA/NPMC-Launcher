@@ -1478,11 +1478,11 @@
         </StackPanel>
       </Grid>
 
-      <!-- ================= 下载页：左边两个分类 ================= -->
-      <!-- 两个分类各占半页高度：这一列只有两项，原来挤在顶部两条细条，下面一大片空白 -->
+      <!-- ================= 下载页：左边三个分类 ================= -->
+      <!-- 三个分类各占三分之一：原版游戏 / 整合包 / 地图（地图在最下方） -->
       <Border Grid.Column="1" Background="#1B1D23" Padding="12,14"
               IsVisible="{Binding IsDownloadsPage}">
-        <Grid RowDefinitions="*,*" RowSpacing="8">
+        <Grid RowDefinitions="*,*,*" RowSpacing="8">
           <Button Grid.Row="0" Command="{Binding ShowVersionsModeCommand}" BorderThickness="0" Padding="12"
                   HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                   HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
@@ -1495,6 +1495,14 @@
                   HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                   Background="{Binding ModpacksModeBackground}">
             <TextBlock Text="整合包" FontSize="14" Foreground="{Binding ModpacksModeForeground}" />
+          </Button>
+
+          <Button Grid.Row="2" Command="{Binding ShowMapsModeCommand}" BorderThickness="0" Padding="12"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                  Background="{Binding MapsModeBackground}"
+                  ToolTip.Tip="存档地图：从 CurseForge 下载并解压进选定实例的 saves 目录">
+            <TextBlock Text="地图" FontSize="14" Foreground="{Binding MapsModeForeground}" />
           </Button>
         </Grid>
       </Border>
@@ -1922,6 +1930,122 @@
                   IsEnabled="{Binding !IsInstallingModpack}" />
           <Button Content="取消安装" Command="{Binding CancelModpackInstallCommand}"
                   IsVisible="{Binding IsInstallingModpack}" />
+        </StackPanel>
+      </Grid>
+
+      <!-- ================= 下载页：地图（CurseForge Worlds 分区）================= -->
+      <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
+            IsVisible="{Binding IsMapsMode}">
+
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Spacing="4">
+            <TextBlock Text="地图" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
+            <TextBlock Text="存档地图来自 CurseForge（Modrinth 没有存档分区）。下载后解压进选定实例的 saves 目录。"
+                       FontSize="11" Foreground="#949CA9" TextWrapping="Wrap" />
+          </StackPanel>
+
+          <Border Grid.Column="1" MaxWidth="360" MinWidth="200" Margin="16,0,0,0" VerticalAlignment="Top"
+                  Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                  CornerRadius="8" Padding="12,10">
+            <StackPanel Spacing="4">
+              <TextBlock Text="状态" FontSize="11" Foreground="#949CA9" />
+              <TextBlock Text="{Binding MapSearchStatus}" FontSize="11" Foreground="#B4BCC8"
+                         TextWrapping="Wrap" MaxHeight="72" ToolTip.Tip="{Binding MapSearchStatus}" />
+              <ProgressBar IsIndeterminate="True" Height="6" Margin="0,4,0,0"
+                           IsVisible="{Binding IsMapBusy}" />
+            </StackPanel>
+          </Border>
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
+          <StackPanel Spacing="14" MaxWidth="1000" HorizontalAlignment="Stretch">
+
+            <!-- 搜索 -->
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16">
+              <StackPanel Spacing="10">
+                <TextBlock Text="搜索存档" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
+
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBox Grid.Column="0" Text="{Binding MapSearchQuery, Mode=TwoWay}"
+                           Watermark="搜索地图（留空按下载量浏览热门）" Height="30" FontSize="12" />
+                  <Button Grid.Column="1" Content="搜索" Command="{Binding SearchMapsCommand}"
+                          Margin="8,0,0,0" Height="30" Padding="16,0"
+                          IsEnabled="{Binding !IsSearchingMaps}" />
+                </Grid>
+
+                <TextBlock Text="需要 CurseForge API key；未配置时这里的搜索不可用。"
+                           FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+
+                <!-- 搜索结果 -->
+                <ListBox ItemsSource="{Binding MapHits}"
+                         SelectedItem="{Binding SelectedMapHit, Mode=TwoWay}"
+                         MaxHeight="220" Background="Transparent" BorderThickness="0"
+                         IsVisible="{Binding HasMapHits}">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:MapHitItem">
+                      <StackPanel Spacing="2" Margin="0,3">
+                        <TextBlock Text="{Binding Title}" FontSize="12" Foreground="#E8EAED"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding DownloadCountText}" FontSize="10" Foreground="#6E7684" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </StackPanel>
+            </Border>
+
+            <!-- 版本 + 目标实例 -->
+            <Border Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="8" Padding="16" IsVisible="{Binding HasMapVersions}">
+              <StackPanel Spacing="10">
+                <TextBlock Text="文件版本" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
+                <ListBox ItemsSource="{Binding MapVersions}"
+                         SelectedItem="{Binding SelectedMapVersion, Mode=TwoWay}"
+                         MaxHeight="140" Background="Transparent" BorderThickness="0">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:MapVersionItem">
+                      <TextBlock Text="{Binding Label}" FontSize="11" Foreground="#B4BCC8"
+                                 TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Separator Background="#31353F" Height="1" />
+
+                <StackPanel Spacing="4">
+                  <TextBlock Text="安装到哪个实例" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
+                  <TextBlock Text="只把版本兼容的实例排在可选项里：完全匹配 → 同版本段。不兼容的置灰。"
+                             FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding SelectedMapSupportText}" FontSize="11" Foreground="#7BC47F"
+                             TextWrapping="Wrap" />
+                </StackPanel>
+
+                <ListBox ItemsSource="{Binding MapTargetInstances}"
+                         SelectedItem="{Binding SelectedMapTarget, Mode=TwoWay}"
+                         MaxHeight="220" Background="Transparent" BorderThickness="0">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:MapTargetInstanceItem">
+                      <StackPanel Spacing="2" Margin="0,3">
+                        <TextBlock Text="{Binding Instance.Name}" FontSize="12" Foreground="#E8EAED"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding MatchText}" FontSize="10" Foreground="#949CA9" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </StackPanel>
+            </Border>
+
+          </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">
+          <Button Content="下载并解压到实例" Command="{Binding InstallMapCommand}"
+                  IsEnabled="{Binding CanDownloadMap}" />
+          <!-- 作者禁止第三方下载时，只能去网页手动拿 -->
+          <Button Content="打开网页" Command="{Binding OpenMapPageCommand}"
+                  IsVisible="{Binding SelectedMapVersion.PinnedByAuthor}" />
         </StackPanel>
       </Grid>
 
