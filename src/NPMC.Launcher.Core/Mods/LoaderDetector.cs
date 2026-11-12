@@ -1,5 +1,5 @@
-using System.Text.RegularExpressions;
 using NPMC.Launcher.Core.Models;
+using NPMC.Launcher.Core.Modpacks;
 
 namespace NPMC.Launcher.Core.Mods;
 
@@ -92,25 +92,34 @@ public static class LoaderDetector
         return DetectFromId(version.Id) ?? (version.InheritsFrom is { } parent ? DetectFromId(parent) : null);
     }
 
-    /// <summary>从版本 id 里抠加载器版本（库坐标拿不到时的兜底）。</summary>
+    /// <summary>
+    /// 从版本 id 里抠加载器版本（库坐标拿不到时的兜底）。
+    ///
+    /// **统一转调 <see cref="LoaderVersionName.DetectLoader"/>**，不再自己写正则：
+    /// 原来的正则有三个缺口 ——
+    ///   - <c>fabric-loader-([\d.]+)</c> / <c>quilt-loader-([\d.]+)</c> 遇到带后缀的
+    ///     加载器版本会截断（<c>0.31.0-beta.4</c> → <c>0.31.0</c>）；
+    ///   - <c>neoforge-(\d[\d.]*)</c> 同样丢掉后缀；
+    ///   - <c>(?:^|-)forge-(\d[\d.]*)</c> 只认新格式，老 Forge 的
+    ///     <c>1.7.10-Forge10.13.4.1614-1.7.10</c> 完全匹配不到。
+    /// 四家的格式差异集中在 <see cref="LoaderVersionName"/> 一处维护。
+    /// </summary>
     private static (string Key, string Version)? DetectFromId(string id)
     {
         if (string.IsNullOrWhiteSpace(id)) return null;
 
-        var lower = id.ToLowerInvariant();
+        var info = LoaderVersionName.DetectLoader(id);
+        if (info.LoaderKey == LoaderVersionInfo.Vanilla.LoaderKey) return null;
 
-        var neoforge = Regex.Match(lower, @"neoforge-(\d[\d.]*)");
-        if (neoforge.Success) return ("neoforge", neoforge.Groups[1].Value);
+        // 与库坐标那条路保持同样的 key（"fabric-loader"/"quilt-loader"），
+        // 这两者是写进 .mrpack dependencies 的值，不能因为走的哪条路而不同
+        var key = info.LoaderKey switch
+        {
+            "fabric" => "fabric-loader",
+            "quilt" => "quilt-loader",
+            _ => info.LoaderKey,
+        };
 
-        var forge = Regex.Match(lower, @"(?:^|-)forge-(\d[\d.]*)");
-        if (forge.Success) return ("forge", forge.Groups[1].Value);
-
-        var fabric = Regex.Match(lower, @"fabric-loader-([\d.]+)");
-        if (fabric.Success) return ("fabric-loader", fabric.Groups[1].Value);
-
-        var quilt = Regex.Match(lower, @"quilt-loader-([\d.]+)");
-        if (quilt.Success) return ("quilt-loader", quilt.Groups[1].Value);
-
-        return null;
+        return (key, info.LoaderVersion);
     }
 }

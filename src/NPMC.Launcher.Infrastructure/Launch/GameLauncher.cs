@@ -54,12 +54,23 @@ public static class GameLauncher
     /// 为什么需要：加载器 profile 的 id 是 <c>fabric-loader-0.20.1-1.20.1</c>，
     /// 拿它去问 Modrinth / CurseForge 的 game_versions 会一条都搜不到 ——
     /// 那边只认 <c>1.20.1</c>。
+    ///
+    /// 与 <see cref="NPMC.Launcher.Core.Modpacks.LoaderVersionName.ResolveGameVersion"/> 的关系：
+    /// 两者结论必须一致，只是代价不同 —— 这里走完整的 inheritsFrom 合并（顺带验证链完整，
+    /// 加载失败会返回原 id），那边是轻量只读（适合批量判断几十个实例）。名字解析规则只有
+    /// <see cref="NPMC.Launcher.Core.Modpacks.LoaderVersionName"/> 一份；本方法只负责遍历 JSON。
     /// </summary>
     public static async Task<string> ResolveGameVersionAsync(
         LauncherPaths paths, string versionId, CancellationToken cancellationToken = default)
     {
         var loaded = await LoadWithInheritanceAsync(paths, versionId, cancellationToken).ConfigureAwait(false);
-        return loaded?.RootId ?? versionId;
+
+        // 链读不出来时退回统一的名字解析，而不是原样返回加载器 profile 名
+        // （那会被当成游戏版本号去查平台，必然查不到）
+        if (loaded is null)
+            return NPMC.Launcher.Core.Modpacks.LoaderVersionName.ResolveGameVersion(paths, versionId);
+
+        return loaded.Value.RootId;
     }
 
     private static async Task<(VersionJson Version, string RootId)?> LoadWithInheritanceAsync(

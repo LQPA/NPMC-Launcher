@@ -1,5 +1,6 @@
 using NPMC.Launcher.Core.Content;
 using NPMC.Launcher.Core.Instances;
+using NPMC.Launcher.Core.Modpacks;
 using NPMC.Launcher.Core.Paths;
 
 namespace NPMC.Launcher.App.ViewModels;
@@ -164,13 +165,14 @@ public sealed class InstanceListItem : ObservableObject
     public int SaveCount { get => _saveCount; private set => SetProperty(ref _saveCount, value); }
 
     /// <summary>
-    /// 该实例是否有模组加载器。列表里每项都要判断，所以只看版本号
-    /// （fabric-loader-… / *Forge* / neoforge / quilt），不做文件 IO。
+    /// 该实例是否有模组加载器。列表里每项都要判断，所以只看版本号，不做文件 IO。
+    ///
+    /// **统一走 <see cref="LoaderVersionName.DetectLoader"/>**，不再用
+    /// <c>VersionId.Contains("forge")</c> 这种子串判断 —— 子串法会把任何含 "forge" 字样的
+    /// 版本名都当成装了加载器（例如 "vanilla-forge-test"），也把四家的格式差异散落在各处。
     /// </summary>
-    public bool HasModLoader =>
-        VersionId.Contains("fabric", StringComparison.OrdinalIgnoreCase)
-        || VersionId.Contains("forge", StringComparison.OrdinalIgnoreCase)
-        || VersionId.Contains("quilt", StringComparison.OrdinalIgnoreCase);
+    public bool HasModLoader
+        => LoaderVersionName.DetectLoader(VersionId).LoaderKey != LoaderVersionInfo.Vanilla.LoaderKey;
 
     private bool _hasShaderProvider;
 

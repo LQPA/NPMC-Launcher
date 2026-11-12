@@ -1,5 +1,7 @@
 using System.Text.Json;
+using NPMC.Launcher.Core.Models;
 using NPMC.Launcher.Core.Modpacks;
+using NPMC.Launcher.Core.Mods;
 using NPMC.Launcher.Core.Paths;
 using Xunit;
 
@@ -143,4 +145,32 @@ public class LoaderVersionNameTests : IDisposable
     [InlineData("vanilla", "原版")]
     public void DisplayName_is_human_readable(string key, string expected)
         => Assert.Equal(expected, LoaderVersionName.DisplayName(key));
+
+    // ---- 与 LoaderDetector 的一致性（避免两套规则）----
+
+    [Theory]
+    [InlineData("fabric-loader-0.18.4-1.21.11", "fabric-loader", "0.18.4")]
+    [InlineData("quilt-loader-0.31.0-beta.4-1.21.1", "quilt-loader", "0.31.0-beta.4")]
+    [InlineData("1.20.1-forge-47.1.106", "forge", "47.1.106")]
+    [InlineData("1.7.10-Forge10.13.4.1614-1.7.10", "forge", "10.13.4.1614")]
+    [InlineData("neoforge-21.1.259", "neoforge", "21.1.259")]
+    public void LoaderDetector_agrees_with_LoaderVersionName(string versionId, string key, string version)
+    {
+        // LoaderDetector.DetectWithVersion 在拿不到库坐标时会退回 DetectFromId，
+        // 那条路现在转调 LoaderVersionName —— 两者结果必须一致。
+        var versionJson = new VersionJson { Id = versionId };
+
+        var detected = LoaderDetector.DetectWithVersion(versionJson);
+
+        Assert.NotNull(detected);
+        Assert.Equal(key, detected!.Value.Key);
+        Assert.Equal(version, detected.Value.Version);
+    }
+
+    [Fact]
+    public void LoaderDetector_returns_null_for_vanilla()
+    {
+        var versionJson = new VersionJson { Id = "1.21.11" };
+        Assert.Null(LoaderDetector.DetectWithVersion(versionJson));
+    }
 }
