@@ -1788,13 +1788,21 @@
                          CornerRadius="6" Padding="4">
                   <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:ModpackHitItem">
-                      <StackPanel Spacing="2" Margin="4,3">
-                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
-                                   Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding Description}" FontSize="10" Foreground="#949CA9"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding DownloadText}" FontSize="9" Foreground="#6E7684" />
-                      </StackPanel>
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="4,3">
+                        <!-- 图标未下载完时为 null：用底色占位，尺寸固定，列表不会跳动 -->
+                        <Border Grid.Column="0" Width="32" Height="32" CornerRadius="4"
+                                Background="#2E323C" ClipToBounds="True"
+                                VerticalAlignment="Center">
+                          <Image Source="{Binding Icon}" Stretch="UniformToFill" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold"
+                                     Foreground="#E8EAED" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding Description}" FontSize="10" Foreground="#949CA9"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding DownloadText}" FontSize="9" Foreground="#6E7684" />
+                        </StackPanel>
+                      </Grid>
                     </DataTemplate>
                   </ListBox.ItemTemplate>
                 </ListBox>
@@ -1937,25 +1945,34 @@
       <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto" Margin="24,20"
             IsVisible="{Binding IsMapsMode}">
 
-        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-          <StackPanel Grid.Column="0" Spacing="4">
-            <TextBlock Text="地图" FontSize="22" FontWeight="SemiBold" Foreground="#E8EAED" />
-            <TextBlock Text="存档地图来自 CurseForge（Modrinth 没有存档分区）。下载后解压进选定实例的 saves 目录。"
-                       FontSize="11" Foreground="#949CA9" TextWrapping="Wrap" />
-          </StackPanel>
+        <!-- 标题区用两行布局而不是"左标题 / 右状态卡"并列：
+             地图页这一列的可用宽度会被左侧分类栏和状态卡两面夹击，
+             副标题在 * 宽列里 Wrap 会让 Auto 行量不准，与下面的滚动区叠字。 -->
+        <Border Grid.Row="0" Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
+                CornerRadius="8" Padding="16,12">
+          <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="6">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="地图"
+                       FontSize="20" FontWeight="SemiBold" Foreground="#E8EAED"
+                       VerticalAlignment="Center" />
 
-          <Border Grid.Column="1" MaxWidth="360" MinWidth="200" Margin="16,0,0,0" VerticalAlignment="Top"
-                  Background="#23262E" BorderBrush="#31353F" BorderThickness="1"
-                  CornerRadius="8" Padding="12,10">
-            <StackPanel Spacing="4">
-              <TextBlock Text="状态" FontSize="11" Foreground="#949CA9" />
-              <TextBlock Text="{Binding MapSearchStatus}" FontSize="11" Foreground="#B4BCC8"
-                         TextWrapping="Wrap" MaxHeight="72" ToolTip.Tip="{Binding MapSearchStatus}" />
-              <ProgressBar IsIndeterminate="True" Height="6" Margin="0,4,0,0"
-                           IsVisible="{Binding IsMapBusy}" />
-            </StackPanel>
-          </Border>
-        </Grid>
+            <Border Grid.Row="0" Grid.Column="1" MaxWidth="340" VerticalAlignment="Center"
+                    Background="#1B1D23" BorderBrush="#31353F" BorderThickness="1"
+                    CornerRadius="6" Padding="10,6">
+              <StackPanel Spacing="2">
+                <TextBlock Text="状态" FontSize="10" Foreground="#949CA9" />
+                <TextBlock Text="{Binding MapSearchStatus}" FontSize="10" Foreground="#B4BCC8"
+                           TextWrapping="Wrap" MaxHeight="48" ToolTip.Tip="{Binding MapSearchStatus}" />
+                <ProgressBar IsIndeterminate="True" Height="4" Margin="0,2,0,0"
+                             IsVisible="{Binding IsMapBusy}" />
+              </StackPanel>
+            </Border>
+
+            <!-- 独占一整行，宽度不再被状态卡挤压 -->
+            <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                       Text="存档地图来自 CurseForge（Modrinth 没有存档分区）。下载后解压进选定实例的 saves 目录。"
+                       FontSize="11" Foreground="#949CA9" TextWrapping="Wrap" />
+          </Grid>
+        </Border>
 
         <ScrollViewer Grid.Row="1" Margin="0,16,0,0">
           <StackPanel Spacing="14" MaxWidth="1000" HorizontalAlignment="Stretch">
@@ -1984,11 +2001,19 @@
                          IsVisible="{Binding HasMapHits}">
                   <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:MapHitItem">
-                      <StackPanel Spacing="2" Margin="0,3">
-                        <TextBlock Text="{Binding Title}" FontSize="12" Foreground="#E8EAED"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding DownloadCountText}" FontSize="10" Foreground="#6E7684" />
-                      </StackPanel>
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,3">
+                        <!-- 图标未下载完时为 null：用底色占位，尺寸固定，列表不会跳动 -->
+                        <Border Grid.Column="0" Width="32" Height="32" CornerRadius="4"
+                                Background="#2E323C" ClipToBounds="True"
+                                VerticalAlignment="Center">
+                          <Image Source="{Binding Icon}" Stretch="UniformToFill" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Title}" FontSize="12" Foreground="#E8EAED"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding DownloadCountText}" FontSize="10" Foreground="#6E7684" />
+                        </StackPanel>
+                      </Grid>
                     </DataTemplate>
                   </ListBox.ItemTemplate>
                 </ListBox>
@@ -2015,9 +2040,11 @@
 
                 <StackPanel Spacing="4">
                   <TextBlock Text="安装到哪个实例" FontSize="13" FontWeight="SemiBold" Foreground="#E8EAED" />
-                  <TextBlock Text="只把版本兼容的实例排在可选项里：完全匹配 → 同版本段。不兼容的置灰。"
+                  <TextBlock Text="只列出与这张地图版本匹配的实例：✓ 完全匹配，≈ 同版本段。"
                              FontSize="11" Foreground="#6E7684" TextWrapping="Wrap" />
                   <TextBlock Text="{Binding SelectedMapSupportText}" FontSize="11" Foreground="#7BC47F"
+                             TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding MapTargetStatus}" FontSize="11" Foreground="#949CA9"
                              TextWrapping="Wrap" />
                 </StackPanel>
 
@@ -2026,11 +2053,23 @@
                          MaxHeight="220" Background="Transparent" BorderThickness="0">
                   <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:MapTargetInstanceItem">
-                      <StackPanel Spacing="2" Margin="0,3">
-                        <TextBlock Text="{Binding Instance.Name}" FontSize="12" Foreground="#E8EAED"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding MatchText}" FontSize="10" Foreground="#949CA9" />
-                      </StackPanel>
+                      <!-- 匹配标记：完全匹配 ✓（绿）/ 同版本段 ≈（琥珀），颜色与符号双编码 -->
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,3">
+                        <Border Grid.Column="0" Width="3" CornerRadius="2"
+                                Background="{Binding MatchColor}" />
+
+                        <StackPanel Grid.Column="1" Spacing="2">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding MatchGlyph}" FontSize="12" FontWeight="Bold"
+                                       Foreground="{Binding MatchColor}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding Instance.Name}" FontSize="12"
+                                       Foreground="#E8EAED"
+                                       TextTrimming="CharacterEllipsis" />
+                          </StackPanel>
+                          <TextBlock Text="{Binding MatchText}" FontSize="10"
+                                     Foreground="{Binding MatchColor}" Opacity="0.9" />
+                        </StackPanel>
+                      </Grid>
                     </DataTemplate>
                   </ListBox.ItemTemplate>
                 </ListBox>
@@ -2040,13 +2079,17 @@
           </StackPanel>
         </ScrollViewer>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">
-          <Button Content="下载并解压到实例" Command="{Binding InstallMapCommand}"
-                  IsEnabled="{Binding CanDownloadMap}" />
-          <!-- 作者禁止第三方下载时，只能去网页手动拿 -->
-          <Button Content="打开网页" Command="{Binding OpenMapPageCommand}"
-                  IsVisible="{Binding SelectedMapVersion.PinnedByAuthor}" />
-        </StackPanel>
+        <!-- 页脚加底色：滚动区内容滚到底时不会透到按钮下面叠字 -->
+        <Border Grid.Row="2" Background="#1B1D23" Padding="0,12,0,0" Margin="0,8,0,0"
+                BorderBrush="#31353F" BorderThickness="0,1,0,0">
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Content="下载并解压到实例" Command="{Binding InstallMapCommand}"
+                    IsEnabled="{Binding CanDownloadMap}" />
+            <!-- 作者禁止第三方下载时，只能去网页手动拿 -->
+            <Button Content="打开网页" Command="{Binding OpenMapPageCommand}"
+                    IsVisible="{Binding SelectedMapVersion.PinnedByAuthor}" />
+          </StackPanel>
+        </Border>
       </Grid>
 
       <!-- ================= 设置页 ================= -->

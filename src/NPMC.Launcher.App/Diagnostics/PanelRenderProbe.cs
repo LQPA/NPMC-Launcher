@@ -9,6 +9,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using NPMC.Launcher.App.ViewModels;
 using NPMC.Launcher.Core.Content;
+using NPMC.Launcher.Core.Paths;
 
 namespace NPMC.Launcher.App.Diagnostics;
 
@@ -48,6 +49,18 @@ internal static class PanelRenderProbe
                 return;
             }
 
+            // 窗口用的 LauncherPaths 由 `portable` 参数决定；带 --root 启动时是 new LauncherPaths(root)，
+            // 而用户的实例实际在 <root>\data 下（便携布局）。这里换成 Portable 版本，
+            // 否则"安装到哪个实例"永远是空的 —— 与 --dump-instances 的口径保持一致。
+            if (args.Any(arg => string.Equals(arg, "--render-maps", StringComparison.OrdinalIgnoreCase)))
+            {
+                var resolvedRoot = LauncherRoot.Resolve(args);
+                var portablePaths = LauncherPaths.Portable(resolvedRoot);
+
+                vm = new MainWindowViewModel(portablePaths);
+                window.DataContext = vm;
+            }
+
             var target = (instanceName is null
                              ? null
                              : vm.Instances.FirstOrDefault(item => item.Name == instanceName))
@@ -77,6 +90,62 @@ internal static class PanelRenderProbe
                 File.WriteAllText(output + ".ok.txt",
                     $"size=export tab={vm.SelectedTab.Title} format={vm.ExportFormatIndex} "
                     + $"name={vm.ExportPackName} hint={vm.ExportSelectionHint}");
+                return;
+            }
+
+            // --render-maps：渲染下载页的地图区域（验证图标与实例列表布局）
+            if (args.Any(arg => string.Equals(arg, "--render-maps", StringComparison.OrdinalIgnoreCase)))
+            {
+                // 实例列表由调用方显式加载。**不要用 GetAwaiter().GetResult()**：
+                // 这里跑在 UI 线程上，LoadAsync 内部的 await 续体需要回到 UI 线程，
+                // 同步阻塞会造成死锁（实测进程挂死、没有任何输出）。
+                try
+                {
+                    var loadTask = vm.LoadAsync();
+
+                    // 一边跑一边把 UI 消息泵推起来，让续体得以执行
+                    for (var i = 0; i < 600 && !loadTask.IsCompleted; i++)
+                    {
+                        await Task.Delay(50);
+                        Dispatcher.UIThread.RunJobs();
+                    }
+
+                    if (!loadTask.IsCompleted)
+                        File.WriteAllText(output + ".load-error.txt", "LoadAsync 超时未完成");
+                }
+                catch (Exception ex)
+                {
+                    File.WriteAllText(output + ".load-error.txt", ex.ToString());
+                }
+
+                File.WriteAllText(output + ".loadinfo.txt",
+                    $"instances={vm.Instances.Count} visible={vm.VisibleInstances.Count} "
+                    + $"busy={vm.IsBusy} status={vm.Status}");
+
+                vm.ShowDownloadsCommand.Execute(null);
+                vm.ShowMapsModeCommand.Execute(null);
+
+                var mapQuery = Option(args, "--render-map-query");
+                if (!string.IsNullOrWhiteSpace(mapQuery))
+                {
+                    vm.MapSearchQuery = mapQuery;
+                    vm.SearchMapsCommand.Execute(null);
+                }
+
+                // 等搜索 + 图标下载
+                for (var i = 0; i < 120; i++)
+                {
+                    await Task.Delay(100);
+                    Dispatcher.UIThread.RunJobs();
+                }
+
+                window.UpdateLayout();
+                RenderTo(window, output, "maps");
+
+                File.WriteAllText(output + ".ok.txt",
+                    $"size=maps instances={vm.Instances.Count} hits={vm.MapHits.Count} "
+                    + $"versions={vm.MapVersions.Count} targets={vm.MapTargetInstances.Count} "
+                    + $"support={vm.SelectedMapSupportText} status={vm.MapTargetStatus}");
                 return;
             }
 

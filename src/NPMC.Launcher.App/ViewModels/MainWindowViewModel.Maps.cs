@@ -151,6 +151,15 @@ public sealed partial class MainWindowViewModel
             ? MapVersionMatch.DescribeMatch(version.GameVersions)
             : "";
 
+    private string _mapTargetStatus = "";
+
+    /// <summary>目标实例列表的状态行：有几个可用实例，或者为什么一个都没有。</summary>
+    public string MapTargetStatus
+    {
+        get => _mapTargetStatus;
+        private set => SetProperty(ref _mapTargetStatus, value);
+    }
+
     public bool HasMapHits => MapHits.Count > 0;
 
     public bool HasMapVersions => MapVersions.Count > 0;
@@ -203,7 +212,13 @@ public sealed partial class MainWindowViewModel
                 limit: 20, classId: CurseForgeWorldsClassId);
 
             foreach (var hit in hits)
-                MapHits.Add(new MapHitItem(hit));
+            {
+                var item = new MapHitItem(hit);
+                MapHits.Add(item);
+
+                // 图标异步补：不阻塞列表出现，取不到就留空
+                _ = LoadMapIconsAsync(item);
+            }
 
             OnPropertyChanged(nameof(HasMapHits));
 
@@ -220,6 +235,23 @@ public sealed partial class MainWindowViewModel
         finally
         {
             IsSearchingMaps = false;
+        }
+    }
+
+    /// <summary>取地图图标（复用内容列表那套 IconLoader，带磁盘缓存）。失败就留空，不影响列表。</summary>
+    private async Task LoadMapIconsAsync(MapHitItem item)
+    {
+        if (string.IsNullOrWhiteSpace(item.LogoUrl)) return;
+        if (item.Icon is not null) return;
+
+        try
+        {
+            var icon = await _icons.GetAsync(item.LogoUrl);
+            if (icon is not null && item.Icon is null) item.Icon = icon;
+        }
+        catch
+        {
+            // 图标是装饰，取不到不影响使用
         }
     }
 
@@ -265,10 +297,11 @@ public sealed partial class MainWindowViewModel
     }
 
     /// <summary>
-    /// 按"与这个地图版本是否兼容"给实例排序：完全匹配 → 同版本段 → 不匹配。
+    /// 按"与这个地图版本是否兼容"给实例排序，并**只保留兼容的**。
     ///
-    /// 用户要求"只显示支持的实例版本"，这里做成**兼容的排前面并高亮，不兼容的留在末尾且不可选**：
-    /// 直接隐藏会让用户以为自己的实例丢了，而不可选 + 一句说明更清楚。
+    /// 用户要求直接只显示匹配的版本：不匹配的实例根本不列出来，
+    /// 省得用户在不可用的项上做无用功。完全匹配排在同版本段之前。
+    /// 一个都不匹配时状态行会明确说明，而不是留一个空列表让人以为加载失败。
     /// </summary>
     private void RebuildMapTargets()
     {
@@ -288,16 +321,25 @@ public sealed partial class MainWindowViewModel
                 LoaderVersionName.ResolveGameVersion(_launcher, instance.VersionId);
         }
 
-        var ordered = Instances
+        var compatible = Instances
             .Select(instance => new MapTargetInstanceItem(instance, mapVersions, gameVersions[instance.VersionId]))
+            .Where(item => item.CanInstall)
             .OrderBy(item => item.MatchLevel)
             .ThenBy(item => item.Instance.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
-        foreach (var item in ordered)
+        foreach (var item in compatible)
             MapTargetInstances.Add(item);
 
-        SelectedMapTarget = MapTargetInstances.FirstOrDefault(item => item.CanInstall);
+        SelectedMapTarget = MapTargetInstances.FirstOrDefault();
+
+        if (SelectedMapVersion is not null)
+        {
+            MapTargetStatus = compatible.Count == 0
+                ? $"没有与这张地图（{SelectedMapSupportText}）版本匹配的实例 —— 先建一个对应版本的实例，或换一个地图版本"
+                : $"可用实例 {compatible.Count} 个（按匹配程度排序）";
+        }
+
         RaiseMapCommandStates();
     }
 
@@ -363,8 +405,10 @@ public sealed partial class MainWindowViewModel
 }
 
 /// <summary>搜索结果里的一张地图。</summary>
-public sealed class MapHitItem
+public sealed class MapHitItem : ObservableObject
 {
+    private Avalonia.Media.Imaging.Bitmap? _icon;
+
     public MapHitItem(CurseForgeSearchHit hit)
     {
         ModId = hit.ModId;
@@ -383,6 +427,15 @@ public sealed class MapHitItem
     public long DownloadCount { get; }
     public string LogoUrl { get; }
     public string WebUrl { get; }
+
+    /// <summary>
+    /// 图标。与内容列表一致：未加载完时为 null，但界面已按固定尺寸占位，列表不会跳动。
+    /// </summary>
+    public Avalonia.Media.Imaging.Bitmap? Icon
+    {
+        get => _icon;
+        set => SetProperty(ref _icon, value);
+    }
 
     public string DownloadCountText => DownloadCount switch
     {
@@ -429,8 +482,16 @@ public sealed class MapVersionItem
         }
     }
 
+    /// <summary>大小文本。地图 zip 常常很小（几百 KB），低于 0.1 MB 时按 KB 显示，否则会全是 "0 MB"。</summary>
+    public string SizeText => SizeInBytes switch
+    {
+        <= 0 => "",
+        < 1024 * 1024 => $"{SizeInBytes / 1024.0:0} KB",
+        _ => $"{SizeInBytes / 1024.0 / 1024.0:0.#} MB",
+    };
+
     public string Label => $"{FileName} · {MapVersionMatch.DescribeMatch(GameVersions)}"
-                           + $" · {SizeInBytes / 1024.0 / 1024.0:0.#} MB";
+                           + (SizeText.Length > 0 ? $" · {SizeText}" : "");
 
     public override string ToString() => Label;
 }
@@ -480,7 +541,23 @@ public sealed class MapTargetInstanceItem
     /// <summary>界面上给用户看的兼容性说明。</summary>
     public string MatchText { get; }
 
-    /// <summary>不兼容的实例不允许作为目标（避免把存档装进一定打不开的实例）。</summary>
+    /// <summary>匹配程度对应的颜色：完全匹配绿、同版本段琥珀、不匹配红。</summary>
+    public string MatchColor => MatchLevel switch
+    {
+        MapMatchLevel.Exact => "#7BC47F",
+        MapMatchLevel.SameSeries => "#E0A94A",
+        _ => "#D96C6C",
+    };
+
+    /// <summary>匹配程度对应的标记符号，色弱用户也能一眼分辨。</summary>
+    public string MatchGlyph => MatchLevel switch
+    {
+        MapMatchLevel.Exact => "✓",
+        MapMatchLevel.SameSeries => "≈",
+        _ => "×",
+    };
+
+    /// <summary>不兼容的实例不会进列表；保留这个判断供过滤用。</summary>
     public bool CanInstall => MatchLevel != MapMatchLevel.None;
 
     public override string ToString() => $"{Instance.Name} — {MatchText}";

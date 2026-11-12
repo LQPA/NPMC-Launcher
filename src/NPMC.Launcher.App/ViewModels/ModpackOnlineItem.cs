@@ -4,8 +4,10 @@ using NPMC.Launcher.Infrastructure.CurseForge;
 namespace NPMC.Launcher.App.ViewModels;
 
 /// <summary>整合包搜索结果的一行（Modrinth 或 CurseForge）。</summary>
-public sealed class ModpackHitItem
+public sealed class ModpackHitItem : ObservableObject
 {
+    private Avalonia.Media.Imaging.Bitmap? _icon;
+
     public ModpackHitItem(ModrinthSearchHit hit)
     {
         Source = "modrinth";
@@ -38,6 +40,16 @@ public sealed class ModpackHitItem
     public string Description { get; }
 
     public string IconUrl { get; }
+
+    /// <summary>
+    /// 图标。<see cref="IconUrl"/> 一直都有，但之前界面根本没绑它 —— 这里补上，
+    /// 未加载完时为 null（界面按固定尺寸占位，列表不会跳动）。
+    /// </summary>
+    public Avalonia.Media.Imaging.Bitmap? Icon
+    {
+        get => _icon;
+        set => SetProperty(ref _icon, value);
+    }
 
     public long Downloads { get; }
 

@@ -239,7 +239,11 @@ public sealed partial class MainWindowViewModel
                     limit: 20, classId: 4471);
 
                 foreach (var hit in hits)
-                    ModpackHits.Add(new ModpackHitItem(hit));
+                {
+                    var item = new ModpackHitItem(hit);
+                    ModpackHits.Add(item);
+                    _ = LoadModpackIconsAsync(item);
+                }
 
                 ModpackSearchStatus = hits.Count == 0
                     ? "CurseForge 没有找到整合包（换个关键词试试）"
@@ -252,7 +256,11 @@ public sealed partial class MainWindowViewModel
                     limit: 20, projectType: "modpack");
 
                 foreach (var hit in hits)
-                    ModpackHits.Add(new ModpackHitItem(hit));
+                {
+                    var item = new ModpackHitItem(hit);
+                    ModpackHits.Add(item);
+                    _ = LoadModpackIconsAsync(item);
+                }
 
                 ModpackSearchStatus = hits.Count == 0
                     ? "没有找到整合包（换个关键词试试）"
@@ -269,6 +277,23 @@ public sealed partial class MainWindowViewModel
         finally
         {
             IsSearchingModpacks = false;
+        }
+    }
+
+    /// <summary>取整合包图标（复用内容列表那套 IconLoader，带磁盘缓存）。失败就留空。</summary>
+    private async Task LoadModpackIconsAsync(ModpackHitItem item)
+    {
+        if (string.IsNullOrWhiteSpace(item.IconUrl)) return;
+        if (item.Icon is not null) return;
+
+        try
+        {
+            var icon = await _icons.GetAsync(item.IconUrl);
+            if (icon is not null && item.Icon is null) item.Icon = icon;
+        }
+        catch
+        {
+            // 图标是装饰，取不到不影响使用
         }
     }
 
